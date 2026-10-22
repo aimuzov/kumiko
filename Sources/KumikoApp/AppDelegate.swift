@@ -1,4 +1,5 @@
 import AppKit
+import KumikoBar
 import KumikoBorders
 import KumikoCore
 import KumikoHotkeys
@@ -17,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var manager: WindowManager?
 	private(set) var hotkeys: Hotkeys?
 	private var borders: Borders?
+	private var bar: Bar?
 	private var windowServer: WindowServerEvents?
 
 	private var server: IPCServer?
@@ -59,7 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		self.manager = manager
 		let borders = Borders(bus: bus, config: config.borders, focused: nil) { tracker.windows[$0] }
 		let windowServer = WindowServerEvents(bus: bus)
+		let bar = Bar(bus: bus, tracker: tracker, manager: manager, config: config.bar)
 		self.windowServer = windowServer
+		self.bar = bar
 		self.hotkeys = hotkeys
 		self.borders = borders
 
@@ -69,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 				manager.apply(config)
 				hotkeys.apply(config.hotkeys)
 				borders.apply(config.borders)
+				bar.apply(config.bar)
 			}
 		}
 
@@ -76,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		manager.start()
 		borders.start()
 		windowServer.start()
+		bar.start()
 		tracker.start()
 		hotkeys.start()
 

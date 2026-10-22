@@ -195,4 +195,43 @@ struct ConfigTests {
 	@Test func badBorderColourIsAnError() {
 		#expect(throws: ConfigError.self) { try Config.parse("[borders]\ncolor = \"blue\"") }
 	}
+
+	@Test func barDefaultsToTheSketchybarSetup() throws {
+		let bar = try Config.parse("").bar
+		#expect(bar.position == .bottom)
+		#expect(bar.height == 36)
+		#expect(bar.left == ["workspaces", "mode", "window"])
+		#expect(bar.right == ["datetime", "caffeinate", "battery", "input"])
+		#expect(bar.colors.blue == (try Color.parse("0xff8aadf4")))
+		#expect(bar.font.isEmpty && bar.fontSize == 0 && bar.colors.text == nil)
+	}
+
+	@Test func barTakesPositionColoursAndShellItems() throws {
+		let bar = try Config.parse("""
+			[bar]
+			position = "top"
+			height = 30
+			right = ["datetime", "vpn"]
+
+			[bar.colors]
+			blue = "#112233"
+
+			[[bar.shell]]
+			name = "vpn"
+			command = "echo on"
+			interval = 10
+			""").bar
+
+		#expect(bar.position == .top)
+		#expect(bar.height == 30)
+		#expect(bar.colors.blue == (try Color.parse("#112233")))
+		#expect(bar.colors.red == Config.Bar.Palette().red)
+		#expect(bar.shell == [Config.Bar.ShellItem(name: "vpn", command: "echo on", interval: 10)])
+	}
+
+	@Test func unknownBarItemIsAnError() {
+		#expect(throws: ConfigError.invalid("bar: no item \"clock\"")) {
+			try Config.parse("[bar]\nleft = [\"clock\"]")
+		}
+	}
 }

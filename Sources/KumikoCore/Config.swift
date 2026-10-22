@@ -6,7 +6,7 @@ import TOMLDecoder
 public struct Config: Equatable, Sendable {
 	public var wm = WM()
 	public var hotkeys = Hotkeys()
-	public var bar = Module()
+	public var bar = Bar()
 	public var borders = Borders()
 	/// `[[workspace]]` entries in file order. Empty means the default set: "1"…"9" on the main display.
 	public var workspaces: [Workspace] = []
@@ -62,21 +62,124 @@ public struct Config: Equatable, Sendable {
 		}
 	}
 
-	/// A `[section]` of a module that has no keys of its own yet: it only says whether the module runs.
-	public struct Module: Equatable, Sendable, Decodable {
-		public var enabled = true
+	/// `[bar]`: the status bar, one per display.
+	public struct Bar: Equatable, Sendable, Decodable {
+		public enum Position: String, Sendable, Decodable { case top, bottom }
 
-		public init(enabled: Bool = true) {
-			self.enabled = enabled
+		public var enabled = true
+		public var position = Position.bottom
+		/// Height of the bar; the window manager keeps this much of the screen free for it.
+		public var height = 36.0
+		/// Space between the screen edges and the outermost items.
+		public var padding = 4.0
+		/// Empty means the font of the macOS menu bar, which is what the bar looks like by default.
+		public var font = ""
+		/// 0 means the size of the menu bar font.
+		public var fontSize = 0.0
+		/// Items from the left edge inward.
+		public var left = ["workspaces", "mode", "window"]
+		/// Items from the right edge inward.
+		public var right = ["datetime", "caffeinate", "battery", "input"]
+		/// `[bar.colors]`: the palette items draw with, Catppuccin Macchiato unless overridden.
+		public var colors = Palette()
+		/// `[bar.input]`: a glyph per input source id, for the keyboard layout item.
+		public var input: [String: String] = [
+			"com.apple.keylayout.US": "􀀅",
+			"com.apple.keylayout.Russian": "􀀦",
+		]
+		/// `[[bar.shell]]`: items that show what a shell command prints.
+		public var shell: [ShellItem] = []
+
+		public init() {}
+
+		public struct Palette: Equatable, Sendable, Decodable {
+			public var black = try! Color.parse("0xff181926")
+			public var white = try! Color.parse("0xeeffffff")
+			public var red = try! Color.parse("0xffed8796")
+			public var green = try! Color.parse("0xffa6da95")
+			public var blue = try! Color.parse("0xff8aadf4")
+			public var yellow = try! Color.parse("0xffeed49f")
+			public var orange = try! Color.parse("0xfff5a97f")
+			public var magenta = try! Color.parse("0xffc6a0f6")
+			public var grey = try! Color.parse("0xddc6d0f5")
+			/// Background of the workspace shown on the display.
+			public var active = try! Color.parse("0x50c6d0f5")
+			/// Background of the bar itself.
+			public var background = try! Color.parse("0x00000000")
+			/// Text colour; nil follows the menu bar, light or dark with the system.
+			public var text: Color?
+
+			public init() {}
+
+			public init(from decoder: any Decoder) throws {
+				let container = try decoder.container(keyedBy: CodingKeys.self)
+				func color(_ key: CodingKeys, _ fallback: Color) throws -> Color {
+					guard let text = try container.decodeIfPresent(String.self, forKey: key) else { return fallback }
+					do { return try Color.parse(text) } catch { throw error }
+				}
+				let defaults = Palette()
+				black = try color(.black, defaults.black)
+				white = try color(.white, defaults.white)
+				red = try color(.red, defaults.red)
+				green = try color(.green, defaults.green)
+				blue = try color(.blue, defaults.blue)
+				yellow = try color(.yellow, defaults.yellow)
+				orange = try color(.orange, defaults.orange)
+				magenta = try color(.magenta, defaults.magenta)
+				grey = try color(.grey, defaults.grey)
+				active = try color(.active, defaults.active)
+				background = try color(.background, defaults.background)
+				if let value = try container.decodeIfPresent(String.self, forKey: .text) {
+					do { text = try Color.parse(value) } catch { throw error }
+				}
+			}
+
+			private enum CodingKeys: String, CodingKey {
+				case black, white, red, green, blue, yellow, orange, magenta, grey, active, background, text
+			}
+		}
+
+		/// One `[[bar.shell]]`: runs `command` every `interval` seconds and shows its first line.
+		public struct ShellItem: Equatable, Sendable, Decodable {
+			public var name: String
+			public var command: String
+			public var interval: Double
+
+			public init(name: String, command: String, interval: Double = 30) {
+				self.name = name
+				self.command = command
+				self.interval = interval
+			}
+
+			public init(from decoder: any Decoder) throws {
+				let container = try decoder.container(keyedBy: CodingKeys.self)
+				name = try container.decode(String.self, forKey: .name)
+				command = try container.decode(String.self, forKey: .command)
+				interval = try container.decodeIfPresent(Double.self, forKey: .interval) ?? 30
+			}
+
+			private enum CodingKeys: String, CodingKey { case name, command, interval }
 		}
 
 		public init(from decoder: any Decoder) throws {
 			let container = try decoder.container(keyedBy: CodingKeys.self)
-			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+			let defaults = Bar()
+			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+			position = try container.decodeIfPresent(Position.self, forKey: .position) ?? defaults.position
+			height = try container.decodeIfPresent(Double.self, forKey: .height) ?? defaults.height
+			padding = try container.decodeIfPresent(Double.self, forKey: .padding) ?? defaults.padding
+			font = try container.decodeIfPresent(String.self, forKey: .font) ?? defaults.font
+			fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? defaults.fontSize
+			left = try container.decodeIfPresent([String].self, forKey: .left) ?? defaults.left
+			right = try container.decodeIfPresent([String].self, forKey: .right) ?? defaults.right
+			colors = try container.decodeIfPresent(Palette.self, forKey: .colors) ?? defaults.colors
+			input = try container.decodeIfPresent([String: String].self, forKey: .input) ?? defaults.input
+			shell = try container.decodeIfPresent([ShellItem].self, forKey: .shell) ?? []
 		}
 
 		private enum CodingKeys: String, CodingKey {
-			case enabled
+			case enabled, position, height, padding, font, left, right, colors, input, shell
+			case fontSize = "font_size"
 		}
 	}
 
@@ -226,6 +329,13 @@ public struct Config: Equatable, Sendable {
 			}
 		}
 
+		let shellNames = config.bar.shell.map(\.name)
+		let barItems = Set(["workspaces", "mode", "window", "datetime", "caffeinate", "battery", "input"] + shellNames)
+
+		for item in config.bar.left + config.bar.right where !barItems.contains(item) {
+			throw ConfigError.invalid("bar: no item \"\(item)\"")
+		}
+
 		var names = Set<String>()
 
 		for workspace in config.workspaces {
@@ -357,7 +467,7 @@ extension Config: Decodable {
 		let container = try decoder.container(keyedBy: CodingKeys.self)
 		wm = try container.decodeIfPresent(WM.self, forKey: .wm) ?? WM()
 		hotkeys = try container.decodeIfPresent(Hotkeys.self, forKey: .hotkeys) ?? Hotkeys()
-		bar = try container.decodeIfPresent(Module.self, forKey: .bar) ?? Module()
+		bar = try container.decodeIfPresent(Bar.self, forKey: .bar) ?? Bar()
 		borders = try container.decodeIfPresent(Borders.self, forKey: .borders) ?? Borders()
 		workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []
 	}

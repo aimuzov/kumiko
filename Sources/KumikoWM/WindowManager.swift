@@ -119,6 +119,12 @@ public final class WindowManager {
 		return (false, tree.stackIndex(of: id), tree.zoom(of: id)?.rawValue, workspace?.name)
 	}
 
+	/// 1-based place of a window in its stack and the size of the stack; nil when not stacked.
+	public func stackPosition(of id: UInt32) -> (index: Int, count: Int)? {
+		guard let tree = assignment[id]?.tree, tree.stackIndex(of: id) > 0 else { return nil }
+		return (tree.stackIndex(of: id), tree.stackCount(of: id))
+	}
+
 	public var workspaceStates: [WorkspaceState] {
 		let focused = focusedWorkspace
 		return workspaces.enumerated().map { index, workspace in
@@ -530,13 +536,18 @@ public final class WindowManager {
 		return CGRect(x: area.midX - width / 2, y: area.midY - height / 2, width: width, height: height).integral
 	}
 
+	/// The display minus the menu bar and Dock, kumiko's own bar and the padding.
 	private func area(of display: Display) -> CGRect {
 		let padding = config.wm.padding
+		let bar = config.bar.enabled ? config.bar.height : 0
+		let top = Double(padding.top) + (config.bar.position == .top ? bar : 0)
+		let bottom = Double(padding.bottom) + (config.bar.position == .bottom ? bar : 0)
+
 		return CGRect(
 			x: display.visibleFrame.minX + Double(padding.left),
-			y: display.visibleFrame.minY + Double(padding.top),
+			y: display.visibleFrame.minY + top,
 			width: display.visibleFrame.width - Double(padding.left + padding.right),
-			height: display.visibleFrame.height - Double(padding.top + padding.bottom)
+			height: display.visibleFrame.height - top - bottom
 		)
 	}
 

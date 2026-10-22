@@ -1,0 +1,120 @@
+import AppKit
+import Carbon
+import IOKit.ps
+import IOKit.pwr_mgt
+
+/// Battery charge and whether it is on the charger, from IOKit; nil on a Mac without a battery.
+enum Battery {
+	struct State: Equatable {
+		var percent: Int
+		var isCharging: Bool
+	}
+
+	static func read() -> State? {
+		guard
+			let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+			let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef]
+		else { return nil }
+
+		for source in list {
+			guard
+				let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
+				let current = description[kIOPSCurrentCapacityKey] as? Int,
+				let max = description[kIOPSMaxCapacityKey] as? Int, max > 0
+			else { continue }
+
+			let onAC = (description[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
+			return State(percent: current * 100 / max, isCharging: onAC)
+		}
+
+		return nil
+	}
+
+	/// Calls `changed` on the main thread whenever a power source changes.
+	@MainActor
+	static func observe(_ changed: @escaping @MainActor () -> Void) -> AnyObject? {
+		let box = Callback(changed)
+		let context = Unmanaged.passRetained(box).toOpaque()
+
+		guard let source = IOPSNotificationCreateRunLoopSource({ context in
+			guard let context else { return }
+			let box = Unmanaged<Callback>.fromOpaque(context).takeUnretainedValue()
+			MainActor.assumeIsolated { box.call() }
+		}, context)?.takeRetainedValue() else {
+			Unmanaged<Callback>.fromOpaque(context).release()
+			return nil
+		}
+
+		CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+		return box
+	}
+
+	private final class Callback {
+		let call: @MainActor () -> Void
+		init(_ call: @escaping @MainActor () -> Void) { self.call = call }
+	}
+}
+
+/// The selected keyboard input source.
+enum InputSource {
+	static func current() -> String? {
+		guard
+			let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+			let pointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
+		else { return nil }
+
+		return Unmanaged<CFString>.fromOpaque(pointer).takeUnretainedValue() as String
+	}
+
+	/// Distributed notification macOS posts when the input source changes.
+	static let changed = Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String)
+}
+
+/// Keeps the display and the system awake while on, the way `caffeinate -di` does, through power
+/// assertions held by kumiko itself: nothing to clean up if kumiko goes away, and no process to
+/// keep track of.
+@MainActor
+final class Caffeine {
+	private var assertions: [IOPMAssertionID] = []
+
+	var isOn: Bool { !assertions.isEmpty }
+
+	func toggle() {
+		if isOn {
+			assertions.forEach { IOPMAssertionRelease($0) }
+			assertions = []
+			return
+		}
+
+		for type in [kIOPMAssertionTypePreventUserIdleDisplaySleep, kIOPMAssertionTypePreventUserIdleSystemSleep] {
+			var id = IOPMAssertionID(0)
+			let result = IOPMAssertionCreateWithName(
+				type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "kumiko caffeinate" as CFString, &id
+			)
+			if result == kIOReturnSuccess { assertions.append(id) }
+		}
+	}
+}
+
+/// Runs a shell command in the background and hands back the first line it prints.
+enum Shell {
+	static func firstLine(of command: String, completion: @escaping @MainActor @Sendable (String) -> Void) {
+		DispatchQueue.global(qos: .utility).async {
+			let process = Process()
+			let pipe = Pipe()
+			process.executableURL = URL(filePath: "/bin/sh")
+			process.arguments = ["-c", command]
+			process.standardOutput = pipe
+			process.standardError = FileHandle.nullDevice
+
+			var line = ""
+			if (try? process.run()) != nil {
+				let data = pipe.fileHandleForReading.readDataToEndOfFile()
+				process.waitUntilExit()
+				line = String(decoding: data, as: UTF8.self).split(separator: "\n").first.map(String.init) ?? ""
+			}
+
+			DispatchQueue.main.async { MainActor.assumeIsolated { completion(line) } }
+		}
+	}
+}
