@@ -1,5 +1,6 @@
 import AppKit
 import KumikoCore
+import KumikoHotkeys
 import KumikoWM
 
 @MainActor
@@ -13,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 	private(set) var tracker: WindowTracker?
 	private(set) var manager: WindowManager?
+	private(set) var hotkeys: Hotkeys?
 
 	private var server: IPCServer?
 	private var watcher: ConfigWatcher?
@@ -48,19 +50,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 		let tracker = WindowTracker(bus: bus, config: config.wm)
 		let manager = WindowManager(bus: bus, tracker: tracker, config: config)
+		// Hotkeys run commands exactly as the CLI would, without the socket in between.
+		let hotkeys = Hotkeys(bus: bus, config: config.hotkeys) { commands.handle($0) }
 		self.tracker = tracker
 		self.manager = manager
+		self.hotkeys = hotkeys
 
 		bus.subscribe { event in
 			if case let .configReloaded(config) = event {
 				tracker.apply(config.wm)
 				manager.apply(config)
+				hotkeys.apply(config.hotkeys)
 			}
 		}
 
 		// The manager listens before the tracker starts, so it sees the windows that are already open.
 		manager.start()
 		tracker.start()
+		hotkeys.start()
 
 		statusMenu = StatusMenu(app: self)
 		Onboarding.runIfNeeded()
@@ -74,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		// Windows of hidden workspaces sit in a screen corner; quitting must not leave them there.
 		manager?.showEverything()
 		tracker?.stop()
+		hotkeys?.stop()
 	}
 
 	/// Rereads the config file. A broken file keeps the previous config: a typo while editing must

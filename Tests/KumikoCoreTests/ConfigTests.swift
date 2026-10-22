@@ -139,4 +139,35 @@ struct ConfigTests {
 			try Config.parse("[[workspace]]\nname = \"Web\"\napps = [\"Arc(\"]")
 		}
 	}
+
+	@Test func hotkeysParseModesAndActions() throws {
+		let config = try Config.parse("""
+			[hotkeys]
+			blacklist = ["LayerX"]
+
+			[hotkeys.bind]
+			"alt - 1" = "workspace focus 1"
+			"0xa" = { send = "0x32" }
+
+			[hotkeys.mode.move]
+			"escape" = { mode = "default" }
+			""")
+
+		#expect(config.hotkeys.blacklist == ["LayerX"])
+		#expect(config.hotkeys.bindings[try KeyCombo.parse("alt - 1")] == HotkeyAction(run: "workspace focus 1"))
+		#expect(config.hotkeys.bindings[try KeyCombo.parse("0xa")] == HotkeyAction(send: try KeyCombo.parse("0x32")))
+		#expect(config.hotkeys.modes["move"]?[try KeyCombo.parse("escape")] == HotkeyAction(mode: "default"))
+	}
+
+	@Test func hotkeyToAnUnknownModeIsAnError() {
+		#expect(throws: ConfigError.invalid("hotkeys: no mode \"move\"")) {
+			try Config.parse("[hotkeys.bind]\n\"alt - m\" = { mode = \"move\" }")
+		}
+	}
+
+	@Test func badHotkeyIsReported() {
+		#expect(throws: ConfigError.self) {
+			try Config.parse("[hotkeys.bind]\n\"hyper - m\" = \"reload\"")
+		}
+	}
 }

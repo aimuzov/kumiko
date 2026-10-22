@@ -174,7 +174,7 @@ public final class WindowManager {
 			if !isVisible(workspace) {
 				show(workspace)
 			}
-		case .configReloaded, .workspacesChanged:
+		case .configReloaded, .workspacesChanged, .hotkeyModeChanged:
 			break
 		}
 	}

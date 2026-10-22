@@ -11,6 +11,9 @@ public enum Event: Sendable, Equatable {
 
 	/// A workspace was shown or hidden, or windows moved between workspaces.
 	case workspacesChanged
+
+	/// The hotkey mode changed; "default" when no mode is on.
+	case hotkeyModeChanged(String)
 }
 
 /// In-process publish/subscribe between modules. It lives on the main actor because every

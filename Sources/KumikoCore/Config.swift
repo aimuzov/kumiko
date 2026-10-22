@@ -5,7 +5,7 @@ import TOMLDecoder
 /// so an empty file (or no file at all) is a valid configuration.
 public struct Config: Equatable, Sendable {
 	public var wm = WM()
-	public var hotkeys = Module()
+	public var hotkeys = Hotkeys()
 	public var bar = Module()
 	public var borders = Module()
 	/// `[[workspace]]` entries in file order. Empty means the default set: "1"…"9" on the main display.
@@ -80,6 +80,53 @@ public struct Config: Equatable, Sendable {
 		}
 	}
 
+	/// `[hotkeys]`: key bindings, modes and key remaps.
+	public struct Hotkeys: Equatable, Sendable, Decodable {
+		public var enabled = true
+		/// Apps in front of which no hotkey or remap works: a remote desktop, a game.
+		public var blacklist: [String] = []
+		/// A shell command run on every mode change, with the new mode in `$KUMIKO_MODE`.
+		public var onModeChange: String?
+		/// `[hotkeys.bind]`: the bindings of the default mode.
+		public var bindings: [KeyCombo: HotkeyAction] = [:]
+		/// `[hotkeys.global]`: bindings that work in every mode, after the mode's own.
+		public var global: [KeyCombo: HotkeyAction] = [:]
+		/// `[hotkeys.mode.<name>]`: the other modes. Keys a mode does not bind are swallowed while
+		/// it is on, and escape leaves a mode that binds no way out.
+		public var modes: [String: [KeyCombo: HotkeyAction]] = [:]
+
+		public init() {}
+
+		public init(from decoder: any Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+			blacklist = try container.decodeIfPresent([String].self, forKey: .blacklist) ?? []
+			onModeChange = try container.decodeIfPresent(String.self, forKey: .onModeChange)
+			bindings = try Self.combos(container.decodeIfPresent([String: HotkeyAction].self, forKey: .bindings) ?? [:])
+			global = try Self.combos(container.decodeIfPresent([String: HotkeyAction].self, forKey: .global) ?? [:])
+
+			let modes = try container.decodeIfPresent([String: [String: HotkeyAction]].self, forKey: .modes) ?? [:]
+			self.modes = try modes.mapValues(Self.combos)
+		}
+
+		private static func combos(_ table: [String: HotkeyAction]) throws -> [KeyCombo: HotkeyAction] {
+			var result: [KeyCombo: HotkeyAction] = [:]
+			for (text, action) in table {
+				let combo = try KeyCombo.parse(text)
+				guard result[combo] == nil else { throw ConfigError.invalid("hotkey \"\(text)\" is bound twice") }
+				result[combo] = action
+			}
+			return result
+		}
+
+		private enum CodingKeys: String, CodingKey {
+			case enabled, blacklist, global
+			case onModeChange = "on_mode_change"
+			case bindings = "bind"
+			case modes = "mode"
+		}
+	}
+
 	/// `[wm]`: which windows kumiko arranges.
 	public struct WM: Equatable, Sendable, Decodable {
 		public var enabled = true
@@ -131,6 +178,16 @@ public struct Config: Equatable, Sendable {
 		// instead of silently never matching.
 		for (index, rule) in config.wm.rules.enumerated() {
 			try checkPatterns([rule.app, rule.title].compactMap(\.self), in: "wm.rule #\(index + 1)")
+		}
+
+		let modes = Set(config.hotkeys.modes.keys).union(["default"])
+		let actions = [config.hotkeys.bindings, config.hotkeys.global].flatMap(\.values)
+			+ config.hotkeys.modes.values.flatMap(\.values)
+
+		for action in actions {
+			if let mode = action.mode, !modes.contains(mode) {
+				throw ConfigError.invalid("hotkeys: no mode \"\(mode)\"")
+			}
 		}
 
 		var names = Set<String>()
@@ -263,7 +320,7 @@ extension Config: Decodable {
 	public init(from decoder: any Decoder) throws {
 		let container = try decoder.container(keyedBy: CodingKeys.self)
 		wm = try container.decodeIfPresent(WM.self, forKey: .wm) ?? WM()
-		hotkeys = try container.decodeIfPresent(Module.self, forKey: .hotkeys) ?? Module()
+		hotkeys = try container.decodeIfPresent(Hotkeys.self, forKey: .hotkeys) ?? Hotkeys()
 		bar = try container.decodeIfPresent(Module.self, forKey: .bar) ?? Module()
 		borders = try container.decodeIfPresent(Module.self, forKey: .borders) ?? Module()
 		workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []

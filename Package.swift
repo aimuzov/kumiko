@@ -21,9 +21,13 @@ let package = Package(
 			name: "KumikoWM",
 			dependencies: ["KumikoCore"]
 		),
+		.target(
+			name: "KumikoHotkeys",
+			dependencies: ["KumikoCore"]
+		),
 		.executableTarget(
 			name: "KumikoApp",
-			dependencies: ["KumikoCore", "KumikoWM"]
+			dependencies: ["KumikoCore", "KumikoWM", "KumikoHotkeys"]
 		),
 		// The product is called `kumiko`, the target is not: macOS file systems are case-insensitive,
 		// so a `kumiko` target next to `KumikoApp`'s module would fight over the same build paths.
@@ -38,6 +42,10 @@ let package = Package(
 		.testTarget(
 			name: "KumikoWMTests",
 			dependencies: ["KumikoWM"]
+		),
+		.testTarget(
+			name: "KumikoHotkeysTests",
+			dependencies: ["KumikoHotkeys"]
 		),
 	]
 )

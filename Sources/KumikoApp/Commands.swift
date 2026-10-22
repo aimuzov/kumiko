@@ -77,7 +77,7 @@ struct Commands {
 		let config = app.config
 		let modules: [(String, Bool)] = [
 			("wm", config.wm.enabled),
-			("hotkeys", config.hotkeys.enabled),
+			("hotkeys", config.hotkeys.enabled && app.hotkeys?.isRunning == true),
 			("bar", config.bar.enabled),
 			("borders", config.borders.enabled),
 		]
@@ -95,6 +95,12 @@ struct Commands {
 				lines.append("  warning: \(extra) extra native Space(s); kumiko expects one per display,")
 				lines.append("           remove the rest in Mission Control or their windows cannot be shown")
 			}
+		}
+
+		if let hotkeys = app.hotkeys, hotkeys.isRunning {
+			lines.append("  hotkey mode: \(hotkeys.mode)")
+		} else if config.hotkeys.enabled {
+			lines.append("  hotkeys: waiting for Accessibility and Input Monitoring")
 		}
 
 		lines += ["", "permissions:"]
