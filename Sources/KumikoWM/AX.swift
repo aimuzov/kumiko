@@ -70,6 +70,13 @@ enum AX {
 		AXUIElementPerformAction(window, kAXRaiseAction as CFString)
 	}
 
+	/// Brings a process forward with one of its windows key, without an AX element for it: for
+	/// Finder's desktop window, which AX does not list as a window.
+	@discardableResult
+	static func focus(pid: pid_t, window: CGWindowID) -> Bool {
+		SkyLight.focus(pid: pid, window: window)
+	}
+
 	/// Presses the window's close button, the way a click would, so the app can still ask about
 	/// unsaved changes.
 	@discardableResult

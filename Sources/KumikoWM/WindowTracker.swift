@@ -190,7 +190,7 @@ public final class WindowTracker {
 		switch name {
 		case kAXWindowCreatedNotification:
 			windowAppeared(element, in: observer)
-		case kAXFocusedWindowChangedNotification:
+		case kAXFocusedWindowChangedNotification, kAXFocusedUIElementChangedNotification:
 			// Background apps move their own focus around too; only the frontmost app's counts.
 			if observer.app.isActive { updateFocus() }
 		case kAXUIElementDestroyedNotification:
@@ -323,6 +323,15 @@ public final class WindowTracker {
 	// MARK: - Focus
 
 	private func updateFocus() {
+		// Finder in front with its desktop focused (a click on the desktop, an empty workspace) has
+		// no window in focus, whatever window it last had.
+		if let frontmost = NSWorkspace.shared.frontmostApplication, frontmost.bundleIdentifier == Self.finder,
+		   let observer = apps[frontmost.processIdentifier], Self.isDesktopFocused(in: observer.element)
+		{
+			setFocus(nil)
+			return
+		}
+
 		guard
 			let frontmost = NSWorkspace.shared.frontmostApplication,
 			let observer = apps[frontmost.processIdentifier],
@@ -339,6 +348,49 @@ public final class WindowTracker {
 		}
 
 		setFocus(windows[id] == nil ? nil : id)
+	}
+
+	static let finder = "com.apple.finder"
+
+	/// Finder shows the desktop as a scroll area of its own, outside any window.
+	private static func isDesktopFocused(in app: AXUIElement) -> Bool {
+		guard let element = AX.element(app, kAXFocusedUIElementAttribute) else { return false }
+		return AX.string(element, kAXRoleAttribute) == kAXScrollAreaRole && AX.element(element, kAXWindowAttribute) == nil
+	}
+
+	/// Puts the desktop in focus, the way a click on it does: Finder in front with its desktop
+	/// window key rather than any window of its own. The menu bar then shows Finder's menus
+	/// instead of going blank.
+	public func focusDesktop() {
+		guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: Self.finder).first else {
+			return
+		}
+
+		let pid = finder.processIdentifier
+		if let desktop = Self.desktopWindow(of: pid) {
+			AX.focus(pid: pid, window: desktop)
+		}
+
+		// The desktop's own element, focused too, so AX agrees that no window has focus.
+		if let observer = apps[pid], let area = AX.elements(observer.element, kAXChildrenAttribute).first(where: {
+			AX.string($0, kAXRoleAttribute) == kAXScrollAreaRole
+		}) {
+			AXUIElementSetAttributeValue(area, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+		}
+
+		updateFocus()
+	}
+
+	/// Finder's desktop window: its window at the level of the desktop icons.
+	private static func desktopWindow(of pid: pid_t) -> CGWindowID? {
+		let level = Int(CGWindowLevelForKey(.desktopIconWindow))
+		guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+			return nil
+		}
+
+		return list.first {
+			($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) && ($0[kCGWindowLayer as String] as? Int) == level
+		}.flatMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
 	}
 
 	private func setFocus(_ id: UInt32?) {

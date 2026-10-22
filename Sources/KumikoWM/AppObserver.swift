@@ -60,6 +60,8 @@ final class AppObserver {
 		}
 
 		AXObserverAddNotification(observer, element, kAXFocusedWindowChangedNotification as CFString, refcon)
+		// A click on Finder's desktop moves focus without changing Finder's focused window.
+		AXObserverAddNotification(observer, element, kAXFocusedUIElementChangedNotification as CFString, refcon)
 		CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
 		self.observer = observer
 

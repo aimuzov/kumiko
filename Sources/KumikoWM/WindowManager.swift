@@ -483,7 +483,12 @@ public final class WindowManager {
 		guard config.wm.hideApps else { return }
 
 		for (pid, shown) in appVisibility() where !shown && !hiddenApps.contains(pid) {
-			guard let app = NSRunningApplication(processIdentifier: pid), !app.isHidden else { continue }
+			// Finder is the desktop: hiding it takes the desktop icons along and leaves an empty
+			// workspace with nothing in front. Its windows wait in the corner like any others.
+			guard
+				let app = NSRunningApplication(processIdentifier: pid), !app.isHidden,
+				app.bundleIdentifier != WindowTracker.finder
+			else { continue }
 
 			hiddenApps.insert(pid)
 			autoSwitchPausedUntil = Date().addingTimeInterval(0.5)
@@ -596,6 +601,9 @@ public final class WindowManager {
 
 		previousWorkspace = visible[display.id]?.name
 		visible[display.id] = workspace
+		// What macOS brings forward while the old workspace goes away (the next app when one is
+		// hidden) is not the user's choice and must not switch back.
+		autoSwitchPausedUntil = Date().addingTimeInterval(0.6)
 		arrange()
 		saveVisible()
 		bus.publish(.workspacesChanged)
@@ -911,7 +919,7 @@ public final class WindowManager {
 		} else {
 			arrange()
 			bus.publish(.workspacesChanged)
-			if let next = windowToFocus(in: current) { tracker.focus(next) }
+			if let next = windowToFocus(in: current) { tracker.focus(next) } else { tracker.focusDesktop() }
 		}
 
 		return .success()
@@ -1037,7 +1045,7 @@ public final class WindowManager {
 		case let ("focus", target?):
 			guard let workspace = resolve(target, from: current) else { return .failure("no workspace \(target)") }
 			show(workspace)
-			if let id = windowToFocus(in: workspace) { tracker.focus(id) }
+			if let id = windowToFocus(in: workspace) { tracker.focus(id) } else { tracker.focusDesktop() }
 			return .success()
 		case ("balance", _):
 			current.tree.balance()
