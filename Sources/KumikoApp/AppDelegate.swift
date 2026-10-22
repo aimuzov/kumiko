@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var manager: WindowManager?
 	private(set) var hotkeys: Hotkeys?
 	private var borders: Borders?
+	private var windowServer: WindowServerEvents?
 
 	private var server: IPCServer?
 	private var watcher: ConfigWatcher?
@@ -57,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		self.tracker = tracker
 		self.manager = manager
 		let borders = Borders(bus: bus, config: config.borders, focused: nil) { tracker.windows[$0] }
+		let windowServer = WindowServerEvents(bus: bus)
+		self.windowServer = windowServer
 		self.hotkeys = hotkeys
 		self.borders = borders
 
@@ -72,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		// The manager listens before the tracker starts, so it sees the windows that are already open.
 		manager.start()
 		borders.start()
+		windowServer.start()
 		tracker.start()
 		hotkeys.start()
 

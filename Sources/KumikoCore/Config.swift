@@ -85,7 +85,8 @@ public struct Config: Equatable, Sendable {
 		public var enabled = true
 		/// Thickness in points, drawn outside the window.
 		public var width = 4.0
-		/// Corner radius of the window the frame hugs; the frame's own corners follow it.
+		/// Corner radius of the framed window, for when the WindowServer does not report it. The
+		/// frame's own corners follow the window's.
 		public var radius = 12.0
 		public var color = Color(red: 0.54, green: 0.68, blue: 0.96)
 		/// Apps whose windows get no frame: games, mirroring.

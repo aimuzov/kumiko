@@ -17,6 +17,8 @@ public final class WindowTracker {
 	private var workspaceObservers: [any NSObjectProtocol] = []
 	private var permissionTimer: Timer?
 	private var rescanTimer: Timer?
+	private var pendingRefreshes: Set<UInt32> = []
+	private let writer = FrameWriter()
 
 	public init(bus: EventBus, config: Config.WM) {
 		self.bus = bus
@@ -193,20 +195,46 @@ public final class WindowTracker {
 			if observer.app.isActive { updateFocus() }
 		case kAXUIElementDestroyedNotification:
 			if let id = observer.id(of: element) { untrack(id) }
+		case kAXWindowMovedNotification, kAXWindowResizedNotification:
+			if let id = observer.id(of: element) { scheduleRefresh(id) }
 		default:
 			if let id = observer.id(of: element) { refresh(id) }
 		}
 	}
 
+	/// Moves and resizes come dozens a second while a window is dragged, and each reread is a
+	/// round trip to an app that is busy redrawing. While a mouse button is down the reread waits
+	/// for it to come up: the WindowServer's events carry the drag in the meantime. Otherwise the
+	/// burst is folded into one reread after 30 ms.
+	private func scheduleRefresh(_ id: UInt32) {
+		guard pendingRefreshes.insert(id).inserted else { return }
+
+		func attempt() {
+			DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(30)) { [weak self] in
+				MainActor.assumeIsolated {
+					guard let self, self.pendingRefreshes.contains(id) else { return }
+					if NSEvent.pressedMouseButtons & 1 != 0, WindowServer.isAvailable {
+						attempt()
+						return
+					}
+					self.refresh(id)
+				}
+			}
+		}
+
+		attempt()
+	}
+
 	/// Rereads a window and reports it if anything changed.
-	private func refresh(_ id: UInt32) {
+	func refresh(_ id: UInt32) {
+		pendingRefreshes.remove(id)
 		guard
 			let old = windows[id],
 			let observer = apps[old.pid],
 			let element = observer.windows[id]
 		else { return }
 
-		guard let info = describe(element, id: id, in: observer) else {
+		guard let info = describe(element, id: id, in: observer, previous: old) else {
 			untrack(id)
 			return
 		}
@@ -229,12 +257,20 @@ public final class WindowTracker {
 	}
 
 	/// Returns nil when the window is gone: AX answers nothing at all for a closed window.
-	private func describe(_ element: AXUIElement, id: UInt32, in observer: AppObserver) -> WindowInfo? {
+	///
+	/// While an app is hidden AX reports some of its windows as `AXDialog`; trusting that would turn
+	/// them into dialogs, unmanaged and out of the layout, every time kumiko hides the app. So for
+	/// a hidden app the subrole seen before it was hidden stands.
+	private func describe(
+		_ element: AXUIElement, id: UInt32, in observer: AppObserver, previous: WindowInfo? = nil
+	) -> WindowInfo? {
 		guard let frame = AX.frame(element) else { return nil }
 
 		let app = observer.app.localizedName ?? ""
 		let title = AX.string(element, kAXTitleAttribute) ?? ""
-		let subrole = AX.string(element, kAXSubroleAttribute)
+		let subrole = observer.app.isHidden && previous != nil
+			? previous?.subrole
+			: AX.string(element, kAXSubroleAttribute)
 
 		return WindowInfo(
 			id: id,
@@ -253,9 +289,17 @@ public final class WindowTracker {
 
 	// MARK: - Acting on windows
 
+	/// Moves a window without waiting for its app: each app has its own queue for these, since an
+	/// app busy redrawing answers slowly and the main thread has everything else to do. Only the
+	/// latest frame asked for a window is applied.
 	public func setFrame(_ id: UInt32, _ frame: CGRect) {
-		guard let (element, _) = elements(of: id) else { return }
-		AX.setFrame(element, frame)
+		guard let (element, _) = elements(of: id), let pid = windows[id]?.pid else { return }
+		writer.setFrame(element, id: id, pid: pid, frame: frame)
+	}
+
+	/// Waits until every frame asked for is applied; for quitting, when nothing may be left behind.
+	public func flushFrames() {
+		writer.flush()
 	}
 
 	public func focus(_ id: UInt32) {
@@ -301,5 +345,42 @@ public final class WindowTracker {
 		guard id != focusedWindowID else { return }
 		focusedWindowID = id
 		bus.publish(.windowFocused(id: id))
+	}
+}
+
+/// Applies window frames on a serial queue per app, keeping only the newest frame per window.
+private final class FrameWriter: @unchecked Sendable {
+	private let lock = NSLock()
+	private var pending: [UInt32: (element: AXUIElement, frame: CGRect)] = [:]
+	private var queues: [pid_t: DispatchQueue] = [:]
+
+	func setFrame(_ element: AXUIElement, id: UInt32, pid: pid_t, frame: CGRect) {
+		lock.lock()
+		let isQueued = pending[id] != nil
+		pending[id] = (element, frame)
+		let queue = queues[pid] ?? DispatchQueue(label: "kumiko.frames.\(pid)", qos: .userInteractive)
+		queues[pid] = queue
+		lock.unlock()
+
+		// One block per window in flight; a newer frame just replaces what it will apply.
+		guard !isQueued else { return }
+
+		queue.async { [self] in
+			lock.lock()
+			let next = pending.removeValue(forKey: id)
+			lock.unlock()
+
+			if let next { AX.setFrame(next.element, next.frame) }
+		}
+	}
+
+	func flush() {
+		lock.lock()
+		let all = Array(queues.values)
+		lock.unlock()
+
+		for queue in all {
+			queue.sync {}
+		}
 	}
 }

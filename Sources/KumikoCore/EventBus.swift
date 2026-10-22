@@ -1,3 +1,5 @@
+import CoreGraphics
+
 /// Everything the modules tell each other. Later stages add workspace and mode events here.
 public enum Event: Sendable, Equatable {
 	case configReloaded(Config)
@@ -8,6 +10,9 @@ public enum Event: Sendable, Equatable {
 	case windowDestroyed(id: UInt32)
 	/// `nil` when no window has focus: the desktop, or an app with no windows.
 	case windowFocused(id: UInt32?)
+	/// The focused window moved or changed size, as the WindowServer reports it the moment it
+	/// happens; AX catches up later with `windowChanged`.
+	case windowFrameChanged(id: UInt32, frame: CGRect)
 
 	/// A workspace was shown or hidden, or windows moved between workspaces.
 	case workspacesChanged

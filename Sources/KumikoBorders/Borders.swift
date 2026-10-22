@@ -40,8 +40,12 @@ public final class Borders {
 		case let .windowFocused(id):
 			focused = id
 			update()
+		case let .windowFrameChanged(id, frame):
+			follow(id, frame)
 		case let .windowChanged(info) where info.id == focused:
-			update()
+			// With the WindowServer events on, they already moved the frame; AX only has news when
+			// they are not available.
+			if !WindowServer.isAvailable { update() }
 		case let .windowDestroyed(id) where id == focused:
 			focused = nil
 			update()
@@ -50,6 +54,18 @@ public final class Borders {
 		default:
 			break
 		}
+	}
+
+	/// A move or resize of the focused window, straight from the WindowServer. Only the frame's
+	/// place changes, so this skips everything `update` checks and reads nothing from the app.
+	private func follow(_ id: UInt32, _ bounds: CGRect) {
+		guard
+			id == focused,
+			let overlay, overlay.isVisible,
+			let frame = Self.appKitFrame(bounds, width: config.width)
+		else { return }
+
+		overlay.setFrame(frame, display: false)
 	}
 
 	/// Puts the frame around the focused window, or takes it away when there is nothing to frame.
@@ -70,8 +86,11 @@ public final class Borders {
 
 		let overlay = overlay ?? BorderWindow(config)
 		self.overlay = overlay
+		overlay.radius = WindowServer.cornerRadius(of: id) ?? config.radius
 
-		overlay.setFrame(frame, display: true)
+		// The WindowServer's frame is current; the AX one may be a step behind.
+		let current = WindowServer.bounds(of: id).flatMap { Self.appKitFrame($0, width: config.width) } ?? frame
+		overlay.setFrame(current, display: true)
 		overlay.order(.above, relativeTo: Int(id))
 	}
 
@@ -103,7 +122,11 @@ public final class Borders {
 private final class BorderWindow: NSWindow {
 	private let shape = CAShapeLayer()
 	private var width = 0.0
-	private var radius = 0.0
+
+	/// The corner radius of the window being framed; changes with the focused app.
+	var radius = 0.0 {
+		didSet { if radius != oldValue { redraw() } }
+	}
 
 	init(_ config: Config.Borders) {
 		super.init(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)

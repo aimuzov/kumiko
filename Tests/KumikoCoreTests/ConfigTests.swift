@@ -191,6 +191,7 @@ struct ConfigTests {
 		#expect(config.borders.blacklist == ["Steam Helper", "dota2"])
 	}
 
+
 	@Test func badBorderColourIsAnError() {
 		#expect(throws: ConfigError.self) { try Config.parse("[borders]\ncolor = \"blue\"") }
 	}

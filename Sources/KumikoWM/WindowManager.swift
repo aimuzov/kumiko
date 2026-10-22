@@ -17,7 +17,9 @@ public final class WindowManager {
 	/// The workspace shown on each display.
 	private var visible: [CGDirectDisplayID: Workspace] = [:]
 	private var assignment: [UInt32: Workspace] = [:]
-	private var floating: Set<UInt32> = []
+	/// Windows the user toggled with `window float`, overriding the rules: true puts the window in
+	/// the layout even if the rules leave it out, false keeps it out even if they manage it.
+	private var tiledByUser: [UInt32: Bool] = [:]
 	/// Windows moved out of sight, with the frame to give back to the ones that are not tiled.
 	private var hidden: [UInt32: CGRect] = [:]
 	/// Apps kumiko hid because all their windows are on hidden workspaces. Apps the user hid are
@@ -83,7 +85,7 @@ public final class WindowManager {
 			workspaces = []
 			visible = [:]
 			assignment = [:]
-			floating = []
+			tiledByUser = [:]
 			expected = [:]
 		}
 
@@ -104,6 +106,9 @@ public final class WindowManager {
 			tracker.setFrame(id, frame)
 		}
 		hidden = [:]
+
+		// Frames are applied in the background; quitting must not cut them off.
+		tracker.flushFrames()
 	}
 
 	// MARK: - Query
@@ -169,11 +174,14 @@ public final class WindowManager {
 		case let .windowChanged(info):
 			if known[info.id] != EligibilityKey(info) {
 				scheduleSync()
-			} else {
-				noticeUserFrameChange(info)
+			} else if !WindowServer.isAvailable {
+				// Without the WindowServer's events a drag is only seen through AX, late.
+				noticeUserFrameChange(info.id, info.frame)
 			}
+		case let .windowFrameChanged(id, frame):
+			noticeUserFrameChange(id, frame)
 		case let .windowDestroyed(id):
-			floating.remove(id)
+			tiledByUser[id] = nil
 			hidden[id] = nil
 			expected[id] = nil
 			known[id] = nil
@@ -346,7 +354,9 @@ public final class WindowManager {
 
 	private func isTiled(_ id: UInt32, in workspace: Workspace) -> Bool {
 		guard let info = tracker.windows[id], assignment[id] === workspace else { return false }
-		return info.isManaged && !info.isMinimized && !isHiddenByUser(info) && !info.isFullscreen && !floating.contains(id)
+		// A toggle can bring in a window the rules skip, but never a dialog or a panel.
+		let wanted = tiledByUser[id].map { $0 && info.subrole == "AXStandardWindow" } ?? info.isManaged
+		return wanted && !info.isMinimized && !isHiddenByUser(info) && !info.isFullscreen
 	}
 
 	/// Hidden by cmd-h, not by kumiko: a window of an app kumiko hid keeps its place in the layout.
@@ -613,15 +623,42 @@ public final class WindowManager {
 	/// A tiled window changed frame while a mouse button was down: the user is dragging or
 	/// resizing it. Frames that change with no button pressed come from kumiko itself or from the
 	/// app (refusing a size, say) and are left alone, or kumiko would fight the app over them.
-	private func noticeUserFrameChange(_ info: WindowInfo) {
+	private func noticeUserFrameChange(_ id: UInt32, _ frame: CGRect) {
 		guard
 			NSEvent.pressedMouseButtons & 1 != 0,
-			let expected = expected[info.id], !info.frame.isClose(to: expected),
-			let workspace = assignment[info.id], workspace.tree.contains(info.id), isVisible(workspace)
+			let expected = expected[id], !frame.isClose(to: expected),
+			let workspace = assignment[id], workspace.tree.contains(id), isVisible(workspace)
 		else { return }
 
-		dragged.insert(info.id)
+		dragged.insert(id)
+
+		// A resize reflows the layout while the edge is still being pulled, the way yabai does:
+		// the splits follow the window and the neighbours move with them. The window under the
+		// mouse is left to the user. A plain drag waits for the drop, which decides where it goes.
+		if abs(frame.width - expected.width) > 2 || abs(frame.height - expected.height) > 2 {
+			moveSplits(of: id, from: expected, to: frame, in: workspace)
+
+			for (other, target) in workspace.tree.frames(in: area(of: workspace.display), gap: gap) {
+				self.expected[other] = target
+				guard other != id else { continue }
+				if let current = tracker.windows[other]?.frame, current.isClose(to: target) { continue }
+				tracker.setFrame(other, target)
+			}
+		}
+
 		scheduleDragCheck()
+	}
+
+	/// Moves the splits along every edge of the window that moved between two frames.
+	private func moveSplits(of id: UInt32, from old: CGRect, to frame: CGRect, in workspace: Workspace) {
+		let edges: [(Direction, Double)] = [
+			(.west, frame.minX - old.minX), (.east, frame.maxX - old.maxX),
+			(.north, frame.minY - old.minY), (.south, frame.maxY - old.maxY),
+		]
+
+		for (edge, delta) in edges where abs(delta) > 2 {
+			workspace.tree.resize(id, edge: edge, by: delta, in: area(of: workspace.display), gap: gap)
+		}
 	}
 
 	/// Waits for the mouse button to come up, then settles what the user did.
@@ -650,22 +687,18 @@ public final class WindowManager {
 	/// A resize moves the splits along the edges the user pulled; a drag that ends over another
 	/// window swaps the two; a drag that ends anywhere else snaps back into the layout.
 	private func settleUserFrame(_ id: UInt32) {
+		// The last move of the drag may still be waiting in the tracker's coalescing.
+		tracker.refresh(id)
+
 		guard
 			let frame = tracker.windows[id]?.frame, let old = expected[id],
 			let workspace = assignment[id], workspace.tree.contains(id)
 		else { return }
 
-		let area = area(of: workspace.display)
 		let resized = abs(frame.width - old.width) > 2 || abs(frame.height - old.height) > 2
 
 		if resized {
-			let edges: [(Direction, Double)] = [
-				(.west, frame.minX - old.minX), (.east, frame.maxX - old.maxX),
-				(.north, frame.minY - old.minY), (.south, frame.maxY - old.maxY),
-			]
-			for (edge, delta) in edges where abs(delta) > 2 {
-				workspace.tree.resize(id, edge: edge, by: delta, in: area, gap: gap)
-			}
+			moveSplits(of: id, from: old, to: frame, in: workspace)
 			return
 		}
 
@@ -902,15 +935,20 @@ public final class WindowManager {
 		return .success()
 	}
 
-	/// Toggles floating. `--grid rows:cols:x:y:width:height` also places a window that starts
-	/// floating on that cell of a grid laid over its display.
+	/// Toggles floating, the way yabai does: a window in the layout floats, and any other window
+	/// joins the layout, also one the rules leave out. `--grid rows:cols:x:y:width:height` places a
+	/// window that starts floating on that cell of a grid laid over its display.
 	private func float(_ id: UInt32, _ args: [String]) -> Response {
-		if floating.remove(id) != nil {
+		guard assignment[id]?.tree.contains(id) == true else {
+			guard tracker.windows[id]?.subrole == "AXStandardWindow" else {
+				return .failure("only standard windows can join the layout")
+			}
+			tiledByUser[id] = true
 			sync()
 			return .success()
 		}
 
-		floating.insert(id)
+		tiledByUser[id] = false
 		sync()
 
 		if let index = args.firstIndex(of: "--grid"), index + 1 < args.count {
