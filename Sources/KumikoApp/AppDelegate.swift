@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var manager: WindowManager?
 	private(set) var hotkeys: Hotkeys?
 	private var borders: Borders?
-	private var bar: Bar?
+	private(set) var bar: Bar?
 	private var vim: Vim?
 	private var windowServer: WindowServerEvents?
 
@@ -93,7 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		tracker.start()
 		hotkeys.start()
 
-		statusMenu = StatusMenu(app: self)
+		let statusMenu = StatusMenu(app: self)
+		// The bar takes the menu bar's light or dark look, the one macOS picks from the desktop.
+		statusMenu.onAppearanceChange = { bar.followMenuBar($0) }
+		self.statusMenu = statusMenu
 		Onboarding.runIfNeeded()
 
 		Log.app.info("kumiko \(Kumiko.version, privacy: .public) started")

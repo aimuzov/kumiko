@@ -83,11 +83,8 @@ public struct Config: Equatable, Sendable {
 		public var right = ["datetime", "caffeinate", "battery", "input"]
 		/// `[bar.colors]`: the palette items draw with, Catppuccin Macchiato unless overridden.
 		public var colors = Palette()
-		/// `[bar.input]`: a glyph per input source id, for the keyboard layout item.
-		public var input: [String: String] = [
-			"com.apple.keylayout.US": "􀀅",
-			"com.apple.keylayout.Russian": "􀀦",
-		]
+		/// `[bar.input]`: text to show for an input source id instead of its language code.
+		public var input: [String: String] = [:]
 		/// `[[bar.shell]]`: items that show what a shell command prints.
 		public var shell: [ShellItem] = []
 

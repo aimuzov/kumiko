@@ -8,6 +8,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private unowned let app: AppDelegate
 	private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 	private let menu = NSMenu()
+	private var appearanceObservation: NSKeyValueObservation?
+
+	/// Called with the look macOS gives the menu bar, light or dark after the desktop under it,
+	/// now and whenever it changes.
+	var onAppearanceChange: ((NSAppearance) -> Void)? {
+		didSet {
+			appearanceObservation = item.button?.observe(\.effectiveAppearance, options: [.initial, .new]) { [weak self] button, _ in
+				// AppKit changes a view's appearance on the main thread, so that is where this runs.
+				MainActor.assumeIsolated { self?.onAppearanceChange?(button.effectiveAppearance) }
+			}
+		}
+	}
 
 	init(app: AppDelegate) {
 		self.app = app

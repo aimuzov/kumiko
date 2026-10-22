@@ -97,6 +97,10 @@ struct Commands {
 			}
 		}
 
+		if config.bar.enabled, let bar = app.bar {
+			lines.append("  bar tone: \(bar.toneDescription)")
+		}
+
 		if let hotkeys = app.hotkeys, hotkeys.isRunning {
 			lines.append("  hotkey mode: \(hotkeys.mode)")
 		} else if config.hotkeys.enabled {

@@ -19,6 +19,8 @@ public final class Bar {
 	private var observers: [(NotificationCenter, any NSObjectProtocol)] = []
 	private var batteryObserver: AnyObject?
 	private var refreshScheduled = false
+	/// The menu bar's look, the fallback when the desktop cannot be read.
+	private var menuBarIsDark = true
 
 	public init(bus: EventBus, tracker: WindowTracker, manager: WindowManager, config: Config.Bar) {
 		self.bus = bus
@@ -44,13 +46,14 @@ public final class Bar {
 		}
 		observe(DistributedNotificationCenter.default(), InputSource.changed) { [weak self] in
 			self?.model.inputSource = InputSource.current()
+			self?.model.inputLanguage = InputSource.languageCode()
 		}
 		observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) { [weak self] in
 			self?.tick()
-			self?.matchWallpapers()
+			self?.matchDesktop()
 		}
 		observe(NSWorkspace.shared.notificationCenter, NSWorkspace.activeSpaceDidChangeNotification) { [weak self] in
-			self?.matchWallpapers()
+			self?.matchDesktop()
 		}
 
 		batteryObserver = Battery.observe { [weak self] in self?.model.battery = Battery.read() }
@@ -94,33 +97,55 @@ public final class Bar {
 			windows[id] = window
 			window.setFrame(frame, display: true)
 			window.orderFrontRegardless()
-			matchWallpaper(window, on: screen)
 		}
 
 		for id in windows.keys where !seen.contains(id) {
 			windows.removeValue(forKey: id)?.orderOut(nil)
 		}
+
+		matchDesktop()
 	}
 
-	/// Light or dark text after what the desktop picture is like under the bar. A text colour set
-	/// in the config wins, so this only picks the appearance the default colours follow.
-	private func matchWallpaper(_ window: BarWindow, on screen: NSScreen) {
-		let strip = CGRect(
-			x: window.frame.minX - screen.frame.minX, y: window.frame.minY - screen.frame.minY,
-			width: window.frame.width, height: window.frame.height
-		)
-		let dark = Wallpaper.isDark(on: screen, under: strip) ?? true
-		window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+	/// Records the menu bar's light or dark look, which macOS picks from the desktop under it.
+	/// The bar uses it only when it cannot read the desktop under itself (the menu bar looks at the
+	/// top of the screen, the bar is usually at the bottom), but a change in it means the desktop
+	/// changed, so the bars look again.
+	public func followMenuBar(_ appearance: NSAppearance) {
+		menuBarIsDark = appearance.bestMatch(from: [.vibrantDark, .vibrantLight, .darkAqua, .aqua]).map {
+			$0 == .vibrantDark || $0 == .darkAqua
+		} ?? true
+		matchDesktop()
 	}
 
-	private func matchWallpapers() {
-		for screen in NSScreen.screens {
-			guard
-				let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
-				let window = windows[number.uint32Value]
-			else { continue }
-			matchWallpaper(window, on: screen)
+	/// Where the light or dark look of each bar came from, for `kumiko status`.
+	public private(set) var toneDescription = "not set"
+
+	/// Gives each bar light text on a dark desktop and dark text on a light one, from the desktop
+	/// right under that bar. A text colour set in the config still wins; this only picks the
+	/// appearance the default colours follow.
+	private func matchDesktop() {
+		var descriptions: [String] = []
+		let height = NSScreen.screens.first?.frame.height ?? 0
+
+		for window in windows.values {
+			let rect = CGRect(
+				x: window.frame.minX, y: height - window.frame.maxY, width: window.frame.width, height: window.frame.height
+			)
+
+			let dark: Bool
+			if let brightness = Desktop.brightness(under: rect) {
+				// White reads on mid tones too; black only on light ones.
+				dark = brightness < 0.6
+				descriptions.append("\(dark ? "dark" : "light") (desktop \(String(format: "%.2f", brightness)))")
+			} else {
+				dark = menuBarIsDark
+				descriptions.append("\(dark ? "dark" : "light") (menu bar)")
+			}
+
+			window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
 		}
+
+		toneDescription = descriptions.joined(separator: ", ")
 	}
 
 	// MARK: - State
@@ -187,6 +212,7 @@ public final class Bar {
 		model.now = Date()
 		model.battery = Battery.read()
 		model.inputSource = InputSource.current()
+		model.inputLanguage = InputSource.languageCode()
 		model.isCaffeinated = caffeine.isOn
 	}
 
@@ -203,12 +229,13 @@ public final class Bar {
 		RunLoop.main.add(clock, forMode: .common)
 		timers.append(clock)
 
-		// Dynamic desktop pictures change with the time of day.
-		let wallpaper = Timer(timeInterval: 300, repeats: true) { [weak self] _ in
-			MainActor.assumeIsolated { self?.matchWallpapers() }
+		// Live wallpapers move and pictures change with the time of day; reading a 36-point strip
+		// of the desktop is cheap.
+		let desktop = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+			MainActor.assumeIsolated { self?.matchDesktop() }
 		}
-		RunLoop.main.add(wallpaper, forMode: .common)
-		timers.append(wallpaper)
+		RunLoop.main.add(desktop, forMode: .common)
+		timers.append(desktop)
 
 		for item in config.shell {
 			let run: @MainActor () -> Void = { [weak self] in

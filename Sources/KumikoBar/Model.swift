@@ -38,6 +38,8 @@ final class BarModel {
 	var battery: Battery.State?
 	var isCaffeinated = false
 	var inputSource: String?
+	/// "EN", "RU": what the layout item shows when the config has no glyph for the source.
+	var inputLanguage: String?
 	/// The Vim mode of the focused text field, nil outside one, and the command being typed.
 	var vimMode: String?
 	var vimCommandLine: String?

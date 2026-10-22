@@ -66,6 +66,19 @@ enum InputSource {
 		return Unmanaged<CFString>.fromOpaque(pointer).takeUnretainedValue() as String
 	}
 
+	/// The language of the selected input source as macOS shows it in its own input menu: "EN",
+	/// "RU". Nil for a source without a language.
+	static func languageCode() -> String? {
+		guard
+			let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+			let pointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages),
+			let languages = Unmanaged<CFArray>.fromOpaque(pointer).takeUnretainedValue() as? [String],
+			let language = languages.first
+		else { return nil }
+
+		return String(language.prefix(2)).uppercased()
+	}
+
 	/// Distributed notification macOS posts when the input source changes.
 	static let changed = Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String)
 }
