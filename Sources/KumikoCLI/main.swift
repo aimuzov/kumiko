@@ -11,6 +11,8 @@ let usage = """
 	  ping       check that kumiko is running
 	  status     show modules and permissions
 	  reload     reread kumiko.toml
+	  query windows|focused
+	             print windows as JSON
 	  version    print the version of the running app
 
 	  --version  print the version of this CLI

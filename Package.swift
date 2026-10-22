@@ -17,9 +17,13 @@ let package = Package(
 			name: "KumikoCore",
 			dependencies: [.product(name: "TOMLDecoder", package: "TOMLDecoder")]
 		),
+		.target(
+			name: "KumikoWM",
+			dependencies: ["KumikoCore"]
+		),
 		.executableTarget(
 			name: "KumikoApp",
-			dependencies: ["KumikoCore"]
+			dependencies: ["KumikoCore", "KumikoWM"]
 		),
 		// The product is called `kumiko`, the target is not: macOS file systems are case-insensitive,
 		// so a `kumiko` target next to `KumikoApp`'s module would fight over the same build paths.
@@ -30,6 +34,10 @@ let package = Package(
 		.testTarget(
 			name: "KumikoCoreTests",
 			dependencies: ["KumikoCore"]
+		),
+		.testTarget(
+			name: "KumikoWMTests",
+			dependencies: ["KumikoWM"]
 		),
 	]
 )

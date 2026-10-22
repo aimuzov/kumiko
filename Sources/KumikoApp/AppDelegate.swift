@@ -1,5 +1,6 @@
 import AppKit
 import KumikoCore
+import KumikoWM
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -9,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var config = Config()
 	/// The reason the last reload failed; the previous config stays in force until it is fixed.
 	private(set) var configError: ConfigError?
+
+	private(set) var tracker: WindowTracker?
 
 	private var server: IPCServer?
 	private var watcher: ConfigWatcher?
@@ -42,6 +45,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 			Log.ipc.fault("cannot listen on \(self.paths.socket.path, privacy: .public): \(error, privacy: .public)")
 		}
 
+		let tracker = WindowTracker(bus: bus, config: config.wm)
+		self.tracker = tracker
+		tracker.start()
+
+		bus.subscribe { event in
+			if case let .configReloaded(config) = event {
+				tracker.apply(config.wm)
+			}
+		}
+
 		statusMenu = StatusMenu(app: self)
 		Onboarding.runIfNeeded()
 
@@ -51,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	func applicationWillTerminate(_ notification: Notification) {
 		server?.stop()
 		watcher?.stop()
+		tracker?.stop()
 	}
 
 	/// Rereads the config file. A broken file keeps the previous config: a typo while editing must

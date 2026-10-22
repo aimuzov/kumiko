@@ -1,6 +1,13 @@
-/// Everything the modules tell each other. Later stages add window, workspace and mode events here.
+/// Everything the modules tell each other. Later stages add workspace and mode events here.
 public enum Event: Sendable, Equatable {
 	case configReloaded(Config)
+
+	case windowCreated(WindowInfo)
+	/// Title, frame, minimized, hidden or managed state changed.
+	case windowChanged(WindowInfo)
+	case windowDestroyed(id: UInt32)
+	/// `nil` when no window has focus: the desktop, or an app with no windows.
+	case windowFocused(id: UInt32?)
 }
 
 /// In-process publish/subscribe between modules. It lives on the main actor because every
