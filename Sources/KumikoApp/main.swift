@@ -14,7 +14,21 @@ MainActor.assumeIsolated {
 	let delegate = AppDelegate(paths: paths)
 
 	app.delegate = delegate
-	// No Dock icon and no app menu: kumiko lives in the status bar.
+	// No Dock icon: kumiko lives in the status bar. Its app menu shows only on an empty
+	// workspace, where kumiko takes focus so the menu bar is not left blank.
 	app.setActivationPolicy(.accessory)
+	app.mainMenu = appMenu()
 	app.run()
+}
+
+@MainActor
+private func appMenu() -> NSMenu {
+	let menu = NSMenu()
+	let item = NSMenuItem()
+	item.submenu = NSMenu(title: "kumiko")
+	item.submenu?.addItem(withTitle: "About kumiko", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+	item.submenu?.addItem(.separator())
+	item.submenu?.addItem(withTitle: "Quit kumiko", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+	menu.addItem(item)
+	return menu
 }

@@ -77,6 +77,13 @@ enum AX {
 		SkyLight.focus(pid: pid, window: window)
 	}
 
+	/// Brings a process forward without making any of its windows key: for kumiko itself, which
+	/// has none, on an empty workspace.
+	@discardableResult
+	static func bringForward(pid: pid_t) -> Bool {
+		SkyLight.bringForward(pid: pid)
+	}
+
 	/// Presses the window's close button, the way a click would, so the app can still ask about
 	/// unsaved changes.
 	@discardableResult
@@ -155,5 +162,15 @@ private enum SkyLight {
 		_ = post(&psn, bytes)
 
 		return true
+	}
+
+	static func bringForward(pid: pid_t) -> Bool {
+		guard let (getProcess, setFront, _) = functions else { return false }
+
+		var psn = ProcessSerialNumber()
+		guard getProcess(pid, &psn) == noErr else { return false }
+
+		// 0x400 activates the process with no window at all.
+		return setFront(&psn, 0, 0x400) == .success
 	}
 }

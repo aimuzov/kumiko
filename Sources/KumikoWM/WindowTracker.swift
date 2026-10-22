@@ -15,6 +15,7 @@ public final class WindowTracker {
 	private var rules: Rules
 	private var apps: [pid_t: AppObserver] = [:]
 	private var workspaceObservers: [any NSObjectProtocol] = []
+	private var resignObserver: (any NSObjectProtocol)?
 	private var permissionTimer: Timer?
 	private var rescanTimer: Timer?
 	private var pendingRefreshes: Set<UInt32> = []
@@ -85,6 +86,8 @@ public final class WindowTracker {
 		let center = NSWorkspace.shared.notificationCenter
 		workspaceObservers.forEach(center.removeObserver)
 		workspaceObservers = []
+		resignObserver.map(NotificationCenter.default.removeObserver)
+		resignObserver = nil
 
 		for pid in Array(apps.keys) {
 			remove(pid)
@@ -128,6 +131,13 @@ public final class WindowTracker {
 		on(NSWorkspace.didTerminateApplicationNotification) { [weak self] in self?.remove($0.processIdentifier) }
 		on(NSWorkspace.didHideApplicationNotification) { [weak self] in self?.refreshWindows(of: $0) }
 		on(NSWorkspace.didUnhideApplicationNotification) { [weak self] in self?.refreshWindows(of: $0) }
+		// Back to no Dock icon once another app is in front; see focusNothing.
+		resignObserver = NotificationCenter.default.addObserver(
+			forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+		) { _ in
+			MainActor.assumeIsolated { _ = NSApp.setActivationPolicy(.accessory) }
+		}
+
 		on(NSWorkspace.didActivateApplicationNotification) { [weak self] app in
 			self?.apps[app.processIdentifier]?.rescan()
 			self?.updateFocus()
@@ -358,39 +368,45 @@ public final class WindowTracker {
 		return AX.string(element, kAXRoleAttribute) == kAXScrollAreaRole && AX.element(element, kAXWindowAttribute) == nil
 	}
 
-	/// Puts the desktop in focus, the way a click on it does: Finder in front with its desktop
-	/// window key rather than any window of its own. The menu bar then shows Finder's menus
-	/// instead of going blank.
-	public func focusDesktop() {
-		guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: Self.finder).first else {
-			return
-		}
-
-		let pid = finder.processIdentifier
-		if let desktop = Self.desktopWindow(of: pid) {
-			AX.focus(pid: pid, window: desktop)
-		}
-
-		// The desktop's own element, focused too, so AX agrees that no window has focus.
-		if let observer = apps[pid], let area = AX.elements(observer.element, kAXChildrenAttribute).first(where: {
-			AX.string($0, kAXRoleAttribute) == kAXScrollAreaRole
-		}) {
-			AXUIElementSetAttributeValue(area, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-		}
-
-		updateFocus()
+	/// Leaves no window in focus, for an empty workspace: kumiko itself comes forward. Its menu
+	/// takes over the menu bar, and Finder, hidden along with its windows on other workspaces,
+	/// stays hidden, which it would not if the desktop got focus.
+	public func focusNothing() {
+		// macOS gives the menu bar only to apps with a Dock icon; kumiko has one while in front.
+		NSApp.setActivationPolicy(.regular)
+		AX.bringForward(pid: getpid())
+		setFocus(nil)
 	}
 
-	/// Finder's desktop window: its window at the level of the desktop icons.
-	private static func desktopWindow(of pid: pid_t) -> CGWindowID? {
-		let level = Int(CGWindowLevelForKey(.desktopIconWindow))
-		guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
-			return nil
-		}
+	/// Whether a point is on the empty desktop: Finder's desktop window on top there, and no icon
+	/// under it.
+	static func isEmptyDesktop(at point: CGPoint) -> Bool {
+		guard
+			let finder = NSRunningApplication.runningApplications(withBundleIdentifier: finder).first,
+			let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+		else { return false }
 
-		return list.first {
-			($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) && ($0[kCGWindowLayer as String] as? Int) == level
-		}.flatMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
+		// Front to back, past the windows that let clicks through, like the border overlay. Other
+		// windows of kumiko's, the bar or the About panel, take the click themselves.
+		let clickThrough = Set(NSApp.windows.filter(\.ignoresMouseEvents).map { $0.windowNumber })
+		let top = list.first {
+			guard
+				($0[kCGWindowNumber as String] as? Int).map({ !clickThrough.contains($0) }) ?? true,
+				let bounds = $0[kCGWindowBounds as String].flatMap({ CGRect(dictionaryRepresentation: $0 as! CFDictionary) })
+			else { return false }
+			return bounds.contains(point)
+		}
+		guard
+			(top?[kCGWindowOwnerPID as String] as? Int).map(pid_t.init) == finder.processIdentifier,
+			top?[kCGWindowLayer as String] as? Int == Int(CGWindowLevelForKey(.desktopIconWindow))
+		else { return false }
+
+		// Asked of Finder itself: system-wide, the hit lands on kumiko's border overlay.
+		var element: AXUIElement?
+		let app = AXUIElementCreateApplication(finder.processIdentifier)
+		guard AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y), &element) == .success, let element
+		else { return true }
+		return [kAXGroupRole, kAXScrollAreaRole].contains(AX.string(element, kAXRoleAttribute))
 	}
 
 	private func setFocus(_ id: UInt32?) {

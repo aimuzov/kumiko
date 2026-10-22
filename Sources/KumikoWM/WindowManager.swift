@@ -45,6 +45,7 @@ public final class WindowManager {
 	private var dragged: Set<UInt32> = []
 	private var dragCheckScheduled = false
 	private var observers: [(NotificationCenter, any NSObjectProtocol)] = []
+	private let desktopClicks = DesktopClicks()
 
 	private struct EligibilityKey: Equatable {
 		let isManaged: Bool
@@ -74,6 +75,28 @@ public final class WindowManager {
 	public func start() {
 		bus.subscribe { [weak self] event in self?.handle(event) }
 		observe(NotificationCenter.default, NSApplication.didChangeScreenParametersNotification)
+
+		let center = NSWorkspace.shared.notificationCenter
+		let token = center.addObserver(forName: NSWorkspace.didUnhideApplicationNotification, object: nil, queue: .main) {
+			[weak self] notification in
+			guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+			MainActor.assumeIsolated { self?.rehide(app) }
+		}
+		observers.append((center, token))
+
+		desktopClicks.shouldSwallow = { [weak self] point in
+			guard let self, self.isFinderHidden, WindowTracker.isEmptyDesktop(at: point) else { return false }
+			// The tap waits for this answer; focus can move a moment later.
+			DispatchQueue.main.async { MainActor.assumeIsolated { self.tracker.focusNothing() } }
+			return true
+		}
+		desktopClicks.start()
+	}
+
+	private var isFinderHidden: Bool {
+		hiddenApps.contains {
+			NSRunningApplication(processIdentifier: $0)?.bundleIdentifier == WindowTracker.finder
+		}
 	}
 
 	public func apply(_ config: Config) {
@@ -469,6 +492,12 @@ public final class WindowManager {
 			// because another of their windows is on screen, go to the corner.
 			hideApps()
 
+			// Hiding the app that was in front lets macOS pick the next one, which on an empty
+			// workspace is loginwindow and a blank menu bar.
+			if let focused = focusedWorkspace, windowToFocus(in: focused) == nil {
+				tracker.focusNothing()
+			}
+
 			for workspace in workspaces where !isVisible(workspace) {
 				hide(workspace, displays: displays)
 			}
@@ -483,16 +512,26 @@ public final class WindowManager {
 		guard config.wm.hideApps else { return }
 
 		for (pid, shown) in appVisibility() where !shown && !hiddenApps.contains(pid) {
-			// Finder is the desktop: hiding it takes the desktop icons along and leaves an empty
-			// workspace with nothing in front. Its windows wait in the corner like any others.
-			guard
-				let app = NSRunningApplication(processIdentifier: pid), !app.isHidden,
-				app.bundleIdentifier != WindowTracker.finder
-			else { continue }
+			guard let app = NSRunningApplication(processIdentifier: pid), !app.isHidden else { continue }
 
 			hiddenApps.insert(pid)
 			autoSwitchPausedUntil = Date().addingTimeInterval(0.5)
 			app.hide()
+		}
+	}
+
+	/// An app kumiko hid came back on its own, with no window on a shown workspace: a click on the
+	/// desktop does that to Finder, and macOS pulls its windows from the corner onto the screen.
+	/// It goes back into hiding, and kumiko keeps focus on the empty workspace.
+	private func rehide(_ app: NSRunningApplication) {
+		// unhideApps forgets the apps it unhides first, so one still listed came back by itself.
+		guard hiddenApps.contains(app.processIdentifier), appVisibility()[app.processIdentifier] == false else { return }
+
+		autoSwitchPausedUntil = Date().addingTimeInterval(0.5)
+		app.hide()
+
+		if let focused = focusedWorkspace, windowToFocus(in: focused) == nil {
+			tracker.focusNothing()
 		}
 	}
 
@@ -919,7 +958,7 @@ public final class WindowManager {
 		} else {
 			arrange()
 			bus.publish(.workspacesChanged)
-			if let next = windowToFocus(in: current) { tracker.focus(next) } else { tracker.focusDesktop() }
+			if let next = windowToFocus(in: current) { tracker.focus(next) } else { tracker.focusNothing() }
 		}
 
 		return .success()
@@ -1045,7 +1084,7 @@ public final class WindowManager {
 		case let ("focus", target?):
 			guard let workspace = resolve(target, from: current) else { return .failure("no workspace \(target)") }
 			show(workspace)
-			if let id = windowToFocus(in: workspace) { tracker.focus(id) } else { tracker.focusDesktop() }
+			if let id = windowToFocus(in: workspace) { tracker.focus(id) } else { tracker.focusNothing() }
 			return .success()
 		case ("balance", _):
 			current.tree.balance()
