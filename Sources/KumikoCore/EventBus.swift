@@ -19,6 +19,10 @@ public enum Event: Sendable, Equatable {
 
 	/// The hotkey mode changed; "default" when no mode is on.
 	case hotkeyModeChanged(String)
+
+	/// The Vim mode in the focused text field: "N", "I", "V", "C" or "_" (operator pending), nil
+	/// when Vim is not in a text field. `commandLine` is what is typed after ":".
+	case vimModeChanged(mode: String?, commandLine: String?)
 }
 
 /// In-process publish/subscribe between modules. It lives on the main actor because every

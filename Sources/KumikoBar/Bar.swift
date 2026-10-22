@@ -129,6 +129,9 @@ public final class Bar {
 		switch event {
 		case let .hotkeyModeChanged(mode):
 			model.mode = mode
+		case let .vimModeChanged(mode, commandLine):
+			model.vimMode = mode
+			model.vimCommandLine = commandLine
 		case .windowFrameChanged:
 			break
 		default:

@@ -8,6 +8,7 @@ public struct Config: Equatable, Sendable {
 	public var hotkeys = Hotkeys()
 	public var bar = Bar()
 	public var borders = Borders()
+	public var vim = Vim()
 	/// `[[workspace]]` entries in file order. Empty means the default set: "1"…"9" on the main display.
 	public var workspaces: [Workspace] = []
 
@@ -180,6 +181,29 @@ public struct Config: Equatable, Sendable {
 		private enum CodingKeys: String, CodingKey {
 			case enabled, position, height, padding, font, left, right, colors, input, shell
 			case fontSize = "font_size"
+		}
+	}
+
+	/// `[vim]`: Vim modes in any text field, the way SketchyVim does them.
+	public struct Vim: Equatable, Sendable, Decodable {
+		/// Off unless asked for: it changes what escape does in every text field.
+		public var enabled = false
+		/// Apps where Vim stays out of the way: terminals and editors with their own Vim.
+		public var blacklist: [String] = []
+		/// Vim commands run at start, svimrc style: `["set langmap=..."]`.
+		public var commands: [String] = []
+
+		public init() {}
+
+		public init(from decoder: any Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+			blacklist = try container.decodeIfPresent([String].self, forKey: .blacklist) ?? []
+			commands = try container.decodeIfPresent([String].self, forKey: .commands) ?? []
+		}
+
+		private enum CodingKeys: String, CodingKey {
+			case enabled, blacklist, commands
 		}
 	}
 
@@ -470,10 +494,11 @@ extension Config: Decodable {
 		bar = try container.decodeIfPresent(Bar.self, forKey: .bar) ?? Bar()
 		borders = try container.decodeIfPresent(Borders.self, forKey: .borders) ?? Borders()
 		workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []
+		vim = try container.decodeIfPresent(Vim.self, forKey: .vim) ?? Vim()
 	}
 
 	private enum CodingKeys: String, CodingKey {
-		case wm, hotkeys, bar, borders
+		case wm, hotkeys, bar, borders, vim
 		case workspaces = "workspace"
 	}
 }

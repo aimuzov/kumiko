@@ -18,6 +18,9 @@ configuration=${1:-release}
 root=$(cd "$(dirname "$0")/.." && pwd)
 app="$root/dist/Kumiko.app"
 
+# The vim module links libvim, which SwiftPM cannot build itself.
+"$root/scripts/libvim.sh" >/dev/null
+
 version=$(sed -n 's/.*static let version = "\(.*\)".*/\1/p' "$root/Sources/KumikoCore/Version.swift")
 identifier=$(sed -n 's/.*static let bundleIdentifier = "\(.*\)".*/\1/p' "$root/Sources/KumikoCore/Version.swift")
 

@@ -16,6 +16,10 @@ public final class Hotkeys {
 	private var permissionTimer: Timer?
 
 	public var mode: String { engine.mode }
+
+	/// Gets every key event the hotkeys pass on, with whether it is a press; returning true
+	/// swallows it. Vim modes sit here, behind the hotkeys.
+	public var passthrough: (@MainActor (CGEvent, Bool) -> Bool)?
 	public var isRunning: Bool { tap != nil }
 
 	/// `run` executes a kumiko command, the same way the CLI does.
@@ -119,7 +123,7 @@ public final class Hotkeys {
 
 		switch decision {
 		case .pass:
-			return true
+			return !(passthrough?(event, type == .keyDown) ?? false)
 		case .swallow:
 			return false
 		case let .remap(keyCode, modifiers):

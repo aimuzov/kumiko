@@ -2,6 +2,9 @@
 
 import PackageDescription
 
+/// Built by scripts/libvim.sh from the libvim submodule; SwiftPM only links it.
+let libvimDirectory = Context.packageDirectory + "/Vendor/build"
+
 let package = Package(
 	name: "kumiko",
 	platforms: [.macOS(.v14)],
@@ -30,12 +33,27 @@ let package = Package(
 			dependencies: ["KumikoCore"]
 		),
 		.target(
+			name: "CLibvim",
+			linkerSettings: [
+				.unsafeFlags(["-L\(libvimDirectory)"]),
+				.linkedLibrary("vim"),
+				.linkedLibrary("ncurses"),
+				.linkedLibrary("iconv"),
+				.linkedFramework("Carbon"),
+				.linkedFramework("Cocoa"),
+			]
+		),
+		.target(
+			name: "KumikoVim",
+			dependencies: ["KumikoCore", "CLibvim"]
+		),
+		.target(
 			name: "KumikoBar",
 			dependencies: ["KumikoCore", "KumikoWM"]
 		),
 		.executableTarget(
 			name: "KumikoApp",
-			dependencies: ["KumikoCore", "KumikoWM", "KumikoHotkeys", "KumikoBorders", "KumikoBar"]
+			dependencies: ["KumikoCore", "KumikoWM", "KumikoHotkeys", "KumikoBorders", "KumikoBar", "KumikoVim"]
 		),
 		// The product is called `kumiko`, the target is not: macOS file systems are case-insensitive,
 		// so a `kumiko` target next to `KumikoApp`'s module would fight over the same build paths.
@@ -54,6 +72,10 @@ let package = Package(
 		.testTarget(
 			name: "KumikoHotkeysTests",
 			dependencies: ["KumikoHotkeys"]
+		),
+		.testTarget(
+			name: "KumikoVimTests",
+			dependencies: ["KumikoVim"]
 		),
 	]
 )

@@ -38,6 +38,9 @@ final class BarModel {
 	var battery: Battery.State?
 	var isCaffeinated = false
 	var inputSource: String?
+	/// The Vim mode of the focused text field, nil outside one, and the command being typed.
+	var vimMode: String?
+	var vimCommandLine: String?
 	var shell: [String: String] = [:]
 	/// Called when a workspace entry is clicked.
 	var focusWorkspace: (String) -> Void = { _ in }

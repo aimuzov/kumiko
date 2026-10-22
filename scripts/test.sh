@@ -5,6 +5,9 @@
 
 set -eu
 
+# The vim module links libvim, which SwiftPM cannot build itself.
+"$(dirname "$0")/libvim.sh"
+
 plugins="$(xcode-select -p)/usr/lib/swift/host/plugins/testing"
 
 if [ -d "$plugins" ]; then

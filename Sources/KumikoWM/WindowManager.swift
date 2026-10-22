@@ -207,7 +207,7 @@ public final class WindowManager {
 			if !isVisible(workspace), Date() > autoSwitchPausedUntil {
 				show(workspace)
 			}
-		case .configReloaded, .workspacesChanged, .hotkeyModeChanged:
+		case .configReloaded, .workspacesChanged, .hotkeyModeChanged, .vimModeChanged:
 			break
 		}
 	}

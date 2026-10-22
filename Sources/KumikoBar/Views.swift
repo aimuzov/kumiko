@@ -223,14 +223,38 @@ private struct BatteryItem: View {
 	}
 }
 
+/// The keyboard layout, and in a text field with Vim on, the Vim mode as a coloured badge with the
+/// command being typed after it, as the sketchybar input item showed SketchyVim's.
 private struct InputItem: View {
 	let model: BarModel
 
+	private static let vimGlyphs = ["N": "􀀞", "I": "􀀔", "V": "􀀮", "C": "􀀈", "_": "􀍷"]
+
 	var body: some View {
-		Pill {
-			Text(model.inputSource.flatMap { model.config.input[$0] } ?? "􀁝")
-				.font(Font(BarFont.text(model.config, scale: 17 / 14)))
+		let colors = model.config.colors
+		let layout = model.inputSource.flatMap { model.config.input[$0] } ?? "􀁝"
+		let tints = ["N": colors.blue, "I": colors.green, "V": colors.magenta, "C": colors.orange, "_": colors.magenta]
+		let font = Font(BarFont.text(model.config, scale: 17 / 14))
+
+		if let mode = model.vimMode, let glyph = Self.vimGlyphs[mode] {
+			Pill(color: tints[mode] ?? colors.grey) {
+				HStack(spacing: 3) {
+					Text(glyph)
+					Text(layout)
+					if mode == "C", let command = model.vimCommandLine {
+						Text(Self.vimGlyphs["C"]!)
+						Text(command).font(Font(BarFont.text(model.config)))
+					}
+				}
+				.font(font)
+				.foregroundStyle(Color(colors.black))
+				.shadow(radius: 0)
 				.padding(.horizontal, 3)
+			}
+		} else {
+			Pill {
+				Text(layout).font(font).padding(.horizontal, 3)
+			}
 		}
 	}
 }

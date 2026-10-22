@@ -1,0 +1,3 @@
+[submodule "Vendor/libvim"]
+	path = Vendor/libvim
+	url = https://github.com/FelixKratz/libvim
