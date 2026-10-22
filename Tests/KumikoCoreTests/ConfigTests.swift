@@ -107,4 +107,36 @@ struct ConfigTests {
 		#expect(config.wm.gap == 8)
 		#expect(config.wm.padding == Insets(all: 8))
 	}
+
+	@Test func workspacesKeepFileOrderAndDefaults() throws {
+		let config = try Config.parse("""
+			[[workspace]]
+			name = "Code"
+			display = "external"
+			apps = ["Ghostty", "Code"]
+
+			[[workspace]]
+			name = "Social"
+			apps = ["Time", "Telegram"]
+			last = ["Telegram"]
+			share = { Time = 0.7 }
+			""")
+
+		#expect(config.workspaces == [
+			Config.Workspace(name: "Code", display: "external", apps: ["Ghostty", "Code"]),
+			Config.Workspace(name: "Social", apps: ["Time", "Telegram"], last: ["Telegram"], share: ["Time": 0.7]),
+		])
+	}
+
+	@Test func duplicateWorkspaceNameIsAnError() {
+		#expect(throws: ConfigError.invalid("workspace \"Code\" is defined twice")) {
+			try Config.parse("[[workspace]]\nname = \"Code\"\n[[workspace]]\nname = \"Code\"")
+		}
+	}
+
+	@Test func badWorkspacePatternIsAnError() {
+		#expect(throws: ConfigError.invalid("workspace \"Web\": bad pattern \"Arc(\"")) {
+			try Config.parse("[[workspace]]\nname = \"Web\"\napps = [\"Arc(\"]")
+		}
+	}
 }

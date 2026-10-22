@@ -16,6 +16,7 @@ public final class WindowTracker {
 	private var apps: [pid_t: AppObserver] = [:]
 	private var workspaceObservers: [any NSObjectProtocol] = []
 	private var permissionTimer: Timer?
+	private var rescanTimer: Timer?
 
 	public init(bus: EventBus, config: Config.WM) {
 		self.bus = bus
@@ -57,11 +58,24 @@ public final class WindowTracker {
 		}
 
 		updateFocus()
+
+		rescanTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+			MainActor.assumeIsolated { self?.rescan() }
+		}
+	}
+
+	/// Reads every app's window list again for windows that slipped past the AX notifications.
+	public func rescan() {
+		for observer in apps.values {
+			observer.rescan()
+		}
 	}
 
 	public func stop() {
 		permissionTimer?.invalidate()
 		permissionTimer = nil
+		rescanTimer?.invalidate()
+		rescanTimer = nil
 
 		guard isRunning else { return }
 		isRunning = false
@@ -112,7 +126,16 @@ public final class WindowTracker {
 		on(NSWorkspace.didTerminateApplicationNotification) { [weak self] in self?.remove($0.processIdentifier) }
 		on(NSWorkspace.didHideApplicationNotification) { [weak self] in self?.refreshWindows(of: $0) }
 		on(NSWorkspace.didUnhideApplicationNotification) { [weak self] in self?.refreshWindows(of: $0) }
-		on(NSWorkspace.didActivateApplicationNotification) { [weak self] _ in self?.updateFocus() }
+		on(NSWorkspace.didActivateApplicationNotification) { [weak self] app in
+			self?.apps[app.processIdentifier]?.rescan()
+			self?.updateFocus()
+		}
+
+		let token = center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) {
+			[weak self] _ in
+			MainActor.assumeIsolated { self?.rescan() }
+		}
+		workspaceObservers.append(token)
 	}
 
 	/// Only regular apps — the ones with a Dock icon — have windows worth arranging. Agents and
@@ -223,6 +246,7 @@ public final class WindowTracker {
 			frame: frame,
 			isMinimized: AX.bool(element, kAXMinimizedAttribute) ?? false,
 			isHidden: observer.app.isHidden,
+			isFullscreen: AX.bool(element, "AXFullScreen") ?? false,
 			isManaged: rules.isManaged(app: app, title: title, subrole: subrole)
 		)
 	}
@@ -235,8 +259,8 @@ public final class WindowTracker {
 	}
 
 	public func focus(_ id: UInt32) {
-		guard let (element, app) = elements(of: id) else { return }
-		AX.focus(element, app: app)
+		guard let (element, app) = elements(of: id), let pid = windows[id]?.pid else { return }
+		AX.focus(element, app: app, pid: pid, id: id)
 	}
 
 	@discardableResult

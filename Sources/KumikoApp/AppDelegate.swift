@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var configError: ConfigError?
 
 	private(set) var tracker: WindowTracker?
-	private(set) var layout: LayoutController?
+	private(set) var manager: WindowManager?
 
 	private var server: IPCServer?
 	private var watcher: ConfigWatcher?
@@ -47,19 +47,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		}
 
 		let tracker = WindowTracker(bus: bus, config: config.wm)
-		let layout = LayoutController(bus: bus, tracker: tracker, config: config.wm)
+		let manager = WindowManager(bus: bus, tracker: tracker, config: config)
 		self.tracker = tracker
-		self.layout = layout
+		self.manager = manager
 
 		bus.subscribe { event in
 			if case let .configReloaded(config) = event {
 				tracker.apply(config.wm)
-				layout.apply(config.wm)
+				manager.apply(config)
 			}
 		}
 
-		// The layout listens before the tracker starts, so it sees the windows that are already open.
-		layout.start()
+		// The manager listens before the tracker starts, so it sees the windows that are already open.
+		manager.start()
 		tracker.start()
 
 		statusMenu = StatusMenu(app: self)
@@ -71,6 +71,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	func applicationWillTerminate(_ notification: Notification) {
 		server?.stop()
 		watcher?.stop()
+		// Windows of hidden workspaces sit in a screen corner; quitting must not leave them there.
+		manager?.showEverything()
 		tracker?.stop()
 	}
 

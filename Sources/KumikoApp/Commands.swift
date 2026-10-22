@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import KumikoCore
 
 /// Answers the CLI. Each command is a word followed by its arguments, the way it was typed.
@@ -12,6 +12,10 @@ struct Commands {
 			return .success("pong")
 		case "version":
 			return .success(Kumiko.version)
+		case "quit":
+			// After the reply is on its way: terminating right here would cut the CLI off mid-answer.
+			DispatchQueue.main.async { NSApp.terminate(nil) }
+			return .success()
 		case "reload":
 			switch app.reloadConfig() {
 			case .success: return .success()
@@ -22,8 +26,8 @@ struct Commands {
 		case "query":
 			return query(Array(args.dropFirst()))
 		case "window", "workspace":
-			guard let layout = app.layout else { return .failure("window management is not running") }
-			return layout.handle(args)
+			guard let manager = app.manager else { return .failure("window management is not running") }
+			return manager.handle(args)
 		case let command?:
 			return .failure("unknown command: \(command)")
 		case nil:
@@ -37,20 +41,25 @@ struct Commands {
 		switch args.first {
 		case "windows":
 			return json(tracker.sortedWindows.map(describe))
+		case "workspaces":
+			return json(app.manager?.workspaceStates ?? [])
+		case "displays":
+			return json(app.manager?.displayStates ?? [])
 		case "focused":
 			guard let id = tracker.focusedWindowID, let window = tracker.windows[id] else {
 				return .failure("no focused window")
 			}
 			return json(describe(window))
 		default:
-			return .failure("usage: kumiko query windows|focused")
+			return .failure("usage: kumiko query windows|focused|workspaces|displays")
 		}
 	}
 
 	private func describe(_ window: WindowInfo) -> QueriedWindow {
-		let state = app.layout?.state(of: window.id) ?? (isFloating: true, stackIndex: 0, zoom: nil)
+		let state = app.manager?.state(of: window.id) ?? (isFloating: true, stackIndex: 0, zoom: nil, workspace: nil)
 		return QueriedWindow(
-			window: window, isFloating: state.isFloating, stackIndex: state.stackIndex, zoom: state.zoom
+			window: window, isFloating: state.isFloating, stackIndex: state.stackIndex, zoom: state.zoom,
+			workspace: state.workspace
 		)
 	}
 
@@ -81,6 +90,11 @@ struct Commands {
 				? "\(tracker.windows.count) windows, \(managed) managed"
 				: config.wm.enabled ? "waiting for Accessibility" : "off"
 			lines.append("  windows: \(state)")
+
+			if let extra = app.manager?.extraNativeSpaces {
+				lines.append("  warning: \(extra) extra native Space(s); kumiko expects one per display,")
+				lines.append("           remove the rest in Mission Control or their windows cannot be shown")
+			}
 		}
 
 		lines += ["", "permissions:"]
@@ -102,6 +116,7 @@ private struct QueriedWindow: Encodable {
 	/// 1-based position in a stack, 0 when the window is not stacked.
 	let stackIndex: Int
 	let zoom: String?
+	let workspace: String?
 
 	func encode(to encoder: any Encoder) throws {
 		// Both write into the same JSON object, so the layout fields sit next to the window's own.
@@ -111,9 +126,10 @@ private struct QueriedWindow: Encodable {
 		try container.encode(isFloating, forKey: .isFloating)
 		try container.encode(stackIndex, forKey: .stackIndex)
 		try container.encode(zoom, forKey: .zoom)
+		try container.encode(workspace, forKey: .workspace)
 	}
 
 	private enum CodingKeys: String, CodingKey {
-		case isFloating, stackIndex, zoom
+		case isFloating, stackIndex, zoom, workspace
 	}
 }

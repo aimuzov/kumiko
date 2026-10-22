@@ -11,11 +11,12 @@ let usage = """
 	  ping       check that kumiko is running
 	  status     show modules and permissions
 	  reload     reread kumiko.toml
-	  query windows|focused
-	             print windows as JSON
+	  query windows|focused|workspaces|displays
+	             print state as JSON
 
 	  window focus west|east|north|south|first|last|recent|stack-next|stack-prev
 	  window warp west|east|north|south|first|last
+	  window move <workspace>|<n>|next|prev [--focus]
 	  window resize left|right|top|bottom <points>
 	  window ratio <0…1>
 	  window float [--grid rows:cols:x:y:width:height]
@@ -24,10 +25,12 @@ let usage = """
 	  window unstack
 	  window close
 
+	  workspace focus <name>|<n>|next|prev|recent
 	  workspace balance
 	  workspace rotate 90|180|270
 	  workspace mirror horizontal|vertical
 	  version    print the version of the running app
+	  quit       quit the app, putting hidden windows back on screen
 
 	  --version  print the version of this CLI
 	"""

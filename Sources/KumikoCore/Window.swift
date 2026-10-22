@@ -14,11 +14,13 @@ public struct WindowInfo: Codable, Equatable, Sendable {
 	public var isMinimized: Bool
 	/// The app is hidden (cmd-h), so the window is not on screen though it still exists.
 	public var isHidden: Bool
+	/// In macOS native full screen: the window has a native Space of its own and is left alone.
+	public var isFullscreen: Bool
 	public var isManaged: Bool
 
 	public init(
 		id: UInt32, pid: Int32, app: String, bundleID: String?, title: String, subrole: String?,
-		frame: CGRect, isMinimized: Bool, isHidden: Bool, isManaged: Bool
+		frame: CGRect, isMinimized: Bool, isHidden: Bool, isFullscreen: Bool, isManaged: Bool
 	) {
 		self.id = id
 		self.pid = pid
@@ -29,6 +31,7 @@ public struct WindowInfo: Codable, Equatable, Sendable {
 		self.frame = frame
 		self.isMinimized = isMinimized
 		self.isHidden = isHidden
+		self.isFullscreen = isFullscreen
 		self.isManaged = isManaged
 	}
 }

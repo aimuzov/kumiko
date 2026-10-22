@@ -63,6 +63,15 @@ final class AppObserver {
 		CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
 		self.observer = observer
 
+		rescan()
+	}
+
+	/// Picks up windows kumiko has not seen yet. AX announces a new window but not one that arrives
+	/// from another native Space (when that Space is removed, say), so the list is read again now
+	/// and then; windows already watched are skipped.
+	func rescan() {
+		guard observer != nil else { return }
+
 		for window in AX.elements(element, kAXWindowsAttribute) {
 			tracker?.windowAppeared(window, in: self)
 		}

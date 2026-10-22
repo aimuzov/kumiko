@@ -8,8 +8,59 @@ public struct Config: Equatable, Sendable {
 	public var hotkeys = Module()
 	public var bar = Module()
 	public var borders = Module()
+	/// `[[workspace]]` entries in file order. Empty means the default set: "1"…"9" on the main display.
+	public var workspaces: [Workspace] = []
 
 	public init() {}
+
+	/// One `[[workspace]]`: a virtual desktop with its own layout, shown on one display at a time.
+	public struct Workspace: Equatable, Sendable, Decodable {
+		public var name: String
+		/// Which screen it lives on: `main`, `builtin`, `external`, or part of a screen's name.
+		/// A screen that is not attached falls back to the main one.
+		public var display: String
+		/// Patterns for app names (whole name, like `[[wm.rule]]`) whose windows open here. When
+		/// several workspaces match an app, the first one in the file wins.
+		public var apps: [String]
+		/// Windows of apps no workspace names open here. Without a default workspace they open on
+		/// the workspace shown where they appear.
+		public var isDefault: Bool
+		/// Apps whose windows on this workspace are always kept in one stack.
+		public var stack: [String]
+		/// Apps whose window is always moved to the last place of the layout.
+		public var last: [String]
+		/// The share of its split a window of the app gets when it joins the layout.
+		public var share: [String: Double]
+
+		public init(
+			name: String, display: String = "main", apps: [String] = [], isDefault: Bool = false, stack: [String] = [],
+			last: [String] = [], share: [String: Double] = [:]
+		) {
+			self.name = name
+			self.display = display
+			self.apps = apps
+			self.isDefault = isDefault
+			self.stack = stack
+			self.last = last
+			self.share = share
+		}
+
+		public init(from decoder: any Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			name = try container.decode(String.self, forKey: .name)
+			display = try container.decodeIfPresent(String.self, forKey: .display) ?? "main"
+			apps = try container.decodeIfPresent([String].self, forKey: .apps) ?? []
+			isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+			stack = try container.decodeIfPresent([String].self, forKey: .stack) ?? []
+			last = try container.decodeIfPresent([String].self, forKey: .last) ?? []
+			share = try container.decodeIfPresent([String: Double].self, forKey: .share) ?? [:]
+		}
+
+		private enum CodingKeys: String, CodingKey {
+			case name, display, apps, stack, last, share
+			case isDefault = "default"
+		}
+	}
 
 	/// A `[section]` of a module that has no keys of its own yet: it only says whether the module runs.
 	public struct Module: Equatable, Sendable, Decodable {
@@ -79,16 +130,30 @@ public struct Config: Equatable, Sendable {
 		// Patterns are checked here, not when a window shows up, so a typo in one is reported on save
 		// instead of silently never matching.
 		for (index, rule) in config.wm.rules.enumerated() {
-			for pattern in [rule.app, rule.title].compactMap(\.self) {
-				do {
-					_ = try NSRegularExpression(pattern: pattern)
-				} catch {
-					throw ConfigError.invalid("wm.rule #\(index + 1): bad pattern \"\(pattern)\"")
-				}
+			try checkPatterns([rule.app, rule.title].compactMap(\.self), in: "wm.rule #\(index + 1)")
+		}
+
+		var names = Set<String>()
+
+		for workspace in config.workspaces {
+			guard !workspace.name.isEmpty else { throw ConfigError.invalid("workspace: empty name") }
+			guard names.insert(workspace.name).inserted else {
+				throw ConfigError.invalid("workspace \"\(workspace.name)\" is defined twice")
 			}
+			try checkPatterns(workspace.apps, in: "workspace \"\(workspace.name)\"")
 		}
 
 		return config
+	}
+
+	private static func checkPatterns(_ patterns: [String], in place: String) throws(ConfigError) {
+		for pattern in patterns {
+			do {
+				_ = try NSRegularExpression(pattern: pattern)
+			} catch {
+				throw ConfigError.invalid("\(place): bad pattern \"\(pattern)\"")
+			}
+		}
 	}
 
 	/// A missing file is the default configuration, not an error: kumiko must start on a machine
@@ -201,10 +266,12 @@ extension Config: Decodable {
 		hotkeys = try container.decodeIfPresent(Module.self, forKey: .hotkeys) ?? Module()
 		bar = try container.decodeIfPresent(Module.self, forKey: .bar) ?? Module()
 		borders = try container.decodeIfPresent(Module.self, forKey: .borders) ?? Module()
+		workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []
 	}
 
 	private enum CodingKeys: String, CodingKey {
 		case wm, hotkeys, bar, borders
+		case workspaces = "workspace"
 	}
 }
 

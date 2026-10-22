@@ -13,8 +13,10 @@ scripts/bundle.sh          # dist/Kumiko.app, release build
 scripts/test.sh            # unit tests
 ```
 
-`KUMIKO_SIGN_IDENTITY="Developer ID Application: …" scripts/bundle.sh` signs for real. Without it
-the bundle is signed ad hoc, and macOS asks for permissions again after every rebuild.
+`KUMIKO_SIGN_IDENTITY="Developer ID Application: …" scripts/bundle.sh` signs for real. For local
+builds run `scripts/dev-certificate.sh` once: it puts a self-signed certificate into the login
+keychain, `bundle.sh` signs with it, and permissions survive rebuilds. Without either the bundle is
+signed ad hoc, and macOS asks for permissions again after every rebuild.
 
 ## Run
 

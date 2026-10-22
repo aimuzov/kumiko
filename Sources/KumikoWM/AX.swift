@@ -57,10 +57,15 @@ enum AX {
 		AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
 	}
 
-	/// Brings the app forward and puts this window on top of it. Activation goes through AX rather
-	/// than NSRunningApplication.activate, which macOS 14+ may refuse to a background app.
-	static func focus(_ window: AXUIElement, app: AXUIElement) {
-		AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+	/// Brings the app forward and makes this window its key window, on top. Goes through SkyLight
+	/// first, the way yabai and AeroSpace do: plain AX activation is ignored by some apps (Chromium
+	/// browsers among them), and NSRunningApplication.activate may be refused to a background app on
+	/// macOS 14+. Without SkyLight it falls back to AX.
+	static func focus(_ window: AXUIElement, app: AXUIElement, pid: pid_t, id: CGWindowID) {
+		if !SkyLight.focus(pid: pid, window: id) {
+			AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+		}
+
 		AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
 		AXUIElementPerformAction(window, kAXRaiseAction as CFString)
 	}
@@ -90,5 +95,58 @@ enum AX {
 	private static func axValue(_ element: AXUIElement, _ attribute: String) -> AXValue? {
 		guard let value = value(element, attribute), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
 		return (value as! AXValue)
+	}
+}
+
+/// Private SkyLight calls for activating a window, looked up at run time. None of them needs SIP;
+/// they are what the Dock and Mission Control use to bring a window forward.
+private enum SkyLight {
+	private typealias GetProcessForPID = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+	private typealias SetFrontProcess = @convention(c) (UnsafePointer<ProcessSerialNumber>, CGWindowID, UInt32) -> CGError
+	private typealias PostEventRecord = @convention(c) (UnsafePointer<ProcessSerialNumber>, UnsafePointer<UInt8>) -> CGError
+
+	private static let functions: (GetProcessForPID, SetFrontProcess, PostEventRecord)? = {
+		guard
+			let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+			let services = dlopen(
+				"/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_LAZY
+			),
+			let getProcess = dlsym(services, "GetProcessForPID"),
+			let setFront = dlsym(skyLight, "_SLPSSetFrontProcessWithOptions"),
+			let post = dlsym(skyLight, "SLPSPostEventRecordTo")
+		else { return nil }
+
+		return (
+			unsafeBitCast(getProcess, to: GetProcessForPID.self),
+			unsafeBitCast(setFront, to: SetFrontProcess.self),
+			unsafeBitCast(post, to: PostEventRecord.self)
+		)
+	}()
+
+	/// Brings the process forward with this window and posts the two event records that make the
+	/// window key. The record layout is WindowServer's and is the one yabai has used for years.
+	static func focus(pid: pid_t, window: CGWindowID) -> Bool {
+		guard let (getProcess, setFront, post) = functions else { return false }
+
+		var psn = ProcessSerialNumber()
+		guard getProcess(pid, &psn) == noErr else { return false }
+
+		// 0x200 marks the activation as user generated, so the app treats it like a click.
+		guard setFront(&psn, window, 0x200) == .success else { return false }
+
+		var bytes = [UInt8](repeating: 0, count: 0xf8)
+		bytes[0x04] = 0xf8
+		bytes[0x3a] = 0x10
+		withUnsafeBytes(of: window) { id in
+			for (offset, byte) in id.enumerated() { bytes[0x3c + offset] = byte }
+		}
+		for offset in 0x20..<0x30 { bytes[offset] = 0xff }
+
+		bytes[0x08] = 0x01
+		_ = post(&psn, bytes)
+		bytes[0x08] = 0x02
+		_ = post(&psn, bytes)
+
+		return true
 	}
 }

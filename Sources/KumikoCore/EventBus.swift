@@ -8,6 +8,9 @@ public enum Event: Sendable, Equatable {
 	case windowDestroyed(id: UInt32)
 	/// `nil` when no window has focus: the desktop, or an app with no windows.
 	case windowFocused(id: UInt32?)
+
+	/// A workspace was shown or hidden, or windows moved between workspaces.
+	case workspacesChanged
 }
 
 /// In-process publish/subscribe between modules. It lives on the main actor because every

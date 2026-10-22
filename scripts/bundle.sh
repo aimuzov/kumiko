@@ -5,9 +5,10 @@
 # permissions both need one. The CLI goes inside the bundle too, next to the app binary, so a
 # Homebrew cask can link it onto the PATH.
 #
-# Signing: set KUMIKO_SIGN_IDENTITY to a Developer ID to sign for real. Without it the bundle is
-# signed ad hoc, which works locally, but macOS ties permissions to the exact build, so every
-# rebuild asks for Accessibility and Input Monitoring again.
+# Signing: KUMIKO_SIGN_IDENTITY names the identity, a Developer ID for a release. Without it the
+# local certificate from scripts/dev-certificate.sh is used when it exists, so permissions survive
+# rebuilds; failing that the bundle is signed ad hoc, and macOS asks for Accessibility and Input
+# Monitoring again after every rebuild.
 #
 # Usage: scripts/bundle.sh [debug|release]
 
@@ -58,7 +59,16 @@ cat >"$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-identity=${KUMIKO_SIGN_IDENTITY:--}
+local_identity="Kumiko Local Development"
+
+if [ -n "${KUMIKO_SIGN_IDENTITY:-}" ]; then
+	identity=$KUMIKO_SIGN_IDENTITY
+elif security find-certificate -c "$local_identity" >/dev/null 2>&1; then
+	identity=$local_identity
+else
+	identity=-
+fi
+
 # The CLI is signed first: signing the bundle seals what is inside it.
 codesign --force --options runtime --sign "$identity" "$app/Contents/MacOS/kumiko"
 codesign --force --options runtime --sign "$identity" "$app"
