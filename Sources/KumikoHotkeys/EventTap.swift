@@ -113,7 +113,7 @@ public final class Hotkeys {
 			isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0
 		)
 
-		let (decision, effects) = engine.handle(keyEvent, frontmostApp: NSWorkspace.shared.frontmostApplication?.localizedName)
+		let (decision, effects) = engine.handle(keyEvent, frontmostApp: Self.frontmostApp())
 
 		if !effects.isEmpty {
 			DispatchQueue.main.async { [weak self] in
@@ -147,6 +147,17 @@ public final class Hotkeys {
 				}
 			}
 		}
+	}
+
+	/// The app keys go to, as the blacklist means it. With every app hidden — an empty workspace
+	/// shown — macOS names loginwindow as frontmost; that is not the login or lock screen a
+	/// blacklisted loginwindow stands for, so it only counts while the screen is locked.
+	private static func frontmostApp() -> String? {
+		let name = NSWorkspace.shared.frontmostApplication?.localizedName
+		guard name == "loginwindow" else { return name }
+
+		let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+		return session?["CGSSessionScreenIsLocked"] as? Bool == true ? name : nil
 	}
 
 	/// `a || b`: runs b only when a fails, the way skhd bindings chain yabai commands.
