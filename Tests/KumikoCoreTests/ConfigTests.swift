@@ -170,4 +170,9 @@ struct ConfigTests {
 			try Config.parse("[hotkeys.bind]\n\"hyper - m\" = \"reload\"")
 		}
 	}
+
+	@Test func hidingAppsIsOnUnlessTurnedOff() throws {
+		#expect(try Config.parse("").wm.hideApps)
+		#expect(try Config.parse("[wm]\nhide_apps = false").wm.hideApps == false)
+	}
 }

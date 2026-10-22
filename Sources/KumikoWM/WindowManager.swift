@@ -20,6 +20,14 @@ public final class WindowManager {
 	private var floating: Set<UInt32> = []
 	/// Windows moved out of sight, with the frame to give back to the ones that are not tiled.
 	private var hidden: [UInt32: CGRect] = [:]
+	/// Apps kumiko hid because all their windows are on hidden workspaces. Apps the user hid are
+	/// not here and are left hidden.
+	private var hiddenApps: Set<pid_t> = []
+	private var hidingScheduled = false
+	private var pendingUnhides: Set<pid_t> = []
+	/// Hiding an app hands focus to some other app, maybe one with a window on another hidden
+	/// workspace; that focus is not the user's and must not switch workspaces.
+	private var autoSwitchPausedUntil = Date.distantPast
 	/// The frame each tiled window was last given, to notice when the user moves one by hand.
 	private var expected: [UInt32: CGRect] = [:]
 	private var placement = Placement([])
@@ -50,10 +58,14 @@ public final class WindowManager {
 		}
 	}
 
-	public init(bus: EventBus, tracker: WindowTracker, config: Config) {
+	private let stateFile: URL?
+
+	/// `stateFile` keeps the shown workspaces across restarts; nil remembers nothing.
+	public init(bus: EventBus, tracker: WindowTracker, config: Config, stateFile: URL? = nil) {
 		self.bus = bus
 		self.tracker = tracker
 		self.config = config
+		self.stateFile = stateFile
 		placement = Placement(config.workspaces)
 	}
 
@@ -81,6 +93,13 @@ public final class WindowManager {
 	/// Puts every hidden window back on screen. Runs on quit and when the module is turned off, so
 	/// windows are never left stranded in a corner.
 	public func showEverything() {
+		saveVisible()
+
+		for pid in hiddenApps {
+			NSRunningApplication(processIdentifier: pid)?.unhide()
+		}
+		hiddenApps = []
+
 		for (id, frame) in hidden {
 			tracker.setFrame(id, frame)
 		}
@@ -171,7 +190,7 @@ public final class WindowManager {
 
 			// Focus landed on a window of a hidden workspace — cmd-tab, a Dock click, a link opening
 			// in a browser — so that workspace comes into view instead of the window staying unseen.
-			if !isVisible(workspace) {
+			if !isVisible(workspace), Date() > autoSwitchPausedUntil {
 				show(workspace)
 			}
 		case .configReloaded, .workspacesChanged, .hotkeyModeChanged:
@@ -230,11 +249,16 @@ public final class WindowManager {
 			}
 		}
 
-		// On the first pass the display with the focused window shows that window's workspace, so
-		// starting kumiko does not hide what the user is looking at.
-		if !hasShownFocusedWorkspace, let id = tracker.focusedWindowID, let workspace = assignment[id] {
-			visible[workspace.display.id] = workspace
-			hasShownFocusedWorkspace = true
+		// On the first pass each display shows what it showed when kumiko last quit. Failing that,
+		// the display with the focused window shows that window's workspace, so starting kumiko does
+		// not hide what the user is looking at.
+		if !hasShownFocusedWorkspace {
+			if restoreVisible(displays) {
+				hasShownFocusedWorkspace = true
+			} else if let id = tracker.focusedWindowID, let workspace = assignment[id] {
+				visible[workspace.display.id] = workspace
+				hasShownFocusedWorkspace = true
+			}
 		}
 
 		for workspace in workspaces {
@@ -314,7 +338,12 @@ public final class WindowManager {
 
 	private func isTiled(_ id: UInt32, in workspace: Workspace) -> Bool {
 		guard let info = tracker.windows[id], assignment[id] === workspace else { return false }
-		return info.isManaged && !info.isMinimized && !info.isHidden && !info.isFullscreen && !floating.contains(id)
+		return info.isManaged && !info.isMinimized && !isHiddenByUser(info) && !info.isFullscreen && !floating.contains(id)
+	}
+
+	/// Hidden by cmd-h, not by kumiko: a window of an app kumiko hid keeps its place in the layout.
+	private func isHiddenByUser(_ info: WindowInfo) -> Bool {
+		info.isHidden && !hiddenApps.contains(info.pid)
 	}
 
 	/// Puts a window into its workspace's layout, then applies the workspace's layout rules.
@@ -338,24 +367,103 @@ public final class WindowManager {
 			tree.swap(pinned, last)
 		}
 
-		// After the swap: a share belongs to the window's final place, not the one it was inserted in.
-		if let share = rules.share[info.app] {
-			tree.setShare(info.id, share)
+		// After the swap, and for every window with a share, not only the newcomer: the window that
+		// has a share may have joined first, when it had no split to take a share of.
+		for id in tree.visibleWindows {
+			if let app = tracker.windows[id]?.app, let share = rules.share[app] {
+				tree.setShare(id, share)
+			}
 		}
 	}
 
 	// MARK: - Arranging
 
 	/// Lays out every visible workspace and moves the windows of the others out of sight.
+	///
+	/// Showing comes first and hiding waits for it: macOS unhides an app a few frames after being
+	/// asked, and hiding the old windows straight away would leave the desktop bare for that long.
 	private func arrange(_ displays: [Display]? = nil) {
 		let displays = displays ?? Display.all()
+		let unhidden = unhideApps()
 
-		for workspace in workspaces {
-			if isVisible(workspace) {
-				layout(workspace)
-			} else {
+		for workspace in workspaces where isVisible(workspace) {
+			layout(workspace)
+		}
+
+		scheduleHiding(displays, after: unhidden)
+	}
+
+	/// For every app with windows: whether one of them is on a shown workspace. Minimized and
+	/// full-screen windows do not count either way, and an app with only those is left alone.
+	private func appVisibility() -> [pid_t: Bool] {
+		var result: [pid_t: Bool] = [:]
+
+		for info in tracker.windows.values where !info.isMinimized && !info.isFullscreen {
+			let shown = assignment[info.id].map(isVisible) ?? true
+			result[info.pid] = (result[info.pid] ?? false) || shown
+		}
+
+		return result
+	}
+
+	/// Unhides the apps kumiko hid that now have a window on a shown workspace; returns them.
+	private func unhideApps() -> Set<pid_t> {
+		let visibility = appVisibility()
+		var unhidden = Set<pid_t>()
+
+		for pid in hiddenApps where visibility[pid] != false || !config.wm.hideApps {
+			hiddenApps.remove(pid)
+			NSRunningApplication(processIdentifier: pid)?.unhide()
+			unhidden.insert(pid)
+		}
+
+		return unhidden
+	}
+
+	/// Hides what is no longer shown once the apps that were unhidden are back on screen, checking
+	/// every frame for at most a fifth of a second. By then focus has also moved to the workspace now
+	/// shown, so hiding the frontmost app does not let macOS pick the next app on its own.
+	private func scheduleHiding(_ displays: [Display], after unhidden: Set<pid_t>) {
+		pendingUnhides.formUnion(unhidden)
+		guard !hidingScheduled else { return }
+		hidingScheduled = true
+
+		func step(_ attempt: Int) {
+			let waiting = pendingUnhides.contains { NSRunningApplication(processIdentifier: $0)?.isHidden == true }
+
+			guard !waiting || attempt >= 12 else {
+				DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) {
+					MainActor.assumeIsolated { step(attempt + 1) }
+				}
+				return
+			}
+
+			hidingScheduled = false
+			pendingUnhides = []
+
+			// Whole apps first, which is instant; then the windows of apps that cannot be hidden,
+			// because another of their windows is on screen, go to the corner.
+			hideApps()
+
+			for workspace in workspaces where !isVisible(workspace) {
 				hide(workspace, displays: displays)
 			}
+		}
+
+		DispatchQueue.main.async {
+			MainActor.assumeIsolated { step(0) }
+		}
+	}
+
+	private func hideApps() {
+		guard config.wm.hideApps else { return }
+
+		for (pid, shown) in appVisibility() where !shown && !hiddenApps.contains(pid) {
+			guard let app = NSRunningApplication(processIdentifier: pid), !app.isHidden else { continue }
+
+			hiddenApps.insert(pid)
+			autoSwitchPausedUntil = Date().addingTimeInterval(0.5)
+			app.hide()
 		}
 	}
 
@@ -379,7 +487,9 @@ public final class WindowManager {
 		let others = displays.filter { $0 != workspace.display }.map(\.frame)
 
 		for id in windows(of: workspace) where hidden[id] == nil {
-			guard let info = tracker.windows[id], !info.isMinimized, !info.isHidden, !info.isFullscreen else { continue }
+			guard let info = tracker.windows[id], !info.isMinimized, !isHiddenByUser(info), !info.isFullscreen else {
+				continue
+			}
 
 			hidden[id] = info.frame
 			let origin = Display.hiddenOrigin(for: info.frame.size, on: workspace.display.frame, others: others)
@@ -412,6 +522,42 @@ public final class WindowManager {
 		)
 	}
 
+	// MARK: - Remembering
+
+	/// Display name to workspace name; names, because display ids can change between runs.
+	private func saveVisible() {
+		guard let stateFile else { return }
+
+		let displays = Display.all()
+		var shown: [String: String] = [:]
+		for display in displays {
+			if let workspace = visible[display.id] { shown[display.name] = workspace.name }
+		}
+
+		try? JSONEncoder().encode(shown).write(to: stateFile, options: .atomic)
+	}
+
+	private func restoreVisible(_ displays: [Display]) -> Bool {
+		guard
+			let stateFile, let data = try? Data(contentsOf: stateFile),
+			let shown = try? JSONDecoder().decode([String: String].self, from: data)
+		else { return false }
+
+		var restored = false
+
+		for display in displays {
+			guard
+				let name = shown[display.name],
+				let workspace = workspaces.first(where: { $0.name == name && $0.display == display })
+			else { continue }
+
+			visible[display.id] = workspace
+			restored = true
+		}
+
+		return restored
+	}
+
 	// MARK: - Switching
 
 	/// Shows a workspace on its display, hiding the one that was there.
@@ -422,6 +568,7 @@ public final class WindowManager {
 		previousWorkspace = visible[display.id]?.name
 		visible[display.id] = workspace
 		arrange()
+		saveVisible()
 		bus.publish(.workspacesChanged)
 	}
 

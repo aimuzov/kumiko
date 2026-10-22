@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		}
 
 		let tracker = WindowTracker(bus: bus, config: config.wm)
-		let manager = WindowManager(bus: bus, tracker: tracker, config: config)
+		let manager = WindowManager(bus: bus, tracker: tracker, config: config, stateFile: paths.state)
 		// Hotkeys run commands exactly as the CLI would, without the socket in between.
 		let hotkeys = Hotkeys(bus: bus, config: config.hotkeys) { commands.handle($0) }
 		self.tracker = tracker

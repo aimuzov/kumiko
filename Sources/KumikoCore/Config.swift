@@ -136,6 +136,9 @@ public struct Config: Equatable, Sendable {
 		public var gap = 8
 		/// Space between the windows and the edges of the screen.
 		public var padding = Insets(all: 8)
+		/// Hide an app (like cmd-h) while none of its windows is on a shown workspace. Its windows
+		/// then leave the screen corner and Mission Control instead of waiting there.
+		public var hideApps = true
 		/// `[[wm.rule]]` entries, in file order; for a given window the last matching one wins.
 		public var rules: [WindowRule] = []
 
@@ -156,11 +159,13 @@ public struct Config: Equatable, Sendable {
 			manage = try container.decodeIfPresent(Bool.self, forKey: .manage) ?? true
 			gap = try container.decodeIfPresent(Int.self, forKey: .gap) ?? 8
 			padding = try container.decodeIfPresent(Insets.self, forKey: .padding) ?? Insets(all: 8)
+			hideApps = try container.decodeIfPresent(Bool.self, forKey: .hideApps) ?? true
 			rules = try container.decodeIfPresent([WindowRule].self, forKey: .rules) ?? []
 		}
 
 		private enum CodingKeys: String, CodingKey {
 			case enabled, manage, gap, padding
+			case hideApps = "hide_apps"
 			case rules = "rule"
 		}
 	}
