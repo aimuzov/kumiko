@@ -43,9 +43,9 @@ public final class Borders {
 		case let .windowFrameChanged(id, frame):
 			follow(id, frame)
 		case let .windowChanged(info) where info.id == focused:
-			// With the WindowServer events on, they already moved the frame; AX only has news when
-			// they are not available.
-			if !WindowServer.isAvailable { update() }
+			// Unhidden, back from a corner, turned into a standard window: any of it may mean the
+			// frame should now show. During a drag the WindowServer events carry the frame instead.
+			if NSEvent.pressedMouseButtons & 1 == 0 || !WindowServer.isAvailable { update() }
 		case let .windowDestroyed(id) where id == focused:
 			focused = nil
 			update()
@@ -59,7 +59,15 @@ public final class Borders {
 	/// A move or resize of the focused window, straight from the WindowServer. Only the frame's
 	/// path changes, so this skips everything `update` checks and reads nothing from the app.
 	private func follow(_ id: UInt32, _ bounds: CGRect) {
-		guard id == focused, let overlay, overlay.isVisible else { return }
+		guard id == focused else { return }
+
+		// A frame that stepped aside because the window was not on screen yet (on its way out of
+		// a corner as its workspace is shown) checks again now that the window moved.
+		guard let overlay, overlay.isVisible else {
+			update()
+			return
+		}
+
 		place(overlay, around: bounds)
 	}
 
@@ -81,7 +89,9 @@ public final class Borders {
 			!info.isMinimized, !info.isHidden, !info.isFullscreen,
 			!config.blacklist.contains(info.app),
 			info.subrole == "AXStandardWindow",
-			Self.isOnScreen(info.frame)
+			// The WindowServer's frame is current; the AX one may still be the corner it left.
+			case let bounds = WindowServer.bounds(of: id) ?? info.frame,
+			Self.isOnScreen(bounds)
 		else {
 			overlay?.orderOut(nil)
 			return
@@ -91,8 +101,7 @@ public final class Borders {
 		self.overlay = overlay
 		overlay.radius = WindowServer.cornerRadius(of: id) ?? config.radius
 
-		// The WindowServer's frame is current; the AX one may be a step behind.
-		place(overlay, around: WindowServer.bounds(of: id) ?? info.frame)
+		place(overlay, around: bounds)
 		overlay.order(.above, relativeTo: Int(id))
 	}
 
