@@ -72,15 +72,20 @@ private struct WorkspacesItem: View {
 
 		HStack(spacing: 2) {
 			ForEach(shown) { workspace in
+				// The workspace on screen in the text colour with its icons in colour; the others grey,
+				// their icons in greyscale.
 				HStack(spacing: 5) {
 					Text("\(workspace.index)").monospacedDigit()
 
 					if workspace.apps.isEmpty {
-						Text(workspace.name).foregroundStyle(.secondary)
+						Text(workspace.name)
 					} else {
 						AppIcons(apps: workspace.apps)
+							.grayscale(workspace.isVisible ? 0 : 1)
+							.opacity(workspace.isVisible ? 1 : 0.7)
 					}
 				}
+				.foregroundStyle(workspace.isVisible ? .primary : .secondary)
 				.modifier(Highlight(isOn: workspace.isVisible, tint: colors.active))
 				.contentShape(Capsule())
 				.onTapGesture { model.focusWorkspace(workspace.name) }
