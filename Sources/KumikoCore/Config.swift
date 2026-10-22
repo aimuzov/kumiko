@@ -34,12 +34,21 @@ public struct Config: Equatable, Sendable {
 		public var enabled = true
 		/// Whether a window no rule speaks about is managed.
 		public var manage = true
+		/// Space between neighbouring windows, in points.
+		public var gap = 8
+		/// Space between the windows and the edges of the screen.
+		public var padding = Insets(all: 8)
 		/// `[[wm.rule]]` entries, in file order; for a given window the last matching one wins.
 		public var rules: [WindowRule] = []
 
-		public init(enabled: Bool = true, manage: Bool = true, rules: [WindowRule] = []) {
+		public init(
+			enabled: Bool = true, manage: Bool = true, gap: Int = 8, padding: Insets = Insets(all: 8),
+			rules: [WindowRule] = []
+		) {
 			self.enabled = enabled
 			self.manage = manage
+			self.gap = gap
+			self.padding = padding
 			self.rules = rules
 		}
 
@@ -47,11 +56,13 @@ public struct Config: Equatable, Sendable {
 			let container = try decoder.container(keyedBy: CodingKeys.self)
 			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
 			manage = try container.decodeIfPresent(Bool.self, forKey: .manage) ?? true
+			gap = try container.decodeIfPresent(Int.self, forKey: .gap) ?? 8
+			padding = try container.decodeIfPresent(Insets.self, forKey: .padding) ?? Insets(all: 8)
 			rules = try container.decodeIfPresent([WindowRule].self, forKey: .rules) ?? []
 		}
 
 		private enum CodingKeys: String, CodingKey {
-			case enabled, manage
+			case enabled, manage, gap, padding
 			case rules = "rule"
 		}
 	}
@@ -125,6 +136,45 @@ public struct Config: Equatable, Sendable {
 		case is String.Type: "a string"
 		default: String(describing: type).lowercased()
 		}
+	}
+}
+
+/// Space on each side of an area. In the file either one number for all sides
+/// (`padding = 8`) or a table (`padding = { top = 4, bottom = 40 }`, missing sides are 0).
+public struct Insets: Equatable, Sendable, Decodable {
+	public var top: Int
+	public var bottom: Int
+	public var left: Int
+	public var right: Int
+
+	public init(top: Int = 0, bottom: Int = 0, left: Int = 0, right: Int = 0) {
+		self.top = top
+		self.bottom = bottom
+		self.left = left
+		self.right = right
+	}
+
+	public init(all value: Int) {
+		self.init(top: value, bottom: value, left: value, right: value)
+	}
+
+	public init(from decoder: any Decoder) throws {
+		if let value = try? decoder.singleValueContainer().decode(Int.self) {
+			self.init(all: value)
+			return
+		}
+
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		self.init(
+			top: try container.decodeIfPresent(Int.self, forKey: .top) ?? 0,
+			bottom: try container.decodeIfPresent(Int.self, forKey: .bottom) ?? 0,
+			left: try container.decodeIfPresent(Int.self, forKey: .left) ?? 0,
+			right: try container.decodeIfPresent(Int.self, forKey: .right) ?? 0
+		)
+	}
+
+	private enum CodingKeys: String, CodingKey {
+		case top, bottom, left, right
 	}
 }
 

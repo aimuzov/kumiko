@@ -21,6 +21,9 @@ struct Commands {
 			return .success(status())
 		case "query":
 			return query(Array(args.dropFirst()))
+		case "window", "workspace":
+			guard let layout = app.layout else { return .failure("window management is not running") }
+			return layout.handle(args)
 		case let command?:
 			return .failure("unknown command: \(command)")
 		case nil:
@@ -33,15 +36,22 @@ struct Commands {
 
 		switch args.first {
 		case "windows":
-			return json(tracker.sortedWindows)
+			return json(tracker.sortedWindows.map(describe))
 		case "focused":
 			guard let id = tracker.focusedWindowID, let window = tracker.windows[id] else {
 				return .failure("no focused window")
 			}
-			return json(window)
+			return json(describe(window))
 		default:
 			return .failure("usage: kumiko query windows|focused")
 		}
+	}
+
+	private func describe(_ window: WindowInfo) -> QueriedWindow {
+		let state = app.layout?.state(of: window.id) ?? (isFloating: true, stackIndex: 0, zoom: nil)
+		return QueriedWindow(
+			window: window, isFloating: state.isFloating, stackIndex: state.stackIndex, zoom: state.zoom
+		)
 	}
 
 	/// snake_case keys, so scripts write `.is_managed` instead of quoting a key in jq.
@@ -82,5 +92,28 @@ struct Commands {
 		}
 
 		return lines.joined(separator: "\n")
+	}
+}
+
+/// A window as `query` prints it: what the tracker knows plus where the layout put it.
+private struct QueriedWindow: Encodable {
+	let window: WindowInfo
+	let isFloating: Bool
+	/// 1-based position in a stack, 0 when the window is not stacked.
+	let stackIndex: Int
+	let zoom: String?
+
+	func encode(to encoder: any Encoder) throws {
+		// Both write into the same JSON object, so the layout fields sit next to the window's own.
+		try window.encode(to: encoder)
+
+		var container = encoder.container(keyedBy: CodingKeys.self)
+		try container.encode(isFloating, forKey: .isFloating)
+		try container.encode(stackIndex, forKey: .stackIndex)
+		try container.encode(zoom, forKey: .zoom)
+	}
+
+	private enum CodingKeys: String, CodingKey {
+		case isFloating, stackIndex, zoom
 	}
 }

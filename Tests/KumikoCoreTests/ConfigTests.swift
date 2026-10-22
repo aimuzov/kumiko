@@ -90,4 +90,21 @@ struct ConfigTests {
 			try Config.parse("[wm]\nenabled = \"yes\"")
 		}
 	}
+
+	@Test func paddingIsOneNumberForAllSides() throws {
+		let config = try Config.parse("[wm]\ngap = 6\npadding = 4")
+		#expect(config.wm.gap == 6)
+		#expect(config.wm.padding == Insets(all: 4))
+	}
+
+	@Test func paddingTableLeavesMissingSidesAtZero() throws {
+		let config = try Config.parse("[wm]\npadding = { top = 4, bottom = 40 }")
+		#expect(config.wm.padding == Insets(top: 4, bottom: 40))
+	}
+
+	@Test func layoutDefaultsWithoutAWmSection() throws {
+		let config = try Config.parse("")
+		#expect(config.wm.gap == 8)
+		#expect(config.wm.padding == Insets(all: 8))
+	}
 }

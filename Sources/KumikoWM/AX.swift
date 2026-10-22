@@ -40,6 +40,39 @@ enum AX {
 		return array.compactMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
 	}
 
+	/// Moves and resizes a window. Size goes first and again last: an app refuses a position that
+	/// would push its current size off the screen, and refuses a size that does not fit where the
+	/// window currently is, so moving a big window to a small spot needs both rounds.
+	static func setFrame(_ element: AXUIElement, _ frame: CGRect) {
+		var size = frame.size
+		var origin = frame.origin
+
+		guard
+			let sizeValue = AXValueCreate(.cgSize, &size),
+			let originValue = AXValueCreate(.cgPoint, &origin)
+		else { return }
+
+		AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+		AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, originValue)
+		AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+	}
+
+	/// Brings the app forward and puts this window on top of it. Activation goes through AX rather
+	/// than NSRunningApplication.activate, which macOS 14+ may refuse to a background app.
+	static func focus(_ window: AXUIElement, app: AXUIElement) {
+		AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+		AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+		AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+	}
+
+	/// Presses the window's close button, the way a click would, so the app can still ask about
+	/// unsaved changes.
+	@discardableResult
+	static func close(_ window: AXUIElement) -> Bool {
+		guard let button = element(window, kAXCloseButtonAttribute) else { return false }
+		return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+	}
+
 	static func frame(_ element: AXUIElement) -> CGRect? {
 		var position = CGPoint.zero
 		var size = CGSize.zero

@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var configError: ConfigError?
 
 	private(set) var tracker: WindowTracker?
+	private(set) var layout: LayoutController?
 
 	private var server: IPCServer?
 	private var watcher: ConfigWatcher?
@@ -46,14 +47,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		}
 
 		let tracker = WindowTracker(bus: bus, config: config.wm)
+		let layout = LayoutController(bus: bus, tracker: tracker, config: config.wm)
 		self.tracker = tracker
-		tracker.start()
+		self.layout = layout
 
 		bus.subscribe { event in
 			if case let .configReloaded(config) = event {
 				tracker.apply(config.wm)
+				layout.apply(config.wm)
 			}
 		}
+
+		// The layout listens before the tracker starts, so it sees the windows that are already open.
+		layout.start()
+		tracker.start()
 
 		statusMenu = StatusMenu(app: self)
 		Onboarding.runIfNeeded()

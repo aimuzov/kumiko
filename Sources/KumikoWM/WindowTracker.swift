@@ -227,6 +227,31 @@ public final class WindowTracker {
 		)
 	}
 
+	// MARK: - Acting on windows
+
+	public func setFrame(_ id: UInt32, _ frame: CGRect) {
+		guard let (element, _) = elements(of: id) else { return }
+		AX.setFrame(element, frame)
+	}
+
+	public func focus(_ id: UInt32) {
+		guard let (element, app) = elements(of: id) else { return }
+		AX.focus(element, app: app)
+	}
+
+	@discardableResult
+	public func close(_ id: UInt32) -> Bool {
+		guard let (element, _) = elements(of: id) else { return false }
+		return AX.close(element)
+	}
+
+	private func elements(of id: UInt32) -> (window: AXUIElement, app: AXUIElement)? {
+		guard let pid = windows[id]?.pid, let observer = apps[pid], let window = observer.windows[id] else {
+			return nil
+		}
+		return (window, observer.element)
+	}
+
 	// MARK: - Focus
 
 	private func updateFocus() {
