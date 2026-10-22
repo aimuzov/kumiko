@@ -81,6 +81,46 @@ enum InputSource {
 
 	/// Distributed notification macOS posts when the input source changes.
 	static let changed = Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String)
+
+	/// The badge the input menu shows in the menu bar for the selected source, "US" or "Ру" in a
+	/// rounded frame, as a template image. It comes from the private icon manager the input menu
+	/// uses, so it is the system's own picture; nil when that is not there.
+	@MainActor
+	static func badge() -> NSImage? {
+		guard
+			let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+			let pointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
+		else { return nil }
+
+		let id = Unmanaged<CFString>.fromOpaque(pointer).takeUnretainedValue() as String
+		if let badge = badges[id] { return badge }
+
+		let selector = NSSelectorFromString("titleImageForTISInputSource:")
+		guard let manager = iconManager, let method = manager.method(for: selector) else { return nil }
+
+		typealias ImageFor = @convention(c) (AnyObject, Selector, OpaquePointer) -> Unmanaged<NSImage>?
+		let image = unsafeBitCast(method, to: ImageFor.self)(
+			manager, selector, OpaquePointer(Unmanaged.passUnretained(source).toOpaque())
+		)?.takeUnretainedValue()
+
+		image?.isTemplate = true
+		badges[id] = image
+		return image
+	}
+
+	@MainActor private static var badges: [String: NSImage] = [:]
+
+	@MainActor private static let iconManager: NSObject? = {
+		let path = "/System/Library/PrivateFrameworks/KeyboardLayouts.framework/KeyboardLayouts"
+		guard
+			dlopen(path, RTLD_LAZY) != nil,
+			let type = NSClassFromString("KLInputSourceIconManager") as? NSObject.Type
+		else { return nil }
+
+		let selector = NSSelectorFromString("managerWithAllInputSources")
+		guard type.responds(to: selector) else { return nil }
+		return type.perform(selector)?.takeUnretainedValue() as? NSObject
+	}()
 }
 
 /// Keeps the display and the system awake while on, the way `caffeinate -di` does, through power

@@ -83,7 +83,7 @@ public struct Config: Equatable, Sendable {
 		public var right = ["datetime", "caffeinate", "battery", "input"]
 		/// `[bar.colors]`: the palette items draw with, Catppuccin Macchiato unless overridden.
 		public var colors = Palette()
-		/// `[bar.input]`: text to show for an input source id instead of its language code.
+		/// `[bar.input]`: text to show for an input source id instead of the system badge.
 		public var input: [String: String] = [:]
 		/// `[[bar.shell]]`: items that show what a shell command prints.
 		public var shell: [ShellItem] = []

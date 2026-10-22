@@ -130,8 +130,27 @@ private struct ModeItem: View {
 
 		if model.mode != "default" {
 			Label(model.mode, systemImage: Self.symbols[model.mode] ?? "keyboard")
-				.foregroundStyle(Color(tints[model.mode] ?? colors.grey))
+				.modifier(Tint(color: tints[model.mode] ?? colors.grey))
 		}
+	}
+}
+
+/// A palette colour that reads on the bar's tone. The palette is pastel, made for a dark bar; on
+/// a light one each colour goes darker and stronger.
+private struct Tint: ViewModifier {
+	let color: KumikoCore.Color
+	@Environment(\.colorScheme) private var scheme
+
+	func body(content: Content) -> some View {
+		content.foregroundStyle(scheme == .dark ? Color(color) : Self.onLight(color))
+	}
+
+	private static func onLight(_ color: KumikoCore.Color) -> SwiftUI.Color {
+		let base = NSColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+		var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+		base.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+
+		return Color(hue: hue, saturation: min(1, saturation + 0.35), brightness: brightness * 0.6, opacity: alpha)
 	}
 }
 
@@ -213,36 +232,54 @@ private struct BatteryItem: View {
 	}
 }
 
-/// The input source the way macOS shows it in its input menu: the language code in a rounded
-/// box. In a text field with Vim on, the Vim mode comes first as a letter in its colour, followed
-/// by the command being typed after ":".
+/// The input source the way the menu bar's own input menu shows it, and before it, in a text
+/// field with Vim on, the Vim mode the way the hotkey modes show: symbol and name in the mode's
+/// colour. Insert mode is plain typing and shows nothing, like the default hotkey mode.
 private struct InputItem: View {
 	let model: BarModel
 
 	var body: some View {
-		let colors = model.config.colors
-		let tints = ["N": colors.blue, "I": colors.green, "V": colors.magenta, "C": colors.orange, "_": colors.magenta]
-		let layout = model.inputSource.flatMap { model.config.input[$0] } ?? model.inputLanguage ?? "?"
-
-		HStack(spacing: 6) {
-			if let mode = model.vimMode {
-				Text(mode == "_" ? "…" : mode)
-					.font(Font(BarFont.text(model.config)).weight(.semibold))
-					.foregroundStyle(Color(colors.black))
-					.frame(minWidth: 18, minHeight: 17)
-					.background(RoundedRectangle(cornerRadius: 4).fill(Color(tints[mode] ?? colors.grey)))
-
-				if let command = model.vimCommandLine {
-					Text(":" + command)
-				}
-			}
-
-			Text(layout)
-				.font(Font(BarFont.text(model.config, scale: 11 / 13)).weight(.medium))
-				.padding(.horizontal, 4)
-				.frame(minHeight: 17)
-				.overlay(RoundedRectangle(cornerRadius: 4).stroke(.primary, lineWidth: 1.2))
+		HStack(spacing: 14) {
+			vimMode
+			layout
 		}
+	}
+
+	@ViewBuilder
+	private var vimMode: some View {
+		let colors = model.config.colors
+
+		switch model.vimMode {
+		case "N", "_":
+			Label("normal", systemImage: "character.cursor.ibeam").modifier(Tint(color: colors.blue))
+		case "V":
+			Label("visual", systemImage: "selection.pin.in.out").modifier(Tint(color: colors.magenta))
+		case "C":
+			Label(":" + (model.vimCommandLine ?? ""), systemImage: "chevron.right").modifier(Tint(color: colors.orange))
+		default:
+			EmptyView()
+		}
+	}
+
+	/// The system's badge, unless the config gives the source a text of its own; then that text,
+	/// drawn in a frame like the badge.
+	@ViewBuilder
+	private var layout: some View {
+		if let text = model.inputSource.flatMap({ model.config.input[$0] }) {
+			framed(text)
+		} else if model.inputSource != nil, let badge = InputSource.badge() {
+			Image(nsImage: badge).renderingMode(.template)
+		} else if let language = model.inputLanguage {
+			framed(language)
+		}
+	}
+
+	private func framed(_ text: String) -> some View {
+		Text(text)
+			.font(Font(BarFont.text(model.config, scale: 11 / 13)).weight(.medium))
+			.padding(.horizontal, 4)
+			.frame(minHeight: 16)
+			.overlay(RoundedRectangle(cornerRadius: 4).stroke(.primary, lineWidth: 1.2))
 	}
 }
 
