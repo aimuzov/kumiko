@@ -173,12 +173,13 @@ private struct DateTimeItem: View {
 	}
 }
 
+/// A mug, filled while the Mac is kept awake: on and off the way menu bar extras show them, by fill
+/// rather than by colour.
 private struct CaffeinateItem: View {
 	let model: BarModel
 
 	var body: some View {
-		Image(systemName: model.isCaffeinated ? "cup.and.heat.waves.fill" : "cup.and.saucer")
-			.foregroundStyle(model.isCaffeinated ? Color(model.config.colors.yellow) : .primary)
+		Image(systemName: model.isCaffeinated ? "mug.fill" : "mug")
 			.contentShape(Rectangle())
 			.onTapGesture { model.toggleCaffeine() }
 	}
