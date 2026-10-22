@@ -255,6 +255,14 @@ public final class WindowManager {
 		if !hasShownFocusedWorkspace {
 			if restoreVisible(displays) {
 				hasShownFocusedWorkspace = true
+				// Whatever app macOS puts in front while kumiko starts is not the user's choice: focus
+				// goes to the restored workspace, and stray focus does not switch for a moment.
+				autoSwitchPausedUntil = Date().addingTimeInterval(1)
+				if let workspace = Display.all().first.flatMap({ visible[$0.id] }), let id = windowToFocus(in: workspace) {
+					DispatchQueue.main.async { [weak self] in
+						MainActor.assumeIsolated { self?.tracker.focus(id) }
+					}
+				}
 			} else if let id = tracker.focusedWindowID, let workspace = assignment[id] {
 				visible[workspace.display.id] = workspace
 				hasShownFocusedWorkspace = true

@@ -7,7 +7,7 @@ public struct Config: Equatable, Sendable {
 	public var wm = WM()
 	public var hotkeys = Hotkeys()
 	public var bar = Module()
-	public var borders = Module()
+	public var borders = Borders()
 	/// `[[workspace]]` entries in file order. Empty means the default set: "1"…"9" on the main display.
 	public var workspaces: [Workspace] = []
 
@@ -77,6 +77,36 @@ public struct Config: Equatable, Sendable {
 
 		private enum CodingKeys: String, CodingKey {
 			case enabled
+		}
+	}
+
+	/// `[borders]`: a frame around the focused window.
+	public struct Borders: Equatable, Sendable, Decodable {
+		public var enabled = true
+		/// Thickness in points, drawn outside the window.
+		public var width = 4.0
+		/// Corner radius of the window the frame hugs; the frame's own corners follow it.
+		public var radius = 12.0
+		public var color = Color(red: 0.54, green: 0.68, blue: 0.96)
+		/// Apps whose windows get no frame: games, mirroring.
+		public var blacklist: [String] = []
+
+		public init() {}
+
+		public init(from decoder: any Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+			width = try container.decodeIfPresent(Double.self, forKey: .width) ?? 4
+			radius = try container.decodeIfPresent(Double.self, forKey: .radius) ?? 12
+			blacklist = try container.decodeIfPresent([String].self, forKey: .blacklist) ?? []
+
+			if let text = try container.decodeIfPresent(String.self, forKey: .color) {
+				do { color = try Color.parse(text) } catch { throw error }
+			}
+		}
+
+		private enum CodingKeys: String, CodingKey {
+			case enabled, width, radius, color, blacklist
 		}
 	}
 
@@ -327,7 +357,7 @@ extension Config: Decodable {
 		wm = try container.decodeIfPresent(WM.self, forKey: .wm) ?? WM()
 		hotkeys = try container.decodeIfPresent(Hotkeys.self, forKey: .hotkeys) ?? Hotkeys()
 		bar = try container.decodeIfPresent(Module.self, forKey: .bar) ?? Module()
-		borders = try container.decodeIfPresent(Module.self, forKey: .borders) ?? Module()
+		borders = try container.decodeIfPresent(Borders.self, forKey: .borders) ?? Borders()
 		workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []
 	}
 

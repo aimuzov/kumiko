@@ -1,4 +1,5 @@
 import AppKit
+import KumikoBorders
 import KumikoCore
 import KumikoHotkeys
 import KumikoWM
@@ -15,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var tracker: WindowTracker?
 	private(set) var manager: WindowManager?
 	private(set) var hotkeys: Hotkeys?
+	private var borders: Borders?
 
 	private var server: IPCServer?
 	private var watcher: ConfigWatcher?
@@ -54,18 +56,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		let hotkeys = Hotkeys(bus: bus, config: config.hotkeys) { commands.handle($0) }
 		self.tracker = tracker
 		self.manager = manager
+		let borders = Borders(bus: bus, config: config.borders, focused: nil) { tracker.windows[$0] }
 		self.hotkeys = hotkeys
+		self.borders = borders
 
 		bus.subscribe { event in
 			if case let .configReloaded(config) = event {
 				tracker.apply(config.wm)
 				manager.apply(config)
 				hotkeys.apply(config.hotkeys)
+				borders.apply(config.borders)
 			}
 		}
 
 		// The manager listens before the tracker starts, so it sees the windows that are already open.
 		manager.start()
+		borders.start()
 		tracker.start()
 		hotkeys.start()
 

@@ -175,4 +175,23 @@ struct ConfigTests {
 		#expect(try Config.parse("").wm.hideApps)
 		#expect(try Config.parse("[wm]\nhide_apps = false").wm.hideApps == false)
 	}
+
+	@Test func bordersTakeTheJankyBordersSettings() throws {
+		let config = try Config.parse("""
+			[borders]
+			width = 8
+			radius = 10.5
+			color = "0xff8aadf4"
+			blacklist = ["Steam Helper", "dota2"]
+			""")
+
+		#expect(config.borders.width == 8)
+		#expect(config.borders.radius == 10.5)
+		#expect(config.borders.color == Color(red: 0x8A / 255, green: 0xAD / 255, blue: 0xF4 / 255))
+		#expect(config.borders.blacklist == ["Steam Helper", "dota2"])
+	}
+
+	@Test func badBorderColourIsAnError() {
+		#expect(throws: ConfigError.self) { try Config.parse("[borders]\ncolor = \"blue\"") }
+	}
 }
