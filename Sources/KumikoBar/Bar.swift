@@ -57,6 +57,9 @@ public final class Bar {
 		}
 
 		batteryObserver = Battery.observe { [weak self] in self?.model.battery = Battery.read() }
+		observe(NotificationCenter.default, .NSProcessInfoPowerStateDidChange) { [weak self] in
+			self?.model.battery = Battery.read()
+		}
 
 		apply(config)
 	}

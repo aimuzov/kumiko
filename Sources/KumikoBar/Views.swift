@@ -184,32 +184,115 @@ private struct CaffeinateItem: View {
 	}
 }
 
-/// The battery symbol macOS uses for the charge, and the percentage.
+/// The battery the way the menu bar's own battery item shows it, without the percentage.
 private struct BatteryItem: View {
 	let model: BarModel
 
-	private static func symbol(for battery: Battery.State) -> String {
-		if battery.isCharging { return "battery.100percent.bolt" }
-		switch battery.percent {
-		case 88...: return "battery.100percent"
-		case 63...: return "battery.75percent"
-		case 38...: return "battery.50percent"
-		case 13...: return "battery.25percent"
-		default: return "battery.0percent"
-		}
-	}
-
 	var body: some View {
 		if let battery = model.battery {
-			let colors = model.config.colors
-			let symbol = Self.symbol(for: battery)
-			let low = !battery.isCharging && battery.percent <= 20
+			BatteryGlyph(battery: battery)
+		}
+	}
+}
 
-			HStack(spacing: 5) {
-				Text("\(battery.percent)%").monospacedDigit()
-				Image(systemName: symbol).foregroundStyle(low ? Color(colors.red) : .primary)
+/// The battery as Control Center draws it, from its own images: the outline and its cap, a fill
+/// as wide as the charge, and a bolt on the charger or a plug when charging is on hold, cut into
+/// the battery under it. The fill is yellow in Low Power Mode and red when the charge runs low.
+private struct BatteryGlyph: View {
+	let battery: Battery.State
+
+	// Points, after the images: a 23 by 12 outline, the fill inset 2 from its edges.
+	private static let body = CGSize(width: 23, height: 12)
+	private static let fill = CGRect(x: 2, y: 2, width: 19, height: 8)
+
+	var body: some View {
+		ZStack(alignment: .topLeading) {
+			BatteryImages.piece(BatteryImages.outline, size: Self.body) {
+				RoundedRectangle(cornerRadius: 3.5).strokeBorder(lineWidth: 1)
+			}
+			BatteryImages.piece(BatteryImages.cap, size: CGSize(width: 2, height: 12)) {
+				Capsule().frame(width: 1.5, height: 4).frame(maxWidth: .infinity, alignment: .trailing)
+			}
+			.offset(x: Self.body.width)
+
+			RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+				.fill(fillColor)
+				.frame(width: fillWidth, height: Self.fill.height)
+				.offset(x: Self.fill.minX, y: Self.fill.minY)
+
+			if let mark {
+				// The mask is a little larger than the mark, so a gap is left around it.
+				BatteryImages.piece(mark.mask, size: markSize) { EmptyView() }
+					.offset(markOffset)
+					.blendMode(.destinationOut)
 			}
 		}
+		.compositingGroup()
+		.overlay(alignment: .topLeading) {
+			if let mark {
+				BatteryImages.piece(mark.glyph, size: markSize) {
+					Image(systemName: battery.isCharging ? "bolt.fill" : "powerplug.fill").font(.system(size: 9))
+				}
+				.offset(markOffset)
+			}
+		}
+		.frame(width: Self.body.width + 2, height: Self.body.height, alignment: .topLeading)
+	}
+
+	/// As wide as the charge in whole points, the way Control Center rounds it: 51% and 54% both
+	/// fill 10 of 19.
+	private var fillWidth: CGFloat {
+		guard battery.percent > 0 else { return 0 }
+		return max((Self.fill.width * CGFloat(battery.percent) / 100).rounded(), 2)
+	}
+
+	private var fillColor: AnyShapeStyle {
+		if battery.isLowPowerMode { return AnyShapeStyle(SwiftUI.Color(nsColor: .systemYellow)) }
+		if !battery.isPluggedIn, battery.percent <= 20 { return AnyShapeStyle(SwiftUI.Color(nsColor: .systemRed)) }
+		return AnyShapeStyle(.foreground)
+	}
+
+	private var mark: (glyph: NSImage?, mask: NSImage?)? {
+		if battery.isCharging { return (BatteryImages.bolt, BatteryImages.boltMask) }
+		if battery.isPluggedIn { return (BatteryImages.plug, BatteryImages.plugMask) }
+		return nil
+	}
+
+	// The bolt and the plug are 11 by 14, centred on the outline and a point over its top and bottom.
+	private let markSize = CGSize(width: 11, height: 14)
+	private var markOffset: CGSize {
+		CGSize(width: (Self.body.width - markSize.width) / 2, height: (Self.body.height - markSize.height) / 2)
+	}
+}
+
+/// Control Center's battery images, from its asset catalog. Each has a drawn stand-in, should a
+/// macOS update rename or drop it.
+@MainActor
+private enum BatteryImages {
+	private static let bundle = Bundle(path: "/System/Library/CoreServices/ControlCenter.app")
+
+	static let outline = image("battery-outline")
+	static let cap = image("battery-cap")
+	static let bolt = image("battery-bolt")
+	static let boltMask = image("battery-bolt-mask")
+	static let plug = image("battery-plug")
+	static let plugMask = image("battery-plug-mask")
+
+	private static func image(_ name: String) -> NSImage? {
+		bundle?.image(forResource: name)
+	}
+
+	/// The image at its size, tinted like a symbol when it is a template, or the stand-in.
+	@ViewBuilder
+	static func piece(_ image: NSImage?, size: CGSize, @ViewBuilder standIn: () -> some View) -> some View {
+		Group {
+			if let image {
+				Image(nsImage: image).renderingMode(image.isTemplate ? .template : .original).resizable()
+			} else {
+				standIn()
+			}
+		}
+		.frame(width: size.width, height: size.height)
 	}
 }
 

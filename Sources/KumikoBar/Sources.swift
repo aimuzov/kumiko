@@ -3,11 +3,15 @@ import Carbon
 import IOKit.ps
 import IOKit.pwr_mgt
 
-/// Battery charge and whether it is on the charger, from IOKit; nil on a Mac without a battery.
+/// Battery charge and power state, from IOKit; nil on a Mac without a battery.
 enum Battery {
 	struct State: Equatable {
 		var percent: Int
+		/// On the charger and taking charge.
 		var isCharging: Bool
+		/// On the charger, charging or not: a full battery, or charging on hold.
+		var isPluggedIn: Bool
+		var isLowPowerMode: Bool
 	}
 
 	static func read() -> State? {
@@ -23,8 +27,12 @@ enum Battery {
 				let max = description[kIOPSMaxCapacityKey] as? Int, max > 0
 			else { continue }
 
-			let onAC = (description[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
-			return State(percent: current * 100 / max, isCharging: onAC)
+			return State(
+				percent: current * 100 / max,
+				isCharging: description[kIOPSIsChargingKey] as? Bool ?? false,
+				isPluggedIn: (description[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue,
+				isLowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled
+			)
 		}
 
 		return nil
