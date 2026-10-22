@@ -242,7 +242,6 @@ private struct InputItem: View {
 					Text(glyph)
 					Text(layout)
 					if mode == "C", let command = model.vimCommandLine {
-						Text(Self.vimGlyphs["C"]!)
 						Text(command).font(Font(BarFont.text(model.config)))
 					}
 				}
