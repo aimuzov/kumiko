@@ -57,15 +57,19 @@ public final class Borders {
 	}
 
 	/// A move or resize of the focused window, straight from the WindowServer. Only the frame's
-	/// place changes, so this skips everything `update` checks and reads nothing from the app.
+	/// path changes, so this skips everything `update` checks and reads nothing from the app.
 	private func follow(_ id: UInt32, _ bounds: CGRect) {
-		guard
-			id == focused,
-			let overlay, overlay.isVisible,
-			let frame = Self.appKitFrame(bounds, width: config.width)
-		else { return }
+		guard id == focused, let overlay, overlay.isVisible else { return }
+		place(overlay, around: bounds)
+	}
 
-		overlay.setFrame(frame, display: false)
+	/// Draws the frame around a window frame given in AX coordinates.
+	private func place(_ overlay: BorderWindow, around bounds: CGRect) {
+		guard let main = NSScreen.screens.first else { return }
+		let flipped = CGRect(
+			x: bounds.minX, y: main.frame.height - bounds.maxY, width: bounds.width, height: bounds.height
+		)
+		overlay.outline(flipped)
 	}
 
 	/// Puts the frame around the focused window, or takes it away when there is nothing to frame.
@@ -77,7 +81,6 @@ public final class Borders {
 			!info.isMinimized, !info.isHidden, !info.isFullscreen,
 			!config.blacklist.contains(info.app),
 			info.subrole == "AXStandardWindow",
-			let frame = Self.appKitFrame(info.frame, width: config.width),
 			Self.isOnScreen(info.frame)
 		else {
 			overlay?.orderOut(nil)
@@ -89,17 +92,8 @@ public final class Borders {
 		overlay.radius = WindowServer.cornerRadius(of: id) ?? config.radius
 
 		// The WindowServer's frame is current; the AX one may be a step behind.
-		let current = WindowServer.bounds(of: id).flatMap { Self.appKitFrame($0, width: config.width) } ?? frame
-		overlay.setFrame(current, display: true)
+		place(overlay, around: WindowServer.bounds(of: id) ?? info.frame)
 		overlay.order(.above, relativeTo: Int(id))
-	}
-
-	/// The overlay's frame in AppKit coordinates: the window's AX frame grown by the border width
-	/// and flipped, since AX counts y down from the top of the main screen.
-	private static func appKitFrame(_ frame: CGRect, width: Double) -> CGRect? {
-		guard let main = NSScreen.screens.first else { return nil }
-		let grown = frame.insetBy(dx: -width, dy: -width)
-		return CGRect(x: grown.minX, y: main.frame.height - grown.maxY, width: grown.width, height: grown.height)
 	}
 
 	/// A window parked in a screen corner by a hidden workspace has a point or two on screen; it is
@@ -119,9 +113,16 @@ public final class Borders {
 }
 
 /// The transparent window that draws the frame.
+///
+/// It covers the whole screen and never moves while the frame follows a window: only the path of
+/// one shape layer changes. Moving or resizing a window costs a layout pass, and resizing one
+/// also a new backing store, every step of a drag; a new path costs neither, so the frame keeps
+/// up with a window being resized.
 private final class BorderWindow: NSWindow {
 	private let shape = CAShapeLayer()
 	private var width = 0.0
+	/// The framed window, in AppKit screen coordinates.
+	private var target: CGRect?
 
 	/// The corner radius of the window being framed; changes with the focused app.
 	var radius = 0.0 {
@@ -146,7 +147,7 @@ private final class BorderWindow: NSWindow {
 		contentView = view
 
 		shape.fillColor = nil
-		// Frames move in steps as the layout changes; animating them would trail behind the window.
+		// The path changes in steps as the window moves; animating it would trail behind.
 		shape.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull()]
 
 		style(config)
@@ -162,28 +163,40 @@ private final class BorderWindow: NSWindow {
 		redraw()
 	}
 
-	/// AppKit keeps windows out from under the menu bar; the frame of a window right below it has
-	/// to reach up there, or its top edge would be drawn over the window instead.
+	/// Frames a window. The overlay itself only moves when the window is on another screen.
+	func outline(_ window: CGRect) {
+		target = window
+
+		let center = CGPoint(x: window.midX, y: window.midY)
+		let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.screens.first
+
+		if let screen, frame != screen.frame {
+			setFrame(screen.frame, display: false)
+		}
+
+		redraw()
+	}
+
+	/// AppKit keeps windows out from under the menu bar; a frame around a window right below it
+	/// has to reach up there.
 	override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
 		frameRect
 	}
 
-	override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-		super.setFrame(frameRect, display: flag)
-		redraw()
-	}
-
-	/// The stroke runs along the middle of the band between the window edge and the overlay edge,
-	/// so it covers exactly `width` points outside the window and none of the window itself.
+	/// The stroke runs `width / 2` outside the window edge, so it covers exactly `width` points
+	/// outside the window and none of the window itself.
 	private func redraw() {
-		guard let bounds = contentView?.bounds, bounds.width > width * 2, bounds.height > width * 2 else { return }
+		guard let target, let bounds = contentView?.bounds else { return }
+
+		let local = target.offsetBy(dx: -frame.minX, dy: -frame.minY).insetBy(dx: -width / 2, dy: -width / 2)
+		let corner = min(radius + width / 2, min(local.width, local.height) / 2)
 
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
 		shape.frame = bounds
-		let inset = bounds.insetBy(dx: width / 2, dy: width / 2)
-		let corner = min(radius + width / 2, min(inset.width, inset.height) / 2)
-		shape.path = CGPath(roundedRect: inset, cornerWidth: corner, cornerHeight: corner, transform: nil)
+		shape.path = CGPath(roundedRect: local, cornerWidth: corner, cornerHeight: corner, transform: nil)
 		CATransaction.commit()
+		// Hands the new path to the render server now instead of at the end of this run loop pass.
+		CATransaction.flush()
 	}
 }
