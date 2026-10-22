@@ -270,6 +270,9 @@ private final class BarWindow: NSPanel {
 		isOpaque = false
 		backgroundColor = .clear
 		hasShadow = false
+		// Set explicitly, the whole bar takes clicks. Left at the default, clicks on its clear parts
+		// fall through to the desktop and bring Finder back.
+		ignoresMouseEvents = false
 		isReleasedWhenClosed = false
 		hidesOnDeactivate = false
 		// Below ordinary windows, as sketchybar with topmost off: the layout leaves room for the
