@@ -64,12 +64,11 @@ an item across the divider to choose. The first time, both take the places of Ic
 ```toml
 [menubar]
 enabled = true
-show_on_click = true   # a click on the empty menu bar shows or hides the items
-show_on_scroll = true  # scrolling over the menu bar: up shows, down hides
-rehide = 0             # seconds before shown items hide again, 0 for never
+rehide = 0  # seconds before shown items hide again, 0 for never
 ```
 
-`kumiko menubar show|hide|toggle` does the same from a script or a hotkey.
+A click on the chevron shows or hides them; `kumiko menubar show|hide|toggle` does the same
+from a script or a hotkey.
 
 ## License
 

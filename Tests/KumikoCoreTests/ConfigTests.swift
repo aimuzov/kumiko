@@ -36,14 +36,10 @@ struct ConfigTests {
 		let config = try Config.parse("""
 			[menubar]
 			enabled = true
-			show_on_click = false
-			show_on_scroll = false
 			rehide = 15
 			""")
 
 		#expect(config.menuBar.enabled)
-		#expect(config.menuBar.showOnClick == false)
-		#expect(config.menuBar.showOnScroll == false)
 		#expect(config.menuBar.rehide == 15)
 	}
 

@@ -210,10 +210,6 @@ public struct Config: Equatable, Sendable {
 		/// Off unless asked for: it adds two items to the menu bar and would fight another menu
 		/// bar manager over them.
 		public var enabled = false
-		/// A click on the empty part of the menu bar shows or hides the items.
-		public var showOnClick = true
-		/// Scrolling up over the menu bar shows the items, scrolling down hides them.
-		public var showOnScroll = true
 		/// Seconds after which shown items hide again; 0 leaves them shown.
 		public var rehide = 0.0
 
@@ -222,15 +218,11 @@ public struct Config: Equatable, Sendable {
 		public init(from decoder: any Decoder) throws {
 			let container = try decoder.container(keyedBy: CodingKeys.self)
 			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
-			showOnClick = try container.decodeIfPresent(Bool.self, forKey: .showOnClick) ?? true
-			showOnScroll = try container.decodeIfPresent(Bool.self, forKey: .showOnScroll) ?? true
 			rehide = try container.decodeIfPresent(Double.self, forKey: .rehide) ?? 0
 		}
 
 		private enum CodingKeys: String, CodingKey {
 			case enabled, rehide
-			case showOnClick = "show_on_click"
-			case showOnScroll = "show_on_scroll"
 		}
 	}
 
