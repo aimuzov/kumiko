@@ -539,11 +539,13 @@ extension Config: Decodable {
 
 public enum ConfigError: Error, Equatable, CustomStringConvertible {
 	case unreadable(String, String)
+	case unwritable(String, String)
 	case invalid(String)
 
 	public var description: String {
 		switch self {
 		case let .unreadable(path, reason): "cannot read \(path): \(reason)"
+		case let .unwritable(path, reason): "cannot write \(path): \(reason)"
 		case let .invalid(reason): "invalid config: \(reason)"
 		}
 	}
