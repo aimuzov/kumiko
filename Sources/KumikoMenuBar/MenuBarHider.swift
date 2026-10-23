@@ -20,6 +20,9 @@ public final class MenuBarHider: NSObject {
 	/// Keeps a status item as wide as an icon; off while the items are shown.
 	private var dividerMinimum: NSLayoutConstraint?
 	private var rehideTimer: Timer?
+	/// Set while items are cmd-dragged, to whether they were hidden before the drag.
+	private var hiddenBeforeDrag: Bool?
+	private var mouseMonitors: [Any] = []
 
 	private static let toggleName = "MenuBarToggle"
 	private static let dividerName = "MenuBarDivider"
@@ -101,11 +104,26 @@ public final class MenuBarHider: NSObject {
 		self.toggle = toggle
 		isHidden = true
 		update()
+
+		// A drag ending over kumiko's own items reaches only the local monitor.
+		let mouse: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp]
+		mouseMonitors = [
+			NSEvent.addGlobalMonitorForEvents(matching: mouse) { [weak self] event in
+				MainActor.assumeIsolated { self?.mouse(event) }
+			},
+			NSEvent.addLocalMonitorForEvents(matching: mouse) { [weak self] event in
+				MainActor.assumeIsolated { self?.mouse(event) }
+				return event
+			},
+		].compactMap(\.self)
 	}
 
 	private func uninstall() {
 		rehideTimer?.invalidate()
 		rehideTimer = nil
+		mouseMonitors.forEach(NSEvent.removeMonitor)
+		mouseMonitors = []
+		hiddenBeforeDrag = nil
 		[toggle, divider].compactMap(\.self).forEach(Self.remove)
 		toggle = nil
 		divider = nil
@@ -124,10 +142,15 @@ public final class MenuBarHider: NSObject {
 			isHidden = false
 		}
 
+		let isDragging = hiddenBeforeDrag != nil
+		divider.button?.image = isDragging
+			? NSImage(systemSymbolName: "eye.slash", accessibilityDescription: "Items left of here hide")
+			: nil
+
 		// The length only takes while the constraint is on: it goes on first and off last.
-		if isHidden { dividerMinimum?.isActive = true }
-		divider.length = isHidden ? Self.hidingLength : 0
-		if !isHidden, let minimum = dividerMinimum, let window = divider.button?.window {
+		if isHidden || isDragging { dividerMinimum?.isActive = true }
+		divider.length = isHidden ? Self.hidingLength : isDragging ? NSStatusItem.variableLength : 0
+		if !isHidden, !isDragging, let minimum = dividerMinimum, let window = divider.button?.window {
 			minimum.isActive = false
 			// Without the constraint the window keeps its old width until told otherwise.
 			window.setContentSize(CGSize(width: 1, height: window.frame.height))
@@ -142,7 +165,7 @@ public final class MenuBarHider: NSObject {
 	private func scheduleRehide() {
 		rehideTimer?.invalidate()
 		rehideTimer = nil
-		guard !isHidden, config.rehide > 0 else { return }
+		guard !isHidden, hiddenBeforeDrag == nil, config.rehide > 0 else { return }
 
 		rehideTimer = Timer.scheduledTimer(withTimeInterval: config.rehide, repeats: false) { [weak self] _ in
 			MainActor.assumeIsolated {
@@ -159,6 +182,25 @@ public final class MenuBarHider: NSObject {
 
 	@objc private func toggleClicked() {
 		toggleItems()
+	}
+
+	/// A cmd-press on the menu bar starts dragging an item. Until it is dropped every item is
+	/// shown and the divider is drawn, so there is something to drag across.
+	private func mouse(_ event: NSEvent) {
+		switch event.type {
+		case .leftMouseDown where event.modifierFlags.contains(.command) && Self.isPointerOnMenuBar:
+			guard hiddenBeforeDrag == nil else { return }
+			hiddenBeforeDrag = isHidden
+			isHidden = false
+			update()
+		case .leftMouseUp:
+			guard let wasHidden = hiddenBeforeDrag else { return }
+			hiddenBeforeDrag = nil
+			isHidden = wasHidden
+			update()
+		default:
+			break
+		}
 	}
 
 	private static var isPointerOnMenuBar: Bool {
