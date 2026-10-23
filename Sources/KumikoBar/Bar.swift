@@ -15,6 +15,8 @@ public final class Bar {
 
 	private var config: Config.Bar
 	private var windows: [UInt32: BarWindow] = [:]
+	/// Over each bar and the windows above it, for the magnified app icons.
+	private var magnifiers: [UInt32: MagnifierWindow] = [:]
 	private var timers: [Timer] = []
 	private var observers: [(NotificationCenter, any NSObjectProtocol)] = []
 	private var batteryObserver: AnyObject?
@@ -32,6 +34,9 @@ public final class Bar {
 	public func start() {
 		model.focusWorkspace = { [weak self] name in
 			_ = self?.manager.handle(["workspace", "focus", name])
+		}
+		model.focusApp = { [weak self] pid, workspace in
+			self?.manager.focus(app: pid, on: workspace)
 		}
 		model.toggleCaffeine = { [weak self] in
 			guard let self else { return }
@@ -80,6 +85,8 @@ public final class Bar {
 		guard config.enabled else {
 			windows.values.forEach { $0.orderOut(nil) }
 			windows = [:]
+			magnifiers.values.forEach { $0.orderOut(nil) }
+			magnifiers = [:]
 			return
 		}
 
@@ -93,17 +100,25 @@ public final class Bar {
 			seen.insert(id)
 
 			let visible = screen.visibleFrame
-			let y = config.position == .bottom ? visible.minY : visible.maxY - config.height
-			let frame = CGRect(x: visible.minX, y: y, width: visible.width, height: config.height)
+			let frame = CGRect(x: visible.minX, y: visible.minY, width: visible.width, height: config.height)
 
 			let window = windows[id] ?? BarWindow(rootView: BarView(model: model, display: id))
 			windows[id] = window
 			window.setFrame(frame, display: true)
 			window.orderFrontRegardless()
+
+			let magnifier = magnifiers[id]
+				?? MagnifierWindow(rootView: MagnifierView(model: model, display: id, lift: Magnifier.maximum))
+			magnifiers[id] = magnifier
+			magnifier.setFrame(CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + Magnifier.maximum), display: true)
+			magnifier.orderFrontRegardless()
 		}
 
 		for id in windows.keys where !seen.contains(id) {
 			windows.removeValue(forKey: id)?.orderOut(nil)
+		}
+		for id in magnifiers.keys where !seen.contains(id) {
+			magnifiers.removeValue(forKey: id)?.orderOut(nil)
 		}
 
 		matchDesktop()
@@ -111,7 +126,7 @@ public final class Bar {
 
 	/// Records the menu bar's light or dark look, which macOS picks from the desktop under it.
 	/// The bar uses it only when it cannot read the desktop under itself (the menu bar looks at the
-	/// top of the screen, the bar is usually at the bottom), but a change in it means the desktop
+	/// top of the screen, the bar at the bottom), but a change in it means the desktop
 	/// changed, so the bars look again.
 	public func followMenuBar(_ appearance: NSAppearance) {
 		menuBarIsDark = appearance.bestMatch(from: [.vibrantDark, .vibrantLight, .darkAqua, .aqua]).map {
@@ -181,6 +196,7 @@ public final class Bar {
 	}
 
 	private func refresh() {
+		model.showsNumbers = manager.usesWorkspaces
 		model.workspaces = manager.workspaceStates.map { state in
 			var apps: [BarModel.App] = []
 			for id in state.windows {
@@ -281,6 +297,33 @@ private final class BarWindow: NSPanel {
 		collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
 
 		contentView = ClickThroughHostingView(rootView: rootView)
+	}
+
+	override var canBecomeKey: Bool { false }
+	override var canBecomeMain: Bool { false }
+
+	override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+		frameRect
+	}
+}
+
+/// A clear panel over the bar and the windows above it, which draws the magnified app icons. Every
+/// click and every move of the pointer goes through it to what is under it.
+private final class MagnifierWindow: NSPanel {
+	init(rootView: MagnifierView) {
+		super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+
+		isOpaque = false
+		backgroundColor = .clear
+		hasShadow = false
+		ignoresMouseEvents = true
+		isReleasedWhenClosed = false
+		hidesOnDeactivate = false
+		// Over ordinary and floating windows, as the Dock's magnified icons are; under menus.
+		level = .statusBar
+		collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+
+		contentView = NSHostingView(rootView: rootView)
 	}
 
 	override var canBecomeKey: Bool { false }

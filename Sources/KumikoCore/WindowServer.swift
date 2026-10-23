@@ -109,6 +109,12 @@ public enum WindowServer {
 @MainActor
 public final class WindowServerEvents {
 	private let bus: EventBus
+	private var focused: UInt32?
+	/// kumiko's own window in focus, like the settings, followed along with the focused one: the
+	/// tracker leaves kumiko out and never reports it as focused.
+	public var own: UInt32? {
+		didSet { if own != oldValue { watch() } }
+	}
 
 	public init(bus: EventBus) {
 		self.bus = bus
@@ -117,9 +123,10 @@ public final class WindowServerEvents {
 	public func start() {
 		guard WindowServer.isAvailable else { return }
 
-		bus.subscribe { event in
+		bus.subscribe { [weak self] event in
 			if case let .windowFocused(id) = event {
-				WindowServer.watch(id.map { [$0] } ?? [])
+				self?.focused = id
+				self?.watch()
 			}
 		}
 
@@ -127,6 +134,11 @@ public final class WindowServerEvents {
 		let context = Unmanaged.passUnretained(self).toOpaque()
 		WindowServer.register(windowServerHandler, for: WindowServer.windowMoved, context: context)
 		WindowServer.register(windowServerHandler, for: WindowServer.windowResized, context: context)
+	}
+
+	private func watch() {
+		guard WindowServer.isAvailable else { return }
+		WindowServer.watch([focused, own].compactMap(\.self))
 	}
 
 	fileprivate func changed(_ id: UInt32) {

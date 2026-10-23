@@ -224,13 +224,22 @@ struct ConfigTests {
 	}
 
 
+	@Test func borderColourIsTheAccentUnlessSet() throws {
+		#expect(try Config.parse("").borders.color == nil)
+		#expect(try Config.parse("[borders]\ncolor = \"accent\"").borders.color == nil)
+		#expect(try Config.parse("[borders]\ncolor = \"#112233\"").borders.color == (try Color.parse("#112233")))
+	}
+
+	@Test func bordersOwnColourIsTheBarsBlue() {
+		#expect(Config.Borders.ownColor == Config.Bar.Palette().blue)
+	}
+
 	@Test func badBorderColourIsAnError() {
 		#expect(throws: ConfigError.self) { try Config.parse("[borders]\ncolor = \"blue\"") }
 	}
 
 	@Test func barDefaultsToTheSketchybarSetup() throws {
 		let bar = try Config.parse("").bar
-		#expect(bar.position == .bottom)
 		#expect(bar.height == 36)
 		#expect(bar.left == ["workspaces", "mode", "window"])
 		#expect(bar.right == ["datetime", "caffeinate", "battery", "input"])
@@ -238,11 +247,15 @@ struct ConfigTests {
 		#expect(bar.font.isEmpty && bar.fontSize == 0 && bar.colors.text == nil)
 	}
 
-	@Test func barTakesPositionColoursAndShellItems() throws {
+	@Test func leftoverBarPositionIsIgnored() throws {
+		// The bar could once go on top; a config that still says so must load, with the bar at the bottom.
+		#expect(try Config.parse("[bar]\nposition = \"top\"") == Config())
+	}
+
+	@Test func barTakesHeightColoursAndShellItems() throws {
 		let bar = try Config.parse("""
 			[bar]
-			position = "top"
-			height = 30
+			height = 40
 			right = ["datetime", "vpn"]
 
 			[bar.colors]
@@ -254,8 +267,7 @@ struct ConfigTests {
 			interval = 10
 			""").bar
 
-		#expect(bar.position == .top)
-		#expect(bar.height == 30)
+		#expect(bar.height == 40)
 		#expect(bar.colors.blue == (try Color.parse("#112233")))
 		#expect(bar.colors.red == Config.Bar.Palette().red)
 		#expect(bar.shell == [Config.Bar.ShellItem(name: "vpn", command: "echo on", interval: 10)])
@@ -264,6 +276,55 @@ struct ConfigTests {
 	@Test func unknownBarItemIsAnError() {
 		#expect(throws: ConfigError.invalid("bar: no item \"clock\"")) {
 			try Config.parse("[bar]\nleft = [\"clock\"]")
+		}
+	}
+
+	@Test func barMagnifiesLikeTheDockUnlessTold() throws {
+		#expect(try Config.parse("").bar.magnification == .dock)
+		#expect(try Config.parse("").bar.magnificationSize == 0)
+
+		let bar = try Config.parse("[bar]\nmagnification = \"off\"\nmagnification_size = 28").bar
+		#expect(bar.magnification == .off)
+		#expect(bar.magnificationSize == 28)
+	}
+
+	@Test func badMagnificationIsAnError() {
+		#expect(throws: ConfigError.self) { try Config.parse("[bar]\nmagnification = \"big\"") }
+		#expect(throws: ConfigError.invalid("bar: magnification_size must not be negative")) {
+			try Config.parse("[bar]\nmagnification_size = -1")
+		}
+	}
+
+	@Test func barIsAtScaleOneByDefault() throws {
+		let bar = try Config.parse("").bar
+		#expect(bar.scale == 1)
+		#expect(bar.height == 36)
+	}
+
+	@Test func barReadsItsScale() throws {
+		let bar = try Config.parse("[bar]\nscale = 1.5\nheight = 60").bar
+		#expect(bar.scale == 1.5)
+		#expect(bar.height == 60)
+	}
+
+	@Test func barIsNeverLowerThanItsScaleNeeds() throws {
+		#expect(try Config.parse("[bar]\nscale = 1.5\nheight = 40").bar.height == 54)
+		#expect(try Config.parse("[bar]\nheight = 20").bar.height == 36)
+	}
+
+	@Test func leastHeightIsInWholePoints() throws {
+		#expect(try Config.parse("[bar]\nscale = 1.05").bar.height == 38)
+		#expect(try Config.parse("[bar]\nscale = 1.25").bar.height == 45)
+		// Twelfths, as the settings window writes them.
+		#expect(try Config.parse("[bar]\nscale = 1.0833").bar.height == 39)
+		#expect(try Config.parse("[bar]\nscale = 1.1667").bar.height == 42)
+	}
+
+	@Test func scaleThatIsNotPositiveIsAnError() {
+		for scale in ["0", "-1"] {
+			#expect(throws: ConfigError.invalid("bar: scale must be greater than 0")) {
+				try Config.parse("[bar]\nscale = \(scale)")
+			}
 		}
 	}
 }

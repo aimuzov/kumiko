@@ -16,6 +16,9 @@ public final class WindowTracker {
 	private var apps: [pid_t: AppObserver] = [:]
 	private var workspaceObservers: [any NSObjectProtocol] = []
 	private var resignObserver: (any NSObjectProtocol)?
+	/// Whether kumiko keeps its Dock icon when another app comes in front: while a window of its own,
+	/// like the settings, is open and the user needs a way back to it.
+	public var keepsDockIcon: @MainActor () -> Bool = { false }
 	private var permissionTimer: Timer?
 	private var rescanTimer: Timer?
 	private var pendingRefreshes: Set<UInt32> = []
@@ -134,8 +137,11 @@ public final class WindowTracker {
 		// Back to no Dock icon once another app is in front; see focusNothing.
 		resignObserver = NotificationCenter.default.addObserver(
 			forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
-		) { _ in
-			MainActor.assumeIsolated { _ = NSApp.setActivationPolicy(.accessory) }
+		) { [weak self] _ in
+			MainActor.assumeIsolated {
+				guard self?.keepsDockIcon() != true else { return }
+				_ = NSApp.setActivationPolicy(.accessory)
+			}
 		}
 
 		on(NSWorkspace.didActivateApplicationNotification) { [weak self] app in
@@ -374,8 +380,14 @@ public final class WindowTracker {
 	public func focusNothing() {
 		// macOS gives the menu bar only to apps with a Dock icon; kumiko has one while in front.
 		NSApp.setActivationPolicy(.regular)
-		AX.bringForward(pid: getpid())
+		bringKumikoForward()
 		setFocus(nil)
+	}
+
+	/// Makes kumiko the front app the way a click in the Dock would. `NSApp.activate()` only asks,
+	/// and the app in front may say no; then kumiko is not active and comes last in cmd-tab.
+	public func bringKumikoForward() {
+		AX.bringForward(pid: getpid())
 	}
 
 	/// Whether a point is on the empty desktop: Finder's desktop window on top there, and no icon

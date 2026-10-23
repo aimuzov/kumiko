@@ -16,6 +16,12 @@ struct ColorTests {
 		#expect(color.red == 1)
 	}
 
+	@Test func hexReadsBackAsTheSameColour() throws {
+		#expect(try Color.parse("0xff8aadf4").hex == "#8aadf4")
+		#expect(try Color.parse("#8aadf480").hex == "#8aadf480")
+		#expect(try Color.parse(Color(red: 0.5, green: 0.25, blue: 1, alpha: 0.5).hex).hex == "#8040ff80")
+	}
+
 	@Test func otherFormsAreErrors() {
 		#expect(throws: ConfigError.self) { try Color.parse("ff0000") }
 		#expect(throws: ConfigError.self) { try Color.parse("#ff00") }
