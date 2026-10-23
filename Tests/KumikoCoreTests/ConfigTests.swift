@@ -126,7 +126,7 @@ struct ConfigTests {
 	@Test func layoutDefaultsWithoutAWmSection() throws {
 		let config = try Config.parse("")
 		#expect(config.wm.gap == 8)
-		#expect(config.wm.padding == Insets(all: 8))
+		#expect(config.wm.padding == Insets(all: 4))
 	}
 
 	@Test func workspacesKeepFileOrderAndDefaults() throws {
