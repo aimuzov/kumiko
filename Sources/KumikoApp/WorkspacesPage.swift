@@ -144,7 +144,7 @@ extension SettingsModel {
 
 	/// The built-in nine, written out so they can be changed.
 	func customizeWorkspaces() {
-		change((1...9).map { EntryEdit.insert("workspace", fields: Config.Workspace(name: String($0)).tomlFields) })
+		change(Config.Workspace.builtIn.map { EntryEdit.insert("workspace", fields: $0.tomlFields) })
 		selectedWorkspace = 0
 	}
 

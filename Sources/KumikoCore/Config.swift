@@ -34,6 +34,9 @@ public struct Config: Equatable, Sendable {
 		/// The share of its split a window of the app gets when it joins the layout.
 		public var share: [String: Double]
 
+		/// What a file with no `[[workspace]]` gets: "1"…"9" on the main display.
+		public static let builtIn = (1...9).map { Workspace(name: String($0)) }
+
 		public init(
 			name: String, display: String = "main", apps: [String] = [], isDefault: Bool = false, stack: [String] = [],
 			last: [String] = [], share: [String: Double] = [:]

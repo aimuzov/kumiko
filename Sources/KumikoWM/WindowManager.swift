@@ -336,7 +336,7 @@ public final class WindowManager {
 		// With workspaces off nothing comes from the config, and the loop below gives every display
 		// the one workspace it then has.
 		var configs = !config.wm.useWorkspaces ? []
-			: config.workspaces.isEmpty ? (1...9).map { Config.Workspace(name: String($0)) }
+			: config.workspaces.isEmpty ? Config.Workspace.builtIn
 			: config.workspaces
 
 		// A display no workspace is meant for still gets one, or it could show nothing at all.
