@@ -26,6 +26,31 @@ struct ConfigTests {
 		#expect(try Config.parse("[borders]") == Config())
 	}
 
+	@Test func menuBarHidingIsOffByDefault() throws {
+		let config = try Config.parse("[menubar]")
+		#expect(config.menuBar == Config.MenuBar())
+		#expect(config.menuBar.enabled == false)
+	}
+
+	@Test func menuBarReadsItsKeys() throws {
+		let config = try Config.parse("""
+			[menubar]
+			enabled = true
+			show_on_click = false
+			show_on_scroll = false
+			rehide = 15
+			""")
+
+		#expect(config.menuBar.enabled)
+		#expect(config.menuBar.showOnClick == false)
+		#expect(config.menuBar.showOnScroll == false)
+		#expect(config.menuBar.rehide == 15)
+	}
+
+	@Test func negativeRehideIsAnError() {
+		#expect(throws: ConfigError.self) { try Config.parse("[menubar]\nrehide = -1") }
+	}
+
 	@Test func brokenTOMLIsAnError() {
 		#expect(throws: ConfigError.self) { try Config.parse("[bar") }
 	}

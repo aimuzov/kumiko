@@ -57,6 +57,20 @@ enabled = false
 enabled = true
 ```
 
+`[menubar]` hides status items of the macOS menu bar, the way Ice does, and is off by default. It
+adds a chevron and an invisible divider to the menu bar; items left of the divider hide. Cmd-drag
+an item across the divider to choose. The first time, both take the places of Ice's own.
+
+```toml
+[menubar]
+enabled = true
+show_on_click = true   # a click on the empty menu bar shows or hides the items
+show_on_scroll = true  # scrolling over the menu bar: up shows, down hides
+rehide = 0             # seconds before shown items hide again, 0 for never
+```
+
+`kumiko menubar show|hide|toggle` does the same from a script or a hotkey.
+
 ## License
 
 MIT

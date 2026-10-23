@@ -3,6 +3,7 @@ import KumikoBar
 import KumikoBorders
 import KumikoCore
 import KumikoHotkeys
+import KumikoMenuBar
 import KumikoVim
 import KumikoWM
 
@@ -20,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var hotkeys: Hotkeys?
 	private var borders: Borders?
 	private(set) var bar: Bar?
+	private(set) var menuBar: MenuBarHider?
 	private var vim: Vim?
 	private var windowServer: WindowServerEvents?
 
@@ -65,11 +67,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		let borders = Borders(bus: bus, config: config.borders, focused: nil) { tracker.windows[$0] }
 		let windowServer = WindowServerEvents(bus: bus)
 		let bar = Bar(bus: bus, tracker: tracker, manager: manager, config: config.bar)
+		let menuBar = MenuBarHider(config: config.menuBar)
 		// Vim gets the keys the hotkeys leave alone, so a hotkey still works inside a text field.
 		let vim = Vim(bus: bus, config: config.vim)
 		hotkeys.passthrough = { event, isDown in vim.handle(event, isDown: isDown) }
 		self.windowServer = windowServer
 		self.bar = bar
+		self.menuBar = menuBar
 		self.vim = vim
 		self.hotkeys = hotkeys
 		self.borders = borders
@@ -81,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 				hotkeys.apply(config.hotkeys)
 				borders.apply(config.borders)
 				bar.apply(config.bar)
+				menuBar.apply(config.menuBar)
 				vim.apply(config.vim)
 			}
 		}
@@ -90,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		borders.start()
 		windowServer.start()
 		bar.start()
+		menuBar.start()
 		vim.start()
 		tracker.start()
 		hotkeys.start()

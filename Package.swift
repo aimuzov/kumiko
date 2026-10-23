@@ -48,12 +48,16 @@ let package = Package(
 			dependencies: ["KumikoCore", "CLibvim"]
 		),
 		.target(
+			name: "KumikoMenuBar",
+			dependencies: ["KumikoCore"]
+		),
+		.target(
 			name: "KumikoBar",
 			dependencies: ["KumikoCore", "KumikoWM"]
 		),
 		.executableTarget(
 			name: "KumikoApp",
-			dependencies: ["KumikoCore", "KumikoWM", "KumikoHotkeys", "KumikoBorders", "KumikoBar", "KumikoVim"]
+			dependencies: ["KumikoCore", "KumikoWM", "KumikoHotkeys", "KumikoBorders", "KumikoBar", "KumikoMenuBar", "KumikoVim"]
 		),
 		// The product is called `kumiko`, the target is not: macOS file systems are case-insensitive,
 		// so a `kumiko` target next to `KumikoApp`'s module would fight over the same build paths.

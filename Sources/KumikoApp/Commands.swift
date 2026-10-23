@@ -29,6 +29,9 @@ struct Commands {
 			return .success()
 		case "query":
 			return query(Array(args.dropFirst()))
+		case "menubar":
+			guard let menuBar = app.menuBar else { return .failure("menu bar hiding is not running") }
+			return menuBar.handle(args)
 		case "window", "workspace":
 			guard let manager = app.manager else { return .failure("window management is not running") }
 			return manager.handle(args)
@@ -84,6 +87,7 @@ struct Commands {
 			("hotkeys", config.hotkeys.enabled && app.hotkeys?.isRunning == true),
 			("bar", config.bar.enabled),
 			("borders", config.borders.enabled),
+			("menubar", config.menuBar.enabled),
 		]
 
 		var lines = ["kumiko \(Kumiko.version)", "", "modules:"]
@@ -103,6 +107,10 @@ struct Commands {
 
 		if config.bar.enabled, let bar = app.bar {
 			lines.append("  bar tone: \(bar.toneDescription)")
+		}
+
+		if let menuBar = app.menuBar, menuBar.isInstalled {
+			lines.append("  menu bar items: \(menuBar.isHidden ? "hidden" : "shown")")
 		}
 
 		if let hotkeys = app.hotkeys, hotkeys.isRunning {
