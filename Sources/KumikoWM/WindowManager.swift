@@ -34,8 +34,8 @@ public final class WindowManager {
 	private var expected: [UInt32: CGRect] = [:]
 	private var placement = Placement([])
 	private var previousWorkspace: String?
-	/// New name to old, from the settings window before it writes a rename, so the next pass
-	/// keeps the workspace's layout and windows instead of placing them again.
+	/// New name to old, from the settings window before it writes a rename. The hint waits for the
+	/// pass that brings the new name, and that pass keeps the workspace's layout and windows.
 	private var renames: [String: String] = [:]
 	private var hasShownFocusedWorkspace = false
 
@@ -331,7 +331,7 @@ public final class WindowManager {
 	}
 
 	/// Rebuilds the workspace list from the config, keeping the layout of every workspace whose
-	/// name stays, and makes sure each display shows one.
+	/// name stays or whose rename the settings window told about, and makes sure each display shows one.
 	private func updateWorkspaces(_ displays: [Display]) {
 		// With workspaces off nothing comes from the config, and the loop below gives every display
 		// the one workspace it then has.
@@ -356,6 +356,7 @@ public final class WindowManager {
 			let renamed = renames[config.name].flatMap { names.contains($0) ? nil : old[$0] }
 
 			if let workspace = old[config.name] ?? renamed {
+				if renamed != nil, previousWorkspace == workspace.name { previousWorkspace = config.name }
 				workspace.config = config
 				workspace.display = display
 				return workspace
@@ -680,10 +681,14 @@ public final class WindowManager {
 			?? windows(of: workspace).first { tracker.windows[$0]?.isMinimized == false }
 	}
 
-	/// Says a workspace is about to be renamed in the file. A rename typed by hand is not told, and
-	/// stays what it always was: one workspace gone and another one new.
+	/// Says a workspace is about to be renamed in the file. The settings window tells it before the
+	/// file is checked, so a hint for a name that never arrives is simply never used. A rename typed
+	/// by hand is not told, and stays what it always was: one workspace gone and another one new.
 	public func rename(_ old: String, to new: String) {
-		renames[new] = old
+		// A to B and then B to C before a reload is one rename, C from A.
+		let origin = renames.removeValue(forKey: old) ?? old
+		renames = renames.filter { $0.value != origin }
+		renames[new] = origin
 	}
 
 	/// Brings forward the window of an app on a workspace, showing the workspace first when it is
