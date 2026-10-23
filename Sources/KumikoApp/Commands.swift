@@ -23,6 +23,10 @@ struct Commands {
 			}
 		case "status":
 			return .success(status())
+		case "settings":
+			let pane = args.dropFirst().first
+			guard app.showSettings(pane: pane) else { return .failure("no settings pane \(pane ?? "")") }
+			return .success()
 		case "query":
 			return query(Array(args.dropFirst()))
 		case "window", "workspace":

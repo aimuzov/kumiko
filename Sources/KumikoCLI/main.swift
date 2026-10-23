@@ -11,6 +11,8 @@ let usage = """
 	  ping       check that kumiko is running
 	  status     show modules and permissions
 	  reload     reread kumiko.toml
+	  settings [general|windows|borders|bar|advanced]
+	             open the settings window
 	  query windows|focused|workspaces|displays
 	             print state as JSON
 

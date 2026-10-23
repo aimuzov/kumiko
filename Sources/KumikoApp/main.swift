@@ -28,6 +28,9 @@ private func appMenu() -> NSMenu {
 	item.submenu = NSMenu(title: "kumiko")
 	item.submenu?.addItem(withTitle: "About kumiko", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
 	item.submenu?.addItem(.separator())
+	// Sent up the responder chain to the app delegate.
+	item.submenu?.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
+	item.submenu?.addItem(.separator())
 	item.submenu?.addItem(withTitle: "Quit kumiko", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
 	menu.addItem(item)
 	return menu

@@ -54,6 +54,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			menu.addItem(disabled("Config error: \(error.description)"))
 		}
 
+		let settings = NSMenuItem(title: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
+		settings.target = app
+		menu.addItem(settings)
 		menu.addItem(action("Reload Config", #selector(reloadConfig)))
 		menu.addItem(action("Open Config Folder", #selector(openConfigFolder)))
 

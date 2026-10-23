@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private var server: IPCServer?
 	private var watcher: ConfigWatcher?
 	private var statusMenu: StatusMenu?
+	private lazy var settings = SettingsWindow(app: self)
 
 	init(paths: Paths) {
 		self.paths = paths
@@ -100,6 +101,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		Onboarding.runIfNeeded()
 
 		Log.app.info("kumiko \(Kumiko.version, privacy: .public) started")
+	}
+
+	/// Sent by "Settings…" in the status menu and in the app menu.
+	@objc func showSettings(_ sender: Any?) {
+		settings.show()
+	}
+
+	/// `kumiko settings [pane]`; false when there is no pane by that name.
+	func showSettings(pane: String?) -> Bool {
+		settings.show(pane: pane)
 	}
 
 	func applicationWillTerminate(_ notification: Notification) {
