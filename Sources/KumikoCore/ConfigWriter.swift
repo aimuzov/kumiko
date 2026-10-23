@@ -314,8 +314,9 @@ extension Insets {
 }
 
 extension Config.Workspace {
-	/// The entry as the settings window writes it. Keys that keep their default
-	/// are left out, so a new workspace is two lines, the way a person would start one.
+	/// The entry as the settings window writes it. `display` is always there, so the file
+	/// shows which screen the workspace lives on. The other keys are left out while they
+	/// keep their default, so a new workspace is two lines, the way a person would start one.
 	public var tomlFields: [TOMLValue.Field] {
 		var fields: [TOMLValue.Field] = [.init("name", .string(name)), .init("display", .string(display))]
 		if !apps.isEmpty { fields.append(.init("apps", .array(apps.map(TOMLValue.string)))) }
@@ -330,7 +331,9 @@ extension Config.Workspace {
 	/// in the order `order` names them, the rest after them by name, so the line
 	/// reads the same on every write.
 	public static func shareValue(_ share: [String: Double], order: [String]) -> TOMLValue {
-		let keys = order.filter { share[$0] != nil } + share.keys.filter { !order.contains($0) }.sorted()
+		var seen = Set<String>()
+		let keys =
+			order.filter { share[$0] != nil && seen.insert($0).inserted } + share.keys.filter { !seen.contains($0) }.sorted()
 		return .table(keys.map { .init($0, .double(share[$0]!)) })
 	}
 }

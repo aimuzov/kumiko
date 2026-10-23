@@ -232,4 +232,13 @@ struct ConfigWriterTests {
 		#expect(try Config.parse(changed).vim.blacklist == ["Code", "Ghostty"])
 		#expect(try apply("vim", "commands", .array([]), to: "[vim]") == "[vim]\ncommands = []")
 	}
+
+	@Test func workspaceFieldsLeaveDefaultsOut() {
+		#expect(Config.Workspace(name: "A").tomlFields == [.init("name", .string("A")), .init("display", .string("main"))])
+	}
+
+	@Test func shareKeepsTheAppsOrderThenNames() {
+		let value = Config.Workspace.shareValue(["B": 0.3, "A": 0.6, "C": 0.1], order: ["C", "C", "B"])
+		#expect(value == .table([.init("C", .double(0.1)), .init("B", .double(0.3)), .init("A", .double(0.6))]))
+	}
 }
