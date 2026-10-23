@@ -59,7 +59,8 @@ enabled = true
 
 `[menubar]` hides status items of the macOS menu bar, the way Ice does, and is off by default. It
 adds a chevron and an invisible divider to the menu bar; items left of the divider hide. Cmd-drag
-an item across the divider to choose. The first time, both take the places of Ice's own.
+an item across the divider to choose: while an item is dragged, every item is shown and the
+divider is drawn. The first time, both take the places of Ice's own.
 
 ```toml
 [menubar]
