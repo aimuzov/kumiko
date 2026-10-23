@@ -23,6 +23,7 @@ final class SettingsWindow {
 			[weak app] in app?.menuBar?.items()
 		}
 		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
+		model.onRenameWorkspace = { [weak app] old, new in app?.manager?.rename(old, to: new) }
 
 		app.bus.subscribe { [weak self, unowned app] event in
 			guard case .configReloaded = event else { return }
@@ -108,6 +109,11 @@ final class SettingsModel: ObservableObject {
 	@Published var search = ""
 	/// The padding's sides are set one by one even while they are all the same.
 	@Published var paddingPerSide = false
+	/// The workspace the cards under the list edit, by its index in the file.
+	@Published var selectedWorkspace = 0
+	@Published var confirmingWorkspaceRemoval = false
+	/// Tells the window manager a rename is coming, before the file has it.
+	var onRenameWorkspace: (String, String) -> Void = { _, _ in }
 	/// The bar's scale while its slider is dragged; written to the file when it is let go.
 	@Published var draggedBarScale: Double?
 	/// The colour panel's own last pick, kept while the file holds it. The panel works in the
@@ -145,8 +151,14 @@ final class SettingsModel: ObservableObject {
 	/// Writes one key to kumiko.toml. The page shows the new value at once: the reload that applies
 	/// it to the modules comes after the watcher's pause and brings back the same config.
 	func set(_ table: String, _ key: String, _ value: TOMLValue?) {
+		change([ConfigEdit(table: table, key: key, value: value)])
+	}
+
+	/// Writes several changes as one, so a control that touches more than one key never lands halfway.
+	func change(_ changes: [any ConfigChange]) {
+		guard !changes.isEmpty else { return }
 		do throws(ConfigError) {
-			config = try ConfigWriter.write(ConfigEdit(table: table, key: key, value: value), to: configFile)
+			config = try ConfigWriter.write(changes, to: configFile)
 			writeError = nil
 		} catch {
 			writeError = error.description
@@ -506,7 +518,7 @@ private struct Page: View {
 			case .advanced: AdvancedPage(model: model)
 			case .about: AboutPage()
 			case .windows: WindowsPage(model: model)
-			case .workspaces: WorkspacesPage(workspaces: model.config.workspaces)
+			case .workspaces: WorkspacesPage(model: model)
 			case .rules: RulesPage(model: model)
 			case .hotkeys: HotkeysPage(hotkeys: model.config.hotkeys)
 			case .bar: BarPage(model: model)
@@ -622,7 +634,7 @@ private struct SIPNote: View {
 }
 
 /// A rounded group of rows, Raycast's way of grouping settings.
-private struct Card<Content: View>: View {
+struct Card<Content: View>: View {
 	var title: String?
 	@ViewBuilder var content: Content
 
@@ -645,7 +657,7 @@ private struct Card<Content: View>: View {
 }
 
 /// One line of a card: a title on the left, its value or control on the right.
-private struct Row<Trailing: View>: View {
+struct Row<Trailing: View>: View {
 	let title: String
 	var detail: String?
 	var last = false
@@ -694,7 +706,7 @@ extension Row where Trailing == Text {
 	}
 }
 
-private struct SwitchRow: View {
+struct SwitchRow: View {
 	let title: String
 	var detail: String?
 	let on: Binding<Bool>
@@ -933,35 +945,6 @@ private struct WindowsPage: View {
 				setPadding(padding)
 			}
 		)
-	}
-}
-
-private struct WorkspacesPage: View {
-	let workspaces: [Config.Workspace]
-
-	var body: some View {
-		if workspaces.isEmpty {
-			Card {
-				Row("Workspaces", value: "1…9 on the main display", last: true)
-			}
-		}
-
-		ForEach(Array(workspaces.enumerated()), id: \.offset) { index, workspace in
-			Card(title: "\(index + 1). \(workspace.name)") {
-				Row("Display", value: workspace.display.capitalized)
-				Row(
-					"Apps",
-					value: workspace.isDefault ? list(workspace.apps + ["every other app"]) : list(workspace.apps),
-					last: workspace.stack.isEmpty && workspace.last.isEmpty
-				)
-				if !workspace.stack.isEmpty {
-					Row("Kept in one stack", value: list(workspace.stack), last: workspace.last.isEmpty)
-				}
-				if !workspace.last.isEmpty {
-					Row("Always last", value: list(workspace.last), last: true)
-				}
-			}
-		}
 	}
 }
 
