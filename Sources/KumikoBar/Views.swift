@@ -288,11 +288,14 @@ struct MagnifierView: View {
 			   let frame = model.iconRows[workspace.name]
 			{
 				let row = IconRow(model: model, workspace: workspace)
+				// Drawn at the largest size and scaled down from it: scaled up from the bar's size, an
+				// icon is the bar's few pixels blown up.
+				let largest = max(pointer.largest ?? row.size, row.size)
 
 				ForEach(Array(row.icons.enumerated()), id: \.element.app.id) { index, item in
-					AppIcon(image: item.icon, size: row.size, muted: row.isMuted(index))
-						.scaleEffect(row.scale(index), anchor: .bottom)
-						.position(x: frame.minX + row.center(index), y: lift + frame.midY)
+					AppIcon(image: item.icon, size: largest, muted: row.isMuted(index))
+						.scaleEffect(row.scale(index) * row.size / largest, anchor: .bottom)
+						.position(x: frame.minX + row.center(index), y: lift + frame.midY + (row.size - largest) / 2)
 				}
 				.animation(.easeOut(duration: Magnifier.settle), value: pointer)
 			}
