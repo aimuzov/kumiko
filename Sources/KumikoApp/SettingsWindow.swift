@@ -109,9 +109,11 @@ final class SettingsModel: ObservableObject {
 	@Published var search = ""
 	/// The padding's sides are set one by one even while they are all the same.
 	@Published var paddingPerSide = false
-	/// The workspace the cards under the list edit, by its index in the file.
+	/// The workspace the cards under the list edit, by its index in the file. A reload keeps it on
+	/// the same name.
 	@Published var selectedWorkspace = 0
-	@Published var confirmingWorkspaceRemoval = false
+	/// The workspace the Remove dialog asks about, named when it opened.
+	@Published var workspacePendingRemoval: String?
 	/// Tells the window manager a rename is coming, before the file has it.
 	var onRenameWorkspace: (String, String) -> Void = { _, _ in }
 	/// The bar's scale while its slider is dragged; written to the file when it is let go.
@@ -136,9 +138,11 @@ final class SettingsModel: ObservableObject {
 	}
 
 	func update(_ config: Config, error: String?) {
+		let selected = selected?.name
 		self.config = config
 		self.error = error
 		writeError = nil
+		keepSelection(on: selected)
 
 		// A colour changed in the file by hand is no longer the panel's pick.
 		if let picked = pickedBorderColor, pendingBorderColor == nil,

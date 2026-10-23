@@ -28,9 +28,11 @@ struct DisplayChoice: Hashable {
 		var choices = [
 			DisplayChoice(value: "main", title: "Main"), DisplayChoice(value: "builtin", title: "Built-in"),
 			DisplayChoice(value: "external", title: "External"),
-		] + NSScreen.screens.map { DisplayChoice(value: $0.localizedName, title: $0.localizedName) }
-		if !choices.contains(where: { $0.value == current }) {
-			choices.append(DisplayChoice(value: current, title: current))
+		]
+		// Two screens of one model share a name, and the menu takes each value once.
+		for name in NSScreen.screens.map(\.localizedName) + [current]
+		where !choices.contains(where: { $0.value == name }) {
+			choices.append(DisplayChoice(value: name, title: name))
 		}
 		return choices
 	}
@@ -48,21 +50,31 @@ extension SettingsModel {
 		workspaces.indices.contains(selectedWorkspace) ? workspaces[selectedWorkspace] : nil
 	}
 
-	func setWorkspace(_ index: Int, _ key: String, _ value: TOMLValue?) {
+	/// On the workspace of that name wherever it went, else on the place it was.
+	func keepSelection(on name: String?) {
+		if let name, let index = index(of: name) {
+			selectedWorkspace = index
+		} else {
+			selectedWorkspace = max(min(selectedWorkspace, workspaces.count - 1), 0)
+		}
+	}
+
+	func setWorkspace(_ name: String, _ key: String, _ value: TOMLValue?) {
+		guard let index = index(of: name) else { return }
 		change([ConfigEdit(target: .entry("workspace", index), key: key, value: value)])
 	}
 
 	/// An empty or taken name is refused by the config check and shows as the write's error.
-	func renameWorkspace(_ index: Int, to name: String) {
-		let name = name.trimmingCharacters(in: .whitespaces)
-		let old = workspaces[index].name
-		guard name != old else { return }
-		onRenameWorkspace(old, name)
-		setWorkspace(index, "name", .string(name))
+	func renameWorkspace(_ name: String, to new: String) {
+		let new = new.trimmingCharacters(in: .whitespaces)
+		guard new != name, index(of: name) != nil else { return }
+		onRenameWorkspace(name, new)
+		setWorkspace(name, "name", .string(new))
 	}
 
 	/// Only the first default counts, so turning one on turns the others off.
-	func setDefault(_ index: Int, _ on: Bool) {
+	func setDefault(_ name: String, _ on: Bool) {
+		guard let index = index(of: name) else { return }
 		var changes: [any ConfigChange] = [
 			ConfigEdit(target: .entry("workspace", index), key: "default", value: on ? .bool(true) : nil),
 		]
@@ -84,18 +96,21 @@ extension SettingsModel {
 		return seen
 	}
 
-	func setApp(_ app: String, _ list: AppList, _ on: Bool, of index: Int) {
+	func setApp(_ app: String, _ list: AppList, _ on: Bool, in name: String) {
+		guard let index = index(of: name) else { return }
 		change([listEdit(index, list, on: on, app)])
 	}
 
-	func setShare(_ app: String, _ share: Double?, of index: Int) {
+	func setShare(_ app: String, _ share: Double?, in name: String) {
+		guard let index = index(of: name) else { return }
 		var shares = workspaces[index].share
 		shares[app] = share
 		change([shareEdit(index, shares)])
 	}
 
 	/// Out of all four, in one write.
-	func removeApp(_ app: String, of index: Int) {
+	func removeApp(_ app: String, from name: String) {
+		guard let index = index(of: name) else { return }
 		let workspace = workspaces[index]
 		var changes: [any ConfigChange] = AppList.allCases
 			.filter { workspace[keyPath: $0.keyPath].contains(app) }
@@ -112,12 +127,14 @@ extension SettingsModel {
 		let names = Set(workspaces.map(\.name))
 		let name = ((workspaces.count + 1)...).lazy.map { "Workspace \($0)" }.first { !names.contains($0) }!
 		change([EntryEdit.insert("workspace", fields: Config.Workspace(name: name).tomlFields)])
-		selectedWorkspace = workspaces.count - 1
+		if writeError == nil { keepSelection(on: name) }
 	}
 
-	func removeWorkspace(_ index: Int) {
+	func removeWorkspace(_ name: String) {
+		guard let index = index(of: name) else { return }
+		let selected = selected?.name
 		change([EntryEdit.remove("workspace", index)])
-		selectedWorkspace = min(selectedWorkspace, max(workspaces.count - 1, 0))
+		keepSelection(on: selected)
 	}
 
 	/// What `onMove` gives: the rows taken and the place before which they go, counted before they
@@ -127,17 +144,20 @@ extension SettingsModel {
 		let to = offset > from ? offset - 1 : offset
 		guard to != from else { return }
 
-		let name = selected?.name
+		let selected = selected?.name
 		change([EntryEdit.move("workspace", from: from, to: to)])
-		if let name, let index = workspaces.firstIndex(where: { $0.name == name }) {
-			selectedWorkspace = index
-		}
+		keepSelection(on: selected)
 	}
 
 	/// The built-in nine, written out so they can be changed.
 	func customizeWorkspaces() {
 		change((1...9).map { EntryEdit.insert("workspace", fields: Config.Workspace(name: String($0)).tomlFields) })
 		selectedWorkspace = 0
+	}
+
+	/// Looked up when the change is written: the file may have changed since the page was drawn.
+	private func index(of name: String) -> Int? {
+		workspaces.firstIndex { $0.name == name }
 	}
 
 	/// An empty list leaves the file: no key and an empty array mean the same.
@@ -177,8 +197,8 @@ struct WorkspacesPage: View {
 
 			if let workspace = model.selected {
 				Group {
-					WorkspaceCard(model: model, index: model.selectedWorkspace, workspace: workspace)
-					AppsCard(model: model, index: model.selectedWorkspace, workspace: workspace)
+					WorkspaceCard(model: model, workspace: workspace)
+					AppsCard(model: model, workspace: workspace)
 				}
 				// A field being typed in belongs to its own workspace, not to the next one selected.
 				.id(model.selectedWorkspace)
@@ -224,21 +244,28 @@ private struct WorkspaceList: View {
 			HStack {
 				Spacer()
 				Button { model.addWorkspace() } label: { Image(systemName: "plus") }
-				Button { model.confirmingWorkspaceRemoval = true } label: { Image(systemName: "minus") }
+				Button { model.workspacePendingRemoval = model.selected?.name } label: { Image(systemName: "minus") }
 					.disabled(model.selected == nil)
 			}
 			.buttonStyle(.borderless)
 			.padding(.vertical, 8)
 		}
-		.confirmationDialog("Remove \(model.selected?.name ?? "")?", isPresented: $model.confirmingWorkspaceRemoval) {
-			Button("Remove", role: .destructive) { model.removeWorkspace(model.selectedWorkspace) }
-		} message: {
+		.confirmationDialog(
+			"Remove \(model.workspacePendingRemoval ?? "")?",
+			isPresented: Binding(
+				get: { model.workspacePendingRemoval != nil }, set: { if !$0 { model.workspacePendingRemoval = nil } }
+			),
+			presenting: model.workspacePendingRemoval
+		) { name in
+			Button("Remove", role: .destructive) { model.removeWorkspace(name) }
+		} message: { _ in
 			Text("Its windows are placed on the other workspaces again.")
 		}
 	}
 
 	private var selection: Binding<Int?> {
-		Binding(get: { model.selectedWorkspace }, set: { model.selectedWorkspace = $0 ?? 0 })
+		// Cmd-click takes the row out of the selection; the cards below keep showing it.
+		Binding(get: { model.selectedWorkspace }, set: { if let index = $0 { model.selectedWorkspace = index } })
 	}
 
 	private func appCount(_ workspace: Config.Workspace) -> String {
@@ -249,7 +276,6 @@ private struct WorkspaceList: View {
 
 private struct WorkspaceCard: View {
 	@ObservedObject var model: SettingsModel
-	let index: Int
 	let workspace: Config.Workspace
 
 	var body: some View {
@@ -257,7 +283,7 @@ private struct WorkspaceCard: View {
 			Row(title: "Name") {
 				TextField(
 					"",
-					value: Binding(get: { workspace.name }, set: { model.renameWorkspace(index, to: $0) }),
+					value: Binding(get: { workspace.name }, set: { model.renameWorkspace(workspace.name, to: $0) }),
 					format: Verbatim()
 				)
 				.textFieldStyle(.roundedBorder)
@@ -267,7 +293,7 @@ private struct WorkspaceCard: View {
 				Picker(
 					"",
 					selection: Binding(
-						get: { workspace.display }, set: { model.setWorkspace(index, "display", .string($0)) }
+						get: { workspace.display }, set: { model.setWorkspace(workspace.name, "display", .string($0)) }
 					)
 				) {
 					ForEach(DisplayChoice.all(current: workspace.display), id: \.self) { Text($0.title).tag($0.value) }
@@ -278,7 +304,7 @@ private struct WorkspaceCard: View {
 			SwitchRow(
 				title: "Default",
 				detail: "Windows of apps no workspace names open here.",
-				on: Binding(get: { workspace.isDefault }, set: { model.setDefault(index, $0) }),
+				on: Binding(get: { workspace.isDefault }, set: { model.setDefault(workspace.name, $0) }),
 				last: true
 			)
 		}
@@ -287,19 +313,18 @@ private struct WorkspaceCard: View {
 
 private struct AppsCard: View {
 	@ObservedObject var model: SettingsModel
-	let index: Int
 	let workspace: Config.Workspace
 
 	var body: some View {
 		Card(title: "Apps") {
 			ForEach(model.apps(of: workspace), id: \.self) { app in
-				AppRow(model: model, index: index, workspace: workspace, app: app)
+				AppRow(model: model, workspace: workspace, app: app)
 			}
 
 			HStack {
 				Menu("Add App…") {
 					ForEach(Self.running(excluding: model.apps(of: workspace)), id: \.self) { app in
-						Button { model.setApp(app, .apps, true, of: index) } label: {
+						Button { model.setApp(app, .apps, true, in: workspace.name) } label: {
 							if let icon = AppIcon.image(for: app, size: 16) {
 								Label { Text(app) } icon: { Image(nsImage: icon) }
 							} else {
@@ -309,7 +334,7 @@ private struct AppsCard: View {
 					}
 					Divider()
 					Button("Choose…") {
-						if let app = Self.chooseApp() { model.setApp(app, .apps, true, of: index) }
+						if let app = Self.chooseApp() { model.setApp(app, .apps, true, in: workspace.name) }
 					}
 				}
 				.fixedSize()
@@ -340,7 +365,6 @@ private struct AppsCard: View {
 
 private struct AppRow: View {
 	@ObservedObject var model: SettingsModel
-	let index: Int
 	let workspace: Config.Workspace
 	let app: String
 
@@ -363,14 +387,14 @@ private struct AppRow: View {
 					"Share",
 					value: Binding(
 						get: { workspace.share[app] },
-						set: { model.setShare(app, $0.map { min(max($0, 0.1), 0.9) }, of: index) }
+						set: { model.setShare(app, $0.map { min(max($0, 0.1), 0.9) }, in: workspace.name) }
 					),
 					format: FloatingPointFormatStyle<Double>.number.precision(.fractionLength(0...2))
 				)
 				.textFieldStyle(.roundedBorder)
 				.frame(width: 52)
 				.help("The share of its split the app's window gets, 0.1 to 0.9")
-				Button { model.removeApp(app, of: index) } label: { Image(systemName: "minus.circle") }
+				Button { model.removeApp(app, from: workspace.name) } label: { Image(systemName: "minus.circle") }
 					.buttonStyle(.borderless)
 					.foregroundStyle(.secondary)
 					.help("Take \(app) out of this workspace")
@@ -387,7 +411,7 @@ private struct AppRow: View {
 			title,
 			isOn: Binding(
 				get: { workspace[keyPath: list.keyPath].contains(app) },
-				set: { model.setApp(app, list, $0, of: index) }
+				set: { model.setApp(app, list, $0, in: workspace.name) }
 			)
 		)
 		.toggleStyle(.checkbox)
@@ -398,7 +422,8 @@ private struct AppRow: View {
 /// folders. A pattern like `Arc|Dia` has none.
 @MainActor
 enum AppIcon {
-	private static var cache: [String: NSImage?] = [:]
+	/// Found icons only: an app launched or installed later gets its icon on the next look.
+	private static var cache: [String: NSImage] = [:]
 	private static let folders = [
 		"/Applications", "/System/Applications", "/System/Applications/Utilities", NSHomeDirectory() + "/Applications",
 	]
@@ -412,7 +437,7 @@ enum AppIcon {
 			.first { FileManager.default.fileExists(atPath: $0) }
 			.map { NSWorkspace.shared.icon(forFile: $0) }
 
-		let image = running ?? installed
+		guard let image = running ?? installed else { return nil }
 		cache[name] = image
 		return image
 	}
