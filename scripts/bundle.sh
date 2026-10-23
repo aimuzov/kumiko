@@ -76,6 +76,14 @@ else
 	identity=-
 fi
 
+# SwiftPM records the deployment target as the SDK the binaries were built with. macOS gives the
+# current look (Liquid Glass, the larger window corners) only to apps built with a current SDK, so
+# the real SDK version goes in before signing.
+sdk=$(xcrun --show-sdk-version)
+for binary in "$app/Contents/MacOS/KumikoApp" "$app/Contents/MacOS/kumiko"; do
+	xcrun vtool -set-build-version macos 14.0 "$sdk" -replace -output "$binary" "$binary"
+done
+
 # The CLI is signed first: signing the bundle seals what is inside it.
 codesign --force --options runtime --sign "$identity" "$app/Contents/MacOS/kumiko"
 codesign --force --options runtime --sign "$identity" "$app"
