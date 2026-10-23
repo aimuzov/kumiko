@@ -9,7 +9,8 @@ extension Config.Workspace {
 	}
 
 	/// The name a pattern spells out, or nil when it is a real pattern like `Arc|Dia`: one that
-	/// matches more than the one name has no name to show.
+	/// matches more than the one name has no name to show. A dot matches itself, so `zoom.us` is
+	/// a name even unescaped.
 	public static func name(of pattern: String) -> String? {
 		var name = ""
 		var characters = pattern.makeIterator()
@@ -21,7 +22,9 @@ extension Config.Workspace {
 				name.append(character)
 			}
 		}
-		return Self.pattern(for: name) == pattern ? name : nil
+		if Self.pattern(for: name) == pattern { return name }
+		let dotsOnly = Self.pattern(for: pattern) == pattern.replacingOccurrences(of: ".", with: "\\.")
+		return dotsOnly ? pattern : nil
 	}
 
 	/// Whether an `apps` pattern matches the whole app name, like `[[wm.rule]]` patterns do: "Code" is
@@ -46,9 +49,11 @@ extension Config.Workspace {
 	}
 
 	/// Whether `row` is in `apps` as a real pattern. Such a row only says where windows open: the
-	/// other lists compare exact names, which a pattern never equals.
+	/// other lists compare exact names, which a pattern never equals. A string already in one of
+	/// them is a name there, whatever `apps` makes of it.
 	public func isPattern(_ row: String) -> Bool {
 		apps.contains { $0 == row && Self.name(of: $0) == nil }
+			&& !stack.contains(row) && !last.contains(row) && share[row] == nil
 	}
 
 	/// Whether `row` is in `apps`, as its name or as the pattern it is.

@@ -1,15 +1,24 @@
+import KumikoCore
 import Testing
-
-@testable import KumikoCore
 
 @Suite("Workspace app names and patterns")
 struct WorkspaceAppsTests {
 	private typealias Workspace = Config.Workspace
 
-	@Test("a plain name is its own pattern")
-	func plainName() {
-		#expect(Workspace.pattern(for: "Safari") == "Safari")
-		#expect(Workspace.name(of: "Safari") == "Safari")
+	@Test("a plain name is its own pattern", arguments: [
+		"Safari", "Steam Helper", "Толк", "Google Chrome", "System Settings", "Dota 2",
+	])
+	func plainName(name: String) {
+		#expect(Workspace.pattern(for: name) == name)
+		#expect(Workspace.name(of: name) == name)
+	}
+
+	@Test("a dot is part of a name, escaped or not")
+	func dottedName() {
+		#expect(Workspace.name(of: "zoom.us") == "zoom.us")
+		#expect(Workspace.name(of: "zoom\\.us") == "zoom.us")
+		#expect(Workspace.name(of: "Notes.app") == "Notes.app")
+		#expect(Workspace(name: "w", apps: ["zoom.us"], stack: ["zoom.us"]).isPattern("zoom.us") == false)
 	}
 
 	@Test("a name with regex syntax is escaped and comes back unescaped", arguments: [

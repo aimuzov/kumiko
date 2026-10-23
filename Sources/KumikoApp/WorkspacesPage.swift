@@ -175,7 +175,8 @@ extension SettingsModel {
 	private func shareEdit(_ index: Int, _ shares: [String: Double]) -> ConfigEdit {
 		ConfigEdit(
 			target: .entry("workspace", index), key: "share",
-			value: shares.isEmpty ? nil : Config.Workspace.shareValue(shares, order: workspaces[index].apps)
+			value: shares.isEmpty ? nil : Config.Workspace.shareValue(
+				shares, order: workspaces[index].apps.map { Config.Workspace.name(of: $0) ?? $0 })
 		)
 	}
 }

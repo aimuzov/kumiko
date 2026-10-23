@@ -528,7 +528,9 @@ extension Config.Workspace {
 		if isDefault { fields.append(.init("default", .bool(true))) }
 		if !stack.isEmpty { fields.append(.init("stack", .array(stack.map(TOMLValue.string)))) }
 		if !last.isEmpty { fields.append(.init("last", .array(last.map(TOMLValue.string)))) }
-		if !share.isEmpty { fields.append(.init("share", Self.shareValue(share, order: apps))) }
+		if !share.isEmpty {
+			fields.append(.init("share", Self.shareValue(share, order: apps.map { Self.name(of: $0) ?? $0 })))
+		}
 		return fields
 	}
 
