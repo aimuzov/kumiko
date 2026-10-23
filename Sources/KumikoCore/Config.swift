@@ -340,7 +340,7 @@ public struct Config: Equatable, Sendable {
 		/// Space between neighbouring windows, in points.
 		public var gap = 8
 		/// Space between the windows and the edges of the screen.
-		public var padding = Insets(all: 8)
+		public var padding = Insets(all: 4)
 		/// Hide an app (like cmd-h) while none of its windows is on a shown workspace. Its windows
 		/// then leave the screen corner and Mission Control instead of waiting there.
 		public var hideApps = true
@@ -356,7 +356,7 @@ public struct Config: Equatable, Sendable {
 		public var rules: [WindowRule] = []
 
 		public init(
-			enabled: Bool = true, manage: Bool = true, gap: Int = 8, padding: Insets = Insets(all: 8),
+			enabled: Bool = true, manage: Bool = true, gap: Int = 8, padding: Insets = Insets(all: 4),
 			rules: [WindowRule] = []
 		) {
 			self.enabled = enabled
@@ -371,7 +371,7 @@ public struct Config: Equatable, Sendable {
 			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
 			manage = try container.decodeIfPresent(Bool.self, forKey: .manage) ?? true
 			gap = try container.decodeIfPresent(Int.self, forKey: .gap) ?? 8
-			padding = try container.decodeIfPresent(Insets.self, forKey: .padding) ?? Insets(all: 8)
+			padding = try container.decodeIfPresent(Insets.self, forKey: .padding) ?? Insets(all: 4)
 			hideApps = try container.decodeIfPresent(Bool.self, forKey: .hideApps) ?? true
 			shadows = try container.decodeIfPresent(Bool.self, forKey: .shadows) ?? true
 			useWorkspaces = try container.decodeIfPresent(Bool.self, forKey: .useWorkspaces) ?? true
