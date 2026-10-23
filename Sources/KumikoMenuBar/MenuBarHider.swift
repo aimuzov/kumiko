@@ -2,7 +2,7 @@ import AppKit
 import KumikoCore
 import os
 
-let log = Logger(subsystem: Kumiko.bundleIdentifier, category: "menubar")
+private let log = Logger(subsystem: Kumiko.bundleIdentifier, category: "menubar")
 
 /// Hides status items of the macOS menu bar, replacing Ice. Two items of its own do it:
 /// a chevron that shows and hides, and a divider to its left. While the items are
@@ -20,10 +20,6 @@ public final class MenuBarHider: NSObject {
 	/// Keeps a status item as wide as an icon; off while the items are shown.
 	private var dividerMinimum: NSLayoutConstraint?
 	private var rehideTimer: Timer?
-	private lazy var events = MenuBarEvents(
-		onClick: { [weak self] point in self?.click(at: point) },
-		onScroll: { [weak self] delta, point in self?.scroll(delta, at: point) }
-	)
 
 	private static let toggleName = "MenuBarToggle"
 	private static let dividerName = "MenuBarDivider"
@@ -43,9 +39,7 @@ public final class MenuBarHider: NSObject {
 
 		if config.enabled {
 			install()
-			events.start()
 		} else {
-			events.stop()
 			uninstall()
 		}
 	}
@@ -90,8 +84,6 @@ public final class MenuBarHider: NSObject {
 		if let button = divider.button {
 			// Stretched over the empty menu bar, the divider would light up on a click.
 			(button.cell as? NSButtonCell)?.highlightsBy = []
-			button.target = self
-			button.action = #selector(dividerClicked)
 		}
 
 		let toggle = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -156,7 +148,7 @@ public final class MenuBarHider: NSObject {
 			MainActor.assumeIsolated {
 				guard let self else { return }
 				// The pointer still on the menu bar means an item is in use; check again later.
-				if MenuBarGeometry.screen(at: MenuBarGeometry.mouseLocation) != nil {
+				if Self.isPointerOnMenuBar {
 					self.scheduleRehide()
 				} else {
 					self.hide()
@@ -169,28 +161,9 @@ public final class MenuBarHider: NSObject {
 		toggleItems()
 	}
 
-	/// Only reachable while the items are hidden: then the divider covers the empty part of
-	/// the menu bar.
-	@objc private func dividerClicked() {
-		if config.showOnClick { show() }
-	}
-
-	// MARK: - Events
-
-	private func click(at point: CGPoint) {
-		// Hidden items are shown by the divider, which takes the click itself.
-		guard !isHidden, config.showOnClick, MenuBarGeometry.isEmptySpace(point) else { return }
-		hide()
-	}
-
-	private func scroll(_ delta: CGFloat, at point: CGPoint) {
-		guard config.showOnScroll, MenuBarGeometry.screen(at: point) != nil else { return }
-
-		if delta > 5 {
-			show()
-		} else if delta < -5 {
-			hide()
-		}
+	private static var isPointerOnMenuBar: Bool {
+		let point = NSEvent.mouseLocation
+		return NSScreen.screens.contains { $0.frame.contains(point) && point.y >= $0.visibleFrame.maxY }
 	}
 
 	// MARK: - Positions
