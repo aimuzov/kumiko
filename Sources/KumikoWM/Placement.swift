@@ -10,8 +10,7 @@ struct Placement {
 	init(_ workspaces: [Config.Workspace]) {
 		entries = workspaces.flatMap { workspace in
 			workspace.apps.compactMap { pattern in
-				// Anchored like the app patterns of [[wm.rule]]: "Code" is not "Xcode".
-				(try? NSRegularExpression(pattern: "^(?:\(pattern))$")).map { (workspace.name, $0) }
+				Config.Workspace.matcher(for: pattern).map { (workspace.name, $0) }
 			}
 		}
 		fallback = workspaces.first(where: \.isDefault)?.name

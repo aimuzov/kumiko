@@ -87,14 +87,7 @@ extension SettingsModel {
 	}
 
 	/// Every app a workspace names, in the order they first come up.
-	func apps(of workspace: Config.Workspace) -> [String] {
-		var seen: [String] = []
-		for app in workspace.apps + workspace.stack + workspace.last + workspace.share.keys.sorted()
-		where !seen.contains(app) {
-			seen.append(app)
-		}
-		return seen
-	}
+	func apps(of workspace: Config.Workspace) -> [String] { workspace.appRows }
 
 	func setApp(_ app: String, _ list: AppList, _ on: Bool, in name: String) {
 		guard let index = index(of: name) else { return }
@@ -113,7 +106,7 @@ extension SettingsModel {
 		guard let index = index(of: name) else { return }
 		let workspace = workspaces[index]
 		var changes: [any ConfigChange] = AppList.allCases
-			.filter { workspace[keyPath: $0.keyPath].contains(app) }
+			.filter { $0 == .apps ? workspace.listsInApps(app) : workspace[keyPath: $0.keyPath].contains(app) }
 			.map { listEdit(index, $0, on: false, app) }
 		if workspace.share[app] != nil {
 			var shares = workspace.share
@@ -160,10 +153,19 @@ extension SettingsModel {
 		workspaces.firstIndex { $0.name == name }
 	}
 
-	/// An empty list leaves the file: no key and an empty array mean the same.
+	/// An empty list leaves the file: no key and an empty array mean the same. `apps` takes patterns,
+	/// so a name goes in escaped and comes out by the name it spells.
 	private func listEdit(_ index: Int, _ list: AppList, on: Bool, _ app: String) -> ConfigEdit {
-		let current = workspaces[index][keyPath: list.keyPath]
-		let apps = on ? (current.contains(app) ? current : current + [app]) : current.filter { $0 != app }
+		let workspace = workspaces[index]
+		let current = workspace[keyPath: list.keyPath]
+		let apps: [String]
+		if list == .apps {
+			let entry = workspace.isPattern(app) ? app : Config.Workspace.pattern(for: app)
+			let others = current.filter { (Config.Workspace.name(of: $0) ?? $0) != app }
+			apps = on ? (workspace.listsInApps(app) ? current : current + [entry]) : others
+		} else {
+			apps = on ? (current.contains(app) ? current : current + [app]) : current.filter { $0 != app }
+		}
 		return ConfigEdit(
 			target: .entry("workspace", index), key: list.rawValue,
 			value: apps.isEmpty ? nil : .array(apps.map(TOMLValue.string))
@@ -368,6 +370,9 @@ private struct AppRow: View {
 	let workspace: Config.Workspace
 	let app: String
 
+	private static let patternHelp =
+		"A pattern only chooses where windows open: the other settings match exact app names."
+
 	var body: some View {
 		VStack(spacing: 0) {
 			HStack(spacing: 10) {
@@ -381,8 +386,8 @@ private struct AppRow: View {
 					.truncationMode(.tail)
 				Spacer(minLength: 8)
 				toggle("Opens here", .apps)
-				toggle("One stack", .stack)
-				toggle("Last", .last)
+				toggle("One stack", .stack, exact: true)
+				toggle("Last", .last, exact: true)
 				TextField(
 					"Share",
 					value: Binding(
@@ -393,7 +398,11 @@ private struct AppRow: View {
 				)
 				.textFieldStyle(.roundedBorder)
 				.frame(width: 52)
-				.help("The share of its split the app's window gets, 0.1 to 0.9")
+				.disabled(workspace.isPattern(app))
+				.help(
+					workspace.isPattern(app)
+						? Self.patternHelp : "The share of its split the app's window gets, 0.1 to 0.9"
+				)
 				Button { model.removeApp(app, from: workspace.name) } label: { Image(systemName: "minus.circle") }
 					.buttonStyle(.borderless)
 					.foregroundStyle(.secondary)
@@ -406,15 +415,20 @@ private struct AppRow: View {
 		}
 	}
 
-	private func toggle(_ title: String, _ list: AppList) -> some View {
+	/// `exact` lists compare app names as they are, which a pattern row never is.
+	private func toggle(_ title: String, _ list: AppList, exact: Bool = false) -> some View {
 		Toggle(
 			title,
 			isOn: Binding(
-				get: { workspace[keyPath: list.keyPath].contains(app) },
+				get: {
+					list == .apps ? workspace.listsInApps(app) : workspace[keyPath: list.keyPath].contains(app)
+				},
 				set: { model.setApp(app, list, $0, in: workspace.name) }
 			)
 		)
 		.toggleStyle(.checkbox)
+		.disabled(exact && workspace.isPattern(app))
+		.help(exact && workspace.isPattern(app) ? Self.patternHelp : "")
 	}
 }
 
