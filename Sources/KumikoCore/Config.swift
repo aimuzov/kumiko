@@ -9,6 +9,7 @@ public struct Config: Equatable, Sendable {
 	public var bar = Bar()
 	public var borders = Borders()
 	public var vim = Vim()
+	public var menuBar = MenuBar()
 	/// `[[workspace]]` entries in file order. Empty means the default set: "1"…"9" on the main display.
 	public var workspaces: [Workspace] = []
 
@@ -204,6 +205,35 @@ public struct Config: Equatable, Sendable {
 		}
 	}
 
+	/// `[menubar]`: hiding status items of the macOS menu bar, the way Ice does it.
+	public struct MenuBar: Equatable, Sendable, Decodable {
+		/// Off unless asked for: it adds two items to the menu bar and would fight another menu
+		/// bar manager over them.
+		public var enabled = false
+		/// A click on the empty part of the menu bar shows or hides the items.
+		public var showOnClick = true
+		/// Scrolling up over the menu bar shows the items, scrolling down hides them.
+		public var showOnScroll = true
+		/// Seconds after which shown items hide again; 0 leaves them shown.
+		public var rehide = 0.0
+
+		public init() {}
+
+		public init(from decoder: any Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+			showOnClick = try container.decodeIfPresent(Bool.self, forKey: .showOnClick) ?? true
+			showOnScroll = try container.decodeIfPresent(Bool.self, forKey: .showOnScroll) ?? true
+			rehide = try container.decodeIfPresent(Double.self, forKey: .rehide) ?? 0
+		}
+
+		private enum CodingKeys: String, CodingKey {
+			case enabled, rehide
+			case showOnClick = "show_on_click"
+			case showOnScroll = "show_on_scroll"
+		}
+	}
+
 	/// `[borders]`: a frame around the focused window.
 	public struct Borders: Equatable, Sendable, Decodable {
 		public var enabled = true
@@ -357,6 +387,10 @@ public struct Config: Equatable, Sendable {
 			throw ConfigError.invalid("bar: no item \"\(item)\"")
 		}
 
+		if config.menuBar.rehide < 0 {
+			throw ConfigError.invalid("menubar: rehide must not be negative")
+		}
+
 		var names = Set<String>()
 
 		for workspace in config.workspaces {
@@ -492,10 +526,12 @@ extension Config: Decodable {
 		borders = try container.decodeIfPresent(Borders.self, forKey: .borders) ?? Borders()
 		workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []
 		vim = try container.decodeIfPresent(Vim.self, forKey: .vim) ?? Vim()
+		menuBar = try container.decodeIfPresent(MenuBar.self, forKey: .menuBar) ?? MenuBar()
 	}
 
 	private enum CodingKeys: String, CodingKey {
 		case wm, hotkeys, bar, borders, vim
+		case menuBar = "menubar"
 		case workspaces = "workspace"
 	}
 }

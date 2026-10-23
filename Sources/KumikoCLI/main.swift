@@ -29,6 +29,10 @@ let usage = """
 	  workspace balance
 	  workspace rotate 90|180|270
 	  workspace mirror horizontal|vertical
+
+	  menubar show|hide|toggle
+	             show or hide the status items left of the divider
+
 	  version    print the version of the running app
 	  quit       quit the app, putting hidden windows back on screen
 
