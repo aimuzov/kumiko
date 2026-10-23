@@ -231,9 +231,6 @@ public struct Config: Equatable, Sendable {
 		public var enabled = true
 		/// Thickness in points, drawn outside the window.
 		public var width = 4.0
-		/// Corner radius of the framed window, for when the WindowServer does not report it. The
-		/// frame's own corners follow the window's.
-		public var radius = 12.0
 		public var color = Color(red: 0.54, green: 0.68, blue: 0.96)
 		/// Apps whose windows get no frame: games, mirroring.
 		public var blacklist: [String] = []
@@ -244,7 +241,6 @@ public struct Config: Equatable, Sendable {
 			let container = try decoder.container(keyedBy: CodingKeys.self)
 			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
 			width = try container.decodeIfPresent(Double.self, forKey: .width) ?? 4
-			radius = try container.decodeIfPresent(Double.self, forKey: .radius) ?? 12
 			blacklist = try container.decodeIfPresent([String].self, forKey: .blacklist) ?? []
 
 			if let text = try container.decodeIfPresent(String.self, forKey: .color) {
@@ -253,7 +249,7 @@ public struct Config: Equatable, Sendable {
 		}
 
 		private enum CodingKeys: String, CodingKey {
-			case enabled, width, radius, color, blacklist
+			case enabled, width, color, blacklist
 		}
 	}
 

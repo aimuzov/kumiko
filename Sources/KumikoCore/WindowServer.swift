@@ -30,7 +30,7 @@ public enum WindowServer {
 		let query: QueryWindows
 		let copyWindows: CopyWindows
 		let advance: IteratorAdvance
-		/// Missing on older systems; the configured radius stands in then.
+		/// Missing on older systems; borders fall back to the radius of a standard window then.
 		let radii: IteratorRadii?
 	}
 

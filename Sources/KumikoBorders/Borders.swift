@@ -99,7 +99,7 @@ public final class Borders {
 
 		let overlay = overlay ?? BorderWindow(config)
 		self.overlay = overlay
-		overlay.radius = WindowServer.cornerRadius(of: id) ?? config.radius
+		overlay.radius = WindowServer.cornerRadius(of: id) ?? BorderWindow.fallbackRadius
 
 		place(overlay, around: bounds)
 		overlay.order(.above, relativeTo: Int(id))
@@ -133,8 +133,12 @@ private final class BorderWindow: NSWindow {
 	/// The framed window, in AppKit screen coordinates.
 	private var target: CGRect?
 
+	/// For a window whose corners the WindowServer does not report: the radius of a standard
+	/// macOS window.
+	static let fallbackRadius = 12.0
+
 	/// The corner radius of the window being framed; changes with the focused app.
-	var radius = 0.0 {
+	var radius = fallbackRadius {
 		didSet { if radius != oldValue { redraw() } }
 	}
 
@@ -164,7 +168,6 @@ private final class BorderWindow: NSWindow {
 
 	func style(_ config: Config.Borders) {
 		width = config.width
-		radius = config.radius
 		shape.lineWidth = width
 		shape.strokeColor = CGColor(
 			srgbRed: config.color.red, green: config.color.green, blue: config.color.blue, alpha: config.color.alpha
