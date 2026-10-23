@@ -291,6 +291,9 @@ public enum ConfigWriter {
 		var current: ClosedRange<Int>?
 		var inSection = false
 		var state = ScanState()
+		let unchangeable = ConfigError.invalid(
+			"\(name) is written in a way the settings window cannot change; change it in kumiko.toml"
+		)
 
 		for index in lines.indices {
 			var line = Array(lines[index])
@@ -308,10 +311,14 @@ public enum ConfigWriter {
 				inSection = true
 				let array = first + 1 < line.count && line[first + 1] == "["
 				let table = key(in: line, from: first + (array ? 2 : 1))?.parts ?? []
-				if table.count > 1, table[0] == name, let start = current?.lowerBound {
+				if table.count > 1, table[0] == name {
+					// A sub-table that is not right behind its entry cannot be told from the
+					// entry's own without reading the whole file as TOML.
+					guard let start = current?.lowerBound else { throw unchangeable }
 					current = start...index
 					continue
 				}
+				if !array && table == [name] { throw unchangeable }
 				if let previous = current { spans.append(previous) }
 				current = array && table == [name] ? index...index : nil
 				continue
@@ -319,9 +326,7 @@ public enum ConfigWriter {
 
 			if let (parts, end) = key(in: line, from: first), end < line.count, line[end] == "=" {
 				if !inSection && parts[0] == name {
-					throw ConfigError.invalid(
-						"\(name) is written in a way the settings window cannot change; change it in kumiko.toml"
-					)
+					throw unchangeable
 				}
 				_ = scan(line, from: end + 1, &state)
 			}

@@ -442,6 +442,7 @@ struct ConfigWriterTests {
 			try ConfigWriter.apply(EntryEdit.insert("workspace", fields: media.tomlFields), to: text)
 		}
 		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: text) }
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 0), to: text) }
 	}
 
 	@Test func removesTheOnlyEntry() throws {
@@ -464,5 +465,29 @@ struct ConfigWriterTests {
 		#expect(throws: ConfigError.invalid("there is no workspace #4")) {
 			try ConfigWriter.apply(EntryEdit.move("workspace", from: 3, to: 0), to: file(code, plan, chat))
 		}
+	}
+
+	@Test func refusesASubTableThatStandsApart() {
+		let refusal = ConfigError.invalid(
+			"workspace is written in a way the settings window cannot change; change it in kumiko.toml"
+		)
+		let apart = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n"
+			+ "[hotkeys]\nenabled = true\n\n[workspace.share]\nTime = 0.7"
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: apart) }
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 1), to: apart) }
+
+		let first = "[workspace.share]\nTime = 0.7\n\n[wm]\ngap = 4"
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: first) }
+	}
+
+	@Test func refusesAPlainTableOfTheArraysName() {
+		let text = "[workspace]\nname = \"A\"\n"
+		let refusal = ConfigError.invalid(
+			"workspace is written in a way the settings window cannot change; change it in kumiko.toml"
+		)
+		#expect(throws: refusal) {
+			try ConfigWriter.apply(EntryEdit.insert("workspace", fields: media.tomlFields), to: text)
+		}
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: text) }
 	}
 }
