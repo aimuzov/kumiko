@@ -85,7 +85,7 @@ public final class WindowManager {
 		observers.append((center, token))
 
 		desktopClicks.shouldSwallow = { [weak self] point in
-			guard let self, self.isFinderHidden, WindowTracker.isEmptyDesktop(at: point) else { return false }
+			guard let self, !self.isFinderShown, WindowTracker.isEmptyDesktop(at: point) else { return false }
 			// The tap waits for this answer; focus can move a moment later.
 			DispatchQueue.main.async { MainActor.assumeIsolated { self.tracker.focusNothing() } }
 			return true
@@ -93,10 +93,12 @@ public final class WindowManager {
 		desktopClicks.start()
 	}
 
-	private var isFinderHidden: Bool {
-		hiddenApps.contains {
-			NSRunningApplication(processIdentifier: $0)?.bundleIdentifier == WindowTracker.finder
-		}
+	/// Whether Finder has a window on a shown workspace. Without one, hidden by kumiko or with no
+	/// windows at all, a click on the desktop has nothing of Finder's to bring forward.
+	private var isFinderShown: Bool {
+		guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: WindowTracker.finder).first
+		else { return false }
+		return appVisibility()[finder.processIdentifier] == true
 	}
 
 	public func apply(_ config: Config) {

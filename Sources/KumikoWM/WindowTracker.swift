@@ -380,6 +380,20 @@ public final class WindowTracker {
 
 	/// Whether a point is on the empty desktop: Finder's desktop window on top there, and no icon
 	/// under it.
+	/// The menu bar of the display under a point, in window server coordinates (origin top left).
+	private static func menuBarStrip(at point: CGPoint) -> CGRect? {
+		guard let primary = NSScreen.screens.first else { return nil }
+
+		for screen in NSScreen.screens {
+			let top = primary.frame.maxY - screen.frame.maxY
+			let frame = CGRect(x: screen.frame.minX, y: top, width: screen.frame.width, height: screen.frame.height)
+			guard frame.contains(point) else { continue }
+			return CGRect(x: frame.minX, y: top, width: frame.width, height: screen.frame.maxY - screen.visibleFrame.maxY)
+		}
+
+		return nil
+	}
+
 	static func isEmptyDesktop(at point: CGPoint) -> Bool {
 		guard
 			let finder = NSRunningApplication.runningApplications(withBundleIdentifier: finder).first,
@@ -388,17 +402,30 @@ public final class WindowTracker {
 
 		// Front to back, past the windows that let clicks through, like the border overlay. Other
 		// windows of kumiko's, the bar or the About panel, take the click themselves.
+		// Everything below the backstop level, where kumiko's bar sits, is the desktop: Finder's
+		// desktop window, the wallpaper, and a window server strip under the menu bar above them.
+		let desktopLevel = Int(CGWindowLevelForKey(.desktopIconWindow))
+		let backstopLevel = Int(CGWindowLevelForKey(.backstopMenu))
 		let clickThrough = Set(NSApp.windows.filter(\.ignoresMouseEvents).map { $0.windowNumber })
-		let top = list.first {
+		let menuBar = menuBarStrip(at: point)
+		let under = list.filter {
 			guard
 				($0[kCGWindowNumber as String] as? Int).map({ !clickThrough.contains($0) }) ?? true,
 				let bounds = $0[kCGWindowBounds as String].flatMap({ CGRect(dictionaryRepresentation: $0 as! CFDictionary) })
 			else { return false }
+			// Menu bar tools like Ice lay a window over the menu bar that reaches a few points below
+			// it and lets clicks through there.
+			if let menuBar, !menuBar.contains(point), bounds.minY == menuBar.minY, bounds.height <= menuBar.height + 8 {
+				return false
+			}
 			return bounds.contains(point)
 		}
 		guard
-			(top?[kCGWindowOwnerPID as String] as? Int).map(pid_t.init) == finder.processIdentifier,
-			top?[kCGWindowLayer as String] as? Int == Int(CGWindowLevelForKey(.desktopIconWindow))
+			!under.contains(where: { ($0[kCGWindowLayer as String] as? Int ?? 0) >= backstopLevel }),
+			under.contains(where: {
+				($0[kCGWindowOwnerPID as String] as? Int).map(pid_t.init) == finder.processIdentifier
+					&& $0[kCGWindowLayer as String] as? Int == desktopLevel
+			})
 		else { return false }
 
 		// Asked of Finder itself: system-wide, the hit lands on kumiko's border overlay.
