@@ -14,6 +14,14 @@ enum Permission: CaseIterable {
 		}
 	}
 
+	/// Why kumiko asks, in the warning on a settings page that needs it.
+	var reason: String {
+		switch self {
+		case .accessibility: "Allow kumiko to use Accessibility to see, move and focus the windows of other apps."
+		case .inputMonitoring: "Allow kumiko to use Input Monitoring to hear the hotkeys and Vim keys you press."
+		}
+	}
+
 	var isGranted: Bool {
 		switch self {
 		case .accessibility: AXIsProcessTrusted()
