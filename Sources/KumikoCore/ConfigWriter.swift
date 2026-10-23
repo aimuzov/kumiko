@@ -93,6 +93,16 @@ public struct ConfigEdit: Equatable, Sendable {
 	}
 }
 
+/// A whole entry of an array of tables added, taken out or moved. Comments and blank lines between
+/// entries are no entry's: they stay where they are in the file.
+public enum EntryEdit: Equatable, Sendable {
+	/// After the array's last entry, or at the end of a file that has none.
+	case insert(String, fields: [TOMLValue.Field])
+	case remove(String, Int)
+	/// `to` is the entry's index once it has moved.
+	case move(String, from: Int, to: Int)
+}
+
 /// Changes kumiko.toml the way a person would: the line of the key gets a new value and every
 /// other byte, comments and blank lines included, stays where the user put it.
 ///
@@ -217,6 +227,100 @@ public enum ConfigWriter {
 			result += result.hasSuffix("\n") ? "\n" : "\n\n"
 		}
 		return result + "[\(bare(edit.target.name))]\n\(entry)\n"
+	}
+
+	public static func apply(_ edit: EntryEdit, to text: String) throws(ConfigError) -> String {
+		var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+		func missing(_ name: String, _ index: Int) -> ConfigError {
+			ConfigError.invalid("there is no \(ConfigTarget.entry(name, index).description)")
+		}
+
+		switch edit {
+		case let .insert(name, fields):
+			let entry = ["[[\(bare(name))]]"] + fields.map { "\(bare($0.key)) = \($0.value.literal)" }
+
+			if let last = entries(of: name, in: lines).last {
+				lines.insert(contentsOf: [""] + entry, at: last.upperBound + 1)
+				return lines.joined(separator: "\n")
+			}
+
+			var result = text.allSatisfy(\.isWhitespace) ? "" : text
+			if !result.isEmpty {
+				result += result.hasSuffix("\n") ? "\n" : "\n\n"
+			}
+			return result + entry.joined(separator: "\n") + "\n"
+
+		case let .remove(name, index):
+			let spans = entries(of: name, in: lines)
+			guard spans.indices.contains(index) else { throw missing(name, index) }
+
+			let start = spans[index].lowerBound
+			lines.removeSubrange(spans[index])
+			// One blank line next to it goes too, or every removal would leave one more. Not the
+			// file's last line, though: that blank is its final newline.
+			if start < lines.count - 1, isBlank(lines[start]) {
+				lines.remove(at: start)
+			} else if start > 0, isBlank(lines[start - 1]) {
+				lines.remove(at: start - 1)
+			}
+			return lines.joined(separator: "\n")
+
+		case let .move(name, from, to):
+			let spans = entries(of: name, in: lines)
+			guard spans.indices.contains(from) else { throw missing(name, from) }
+			guard spans.indices.contains(to) else { throw missing(name, to) }
+
+			var blocks = spans.map { Array(lines[$0]) }
+			blocks.insert(blocks.remove(at: from), at: to)
+			// Each place in the file keeps its lines around it; only what stands there changes. The
+			// last place goes first, so the line numbers of the earlier ones still hold.
+			for (span, block) in zip(spans, blocks).reversed() {
+				lines.replaceSubrange(span, with: block)
+			}
+			return lines.joined(separator: "\n")
+		}
+	}
+
+	/// Each entry of the array `name`: the lines from its header to its last key line, a value
+	/// spread over several lines and comments between its keys included.
+	private static func entries(of name: String, in lines: [String]) -> [ClosedRange<Int>] {
+		var spans: [ClosedRange<Int>] = []
+		var current: ClosedRange<Int>?
+		var state = ScanState()
+
+		for index in lines.indices {
+			var line = Array(lines[index])
+			if line.last == "\r" { line.removeLast() }
+
+			guard state.atRest else {
+				_ = scan(line, from: 0, &state)
+				if let start = current?.lowerBound { current = start...index }
+				continue
+			}
+
+			guard let first = line.firstIndex(where: { $0 != " " && $0 != "\t" }), line[first] != "#" else { continue }
+
+			if line[first] == "[" {
+				if let previous = current { spans.append(previous) }
+				let array = first + 1 < line.count && line[first + 1] == "["
+				let table = key(in: line, from: first + (array ? 2 : 1))?.parts ?? []
+				current = array && table == [name] ? index...index : nil
+				continue
+			}
+
+			if let (_, end) = key(in: line, from: first), end < line.count, line[end] == "=" {
+				_ = scan(line, from: end + 1, &state)
+			}
+			if let start = current?.lowerBound { current = start...index }
+		}
+
+		if let current { spans.append(current) }
+		return spans
+	}
+
+	private static func isBlank(_ line: String) -> Bool {
+		line.allSatisfy(\.isWhitespace)
 	}
 
 	/// Applies the edit to the file and returns the config it now holds. Nothing is written unless

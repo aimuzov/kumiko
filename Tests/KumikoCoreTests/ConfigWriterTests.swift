@@ -310,7 +310,8 @@ struct ConfigWriterTests {
 	}
 
 	@Test func ignoresTheSubTableOfAnotherEntry() throws {
-		let text = "[[workspace]]\nname = \"A\"\nshare = { Time = 0.5 }\n\n[[workspace]]\nname = \"B\"\n\n[workspace.share]\nTime = 0.7"
+		let text = "[[workspace]]\nname = \"A\"\nshare = { Time = 0.5 }\n\n"
+			+ "[[workspace]]\nname = \"B\"\n\n[workspace.share]\nTime = 0.7"
 		let changed = try entry(0, "share", .table([.init("Time", .double(0.6))]), in: text)
 		#expect(changed == text.replacingOccurrences(of: "0.5", with: "0.6"))
 	}
@@ -337,5 +338,73 @@ struct ConfigWriterTests {
 		let text = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\n\n[hotkeys]\nenabled = true"
 		let expected = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\ndisplay = \"main\"\n\n[hotkeys]\nenabled = true"
 		#expect(try entry(0, "display", .string("main"), in: text) == expected)
+	}
+
+	@Test func addsAKeyBeforeTheEntrysSubTable() throws {
+		let text = "[[workspace]]\nname = \"A\"\n\n[workspace.share]\nTime = 0.7"
+		#expect(try entry(0, "display", .string("main"), in: text)
+			== "[[workspace]]\nname = \"A\"\ndisplay = \"main\"\n\n[workspace.share]\nTime = 0.7")
+	}
+
+	private let media = Config.Workspace(name: "Media", display: "builtin")
+
+	@Test func workspaceFieldsReadBackAsTheWorkspace() throws {
+		let workspace = Config.Workspace(
+			name: "Chat", display: "builtin", apps: ["Time", "Telegram"], isDefault: true, last: ["Telegram"],
+			share: ["Time": 0.7]
+		)
+		let text = try ConfigWriter.apply(EntryEdit.insert("workspace", fields: workspace.tomlFields), to: "")
+
+		#expect(text == """
+			[[workspace]]
+			name = "Chat"
+			display = "builtin"
+			apps = ["Time", "Telegram"]
+			default = true
+			last = ["Telegram"]
+			share = { Time = 0.7 }
+
+			""")
+		#expect(try Config.parse(text).workspaces == [workspace])
+	}
+
+	@Test func insertsAnEntryAfterTheLastOne() throws {
+		let insert = EntryEdit.insert("workspace", fields: media.tomlFields)
+		let changed = try ConfigWriter.apply(insert, to: file(code, plan, chat))
+		#expect(changed == file(code, plan, chat + "\n\n[[workspace]]\nname = \"Media\"\ndisplay = \"builtin\""))
+	}
+
+	@Test func insertsTheFirstEntryAtTheEnd() throws {
+		let insert = EntryEdit.insert("workspace", fields: media.tomlFields)
+		let changed = try ConfigWriter.apply(insert, to: "[wm]\ngap = 4")
+		#expect(changed == "[wm]\ngap = 4\n\n[[workspace]]\nname = \"Media\"\ndisplay = \"builtin\"\n")
+	}
+
+	@Test func removesAnEntryAndOneBlankLine() throws {
+		let tail = "\n\n# Chats last.\n"
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: file(code, plan, chat))
+			== file(code, plan, chat).replacingOccurrences(of: code + "\n\n", with: ""))
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 1), to: file(code, plan, chat))
+			== file(code, plan, chat).replacingOccurrences(of: "\n\n" + plan + tail, with: tail))
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 2), to: file(code, plan, chat))
+			== file(code, plan, chat).replacingOccurrences(of: chat + "\n\n", with: ""))
+	}
+
+	@Test func movesEntriesAndLeavesCommentsWhereTheyAre() throws {
+		let down = try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 2), to: file(code, plan, chat))
+		let up = try ConfigWriter.apply(EntryEdit.move("workspace", from: 2, to: 0), to: file(code, plan, chat))
+
+		#expect(down == file(plan, chat, code))
+		#expect(up == file(chat, code, plan))
+		#expect(try Config.parse(down).workspaces.map(\.name) == ["Plan", "Chat", "Code"])
+	}
+
+	@Test func refusesEntriesThatAreNotThere() {
+		#expect(throws: ConfigError.invalid("there is no workspace #4")) {
+			try ConfigWriter.apply(EntryEdit.remove("workspace", 3), to: file(code, plan, chat))
+		}
+		#expect(throws: ConfigError.invalid("there is no workspace #4")) {
+			try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 3), to: file(code, plan, chat))
+		}
 	}
 }
