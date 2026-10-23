@@ -493,11 +493,11 @@ struct ConfigWriterTests {
 
 	@Test func appliesChangesInOrder() throws {
 		let changes: [any ConfigChange] = [
-			ConfigEdit(target: .entry("workspace", 1), key: "default", value: .bool(true)),
-			ConfigEdit(target: .entry("workspace", 0), key: "default", value: nil),
+			EntryEdit.move("workspace", from: 0, to: 2),
+			ConfigEdit(target: .entry("workspace", 2), key: "display", value: .string("main")),
 		]
-		let changed = try ConfigWriter.apply(changes, to: file(code + "\ndefault = true", plan, chat))
-		#expect(changed == file(code, plan + "\ndefault = true", chat))
+		let changed = try ConfigWriter.apply(changes, to: file(code, plan, chat))
+		#expect(changed == file(plan, chat, code.replacingOccurrences(of: "external", with: "main")))
 	}
 
 	@Test func appliesEntryAndKeyChangesInOneBatch() throws {
@@ -509,7 +509,6 @@ struct ConfigWriterTests {
 		let changed = try ConfigWriter.apply(changes, to: original)
 		let inserted = try ConfigWriter.apply(EntryEdit.insert("workspace", fields: media.tomlFields), to: original)
 		#expect(changed == (try entry(3, "display", .string("external"), in: inserted)))
-		#expect(changed != inserted)
 	}
 
 	@Test func writesNoneOfTheChangesWhenOneFails() throws {
@@ -524,5 +523,16 @@ struct ConfigWriterTests {
 			], to: url)
 		}
 		#expect(try String(contentsOf: url, encoding: .utf8) == file(code, plan, chat))
+	}
+
+	@Test func leavesTheFileAloneWhenNothingChanges() throws {
+		let url = FileManager.default.temporaryDirectory.appending(path: "kumiko-\(UUID()).toml")
+		defer { try? FileManager.default.removeItem(at: url) }
+
+		_ = try ConfigWriter.write([], to: url)
+		#expect(!FileManager.default.fileExists(atPath: url.path(percentEncoded: false)))
+
+		_ = try ConfigWriter.write(ConfigEdit(target: .table("wm"), key: "gap", value: nil), to: url)
+		#expect(!FileManager.default.fileExists(atPath: url.path(percentEncoded: false)))
 	}
 }

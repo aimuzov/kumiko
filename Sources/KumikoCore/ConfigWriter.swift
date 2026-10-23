@@ -362,6 +362,7 @@ public enum ConfigWriter {
 		line.allSatisfy(\.isWhitespace)
 	}
 
+	/// One edit, written like a batch of one.
 	public static func write(_ edit: ConfigEdit, to url: URL) throws(ConfigError) -> Config {
 		try write([edit], to: url)
 	}
@@ -385,6 +386,7 @@ public enum ConfigWriter {
 
 		let changed = try apply(changes, to: text)
 		let config = try Config.parse(changed)
+		if changed == text { return config }
 
 		do {
 			try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
