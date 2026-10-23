@@ -308,4 +308,34 @@ struct ConfigWriterTests {
 			try entry(0, "share", .table([.init("Time", .double(0.5))]), in: "[[workspace]]\nname = \"A\"\nshare.Time = 0.7")
 		}
 	}
+
+	@Test func ignoresTheSubTableOfAnotherEntry() throws {
+		let text = "[[workspace]]\nname = \"A\"\nshare = { Time = 0.5 }\n\n[[workspace]]\nname = \"B\"\n\n[workspace.share]\nTime = 0.7"
+		let changed = try entry(0, "share", .table([.init("Time", .double(0.6))]), in: text)
+		#expect(changed == text.replacingOccurrences(of: "0.5", with: "0.6"))
+	}
+
+	@Test func refusesAKeyWrittenAsTheSubTableOfItsEntry() {
+		let text = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n[workspace.share]\nTime = 0.7"
+		#expect(throws: ConfigError.invalid(
+			"share of workspace #2 is written in a way the settings window cannot change; change it in kumiko.toml"
+		)) {
+			try entry(1, "share", .table([.init("Time", .double(0.6))]), in: text)
+		}
+	}
+
+	@Test func leavesTheFileAloneWhenAnEntryLacksTheKeyToRemove() throws {
+		#expect(try entry(0, "last", nil, in: file(code, plan, chat)) == file(code, plan, chat))
+	}
+
+	@Test func readsPastAMultilineArrayOfAnEarlierEntry() throws {
+		let text = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\n\n[[workspace]]\nname = \"B\""
+		#expect(try entry(1, "display", .string("main"), in: text) == text + "\ndisplay = \"main\"")
+	}
+
+	@Test func addsAKeyAfterAnEntrysMultilineArray() throws {
+		let text = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\n\n[hotkeys]\nenabled = true"
+		let expected = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\ndisplay = \"main\"\n\n[hotkeys]\nenabled = true"
+		#expect(try entry(0, "display", .string("main"), in: text) == expected)
+	}
 }

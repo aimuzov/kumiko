@@ -97,13 +97,17 @@ public struct ConfigEdit: Equatable, Sendable {
 /// other byte, comments and blank lines included, stays where the user put it.
 ///
 /// It reads lines, not a TOML tree, so it knows only `[table]` sections, the entries of an array
-/// of tables (`[[workspace]]`) and `key = value` lines in them. A key written any other way (dotted, or inside an inline table) is refused rather than
-/// guessed at.
+/// of tables (`[[workspace]]`) and `key = value` lines in them. A key written any other way (dotted,
+/// or inside an inline table) is refused rather than guessed at.
 public enum ConfigWriter {
 	public static func apply(_ edit: ConfigEdit, to text: String) throws(ConfigError) -> String {
 		let target = [edit.target.name, edit.key]
+		let place = switch edit.target {
+		case .table: "\(edit.target.description).\(edit.key)"
+		case .entry: "\(edit.key) of \(edit.target.description)"
+		}
 		let unchangeable = ConfigError.invalid(
-			"\(edit.target.description).\(edit.key) is written in a way the settings window cannot change; change it in kumiko.toml"
+			"\(place) is written in a way the settings window cannot change; change it in kumiko.toml"
 		)
 		let missing = ConfigError.invalid("there is no \(edit.target.description)")
 
@@ -138,19 +142,24 @@ public enum ConfigWriter {
 				let array = first + 1 < line.count && line[first + 1] == "["
 				table = key(in: line, from: first + (array ? 2 : 1))?.parts ?? []
 
+				// A sub-table, `[workspace.share]`, belongs to the last entry the file opened.
+				var ofTarget = true
+
 				switch edit.target {
 				case let .table(name):
 					inSection = !array && table == [name]
 					inOtherEntry = false
 				case let .entry(name, position):
 					let isEntry = array && table == [name]
-					inSection = isEntry && entries == position
-					inOtherEntry = isEntry && !inSection
+					let isSub = table.count > 1 && table[0] == name
 					if isEntry { entries += 1 }
+					ofTarget = !isSub || entries == position + 1
+					inSection = isEntry && entries == position + 1
+					inOtherEntry = isEntry ? !inSection : isSub && !ofTarget
 				}
 
 				if inSection { insertAfter = index }
-				if table.starts(with: target) { throw unchangeable }
+				if ofTarget && table.starts(with: target) { throw unchangeable }
 				continue
 			}
 
