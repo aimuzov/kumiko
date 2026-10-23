@@ -306,7 +306,9 @@ public enum ConfigWriter {
 
 	/// Each entry of the array `name`: the lines from its header to its last key line, a value
 	/// spread over several lines and comments between its keys included. Its sub-tables,
-	/// `[workspace.share]`, go with it. An array written inline at the top is refused.
+	/// `[workspace.share]`, go with it. What cannot be told apart without reading the file as TOML
+	/// is refused: the array written inline or dotted at the top, a plain `[name]` table, and a
+	/// sub-table that stands apart from its entry.
 	private static func entries(of name: String, in lines: [String]) throws(ConfigError) -> [ClosedRange<Int>] {
 		var spans: [ClosedRange<Int>] = []
 		var current: ClosedRange<Int>?
@@ -535,8 +537,8 @@ extension Config.Workspace {
 	/// reads the same on every write.
 	public static func shareValue(_ share: [String: Double], order: [String]) -> TOMLValue {
 		var seen = Set<String>()
-		let keys =
-			order.filter { share[$0] != nil && seen.insert($0).inserted } + share.keys.filter { !seen.contains($0) }.sorted()
+		let ordered = order.filter { share[$0] != nil && seen.insert($0).inserted }
+		let keys = ordered + share.keys.filter { !seen.contains($0) }.sorted()
 		return .table(keys.map { .init($0, .double(share[$0]!)) })
 	}
 }

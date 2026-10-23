@@ -305,7 +305,7 @@ private struct WorkspaceCard: View {
 			}
 			SwitchRow(
 				title: "Default",
-				detail: "Windows of apps no workspace names open here.",
+				detail: "Every other app opens here.",
 				on: Binding(get: { workspace.isDefault }, set: { model.setDefault(workspace.name, $0) }),
 				last: true
 			)
@@ -387,7 +387,7 @@ private struct AppRow: View {
 				Spacer(minLength: 8)
 				toggle("Opens here", .apps)
 				toggle("One stack", .stack, exact: true)
-				toggle("Last", .last, exact: true)
+				toggle("Always last", .last, exact: true)
 				TextField(
 					"Share",
 					value: Binding(

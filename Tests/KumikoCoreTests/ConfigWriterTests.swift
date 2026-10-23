@@ -234,7 +234,8 @@ struct ConfigWriterTests {
 	}
 
 	@Test func workspaceFieldsLeaveDefaultsOut() {
-		#expect(Config.Workspace(name: "A").tomlFields == [.init("name", .string("A")), .init("display", .string("main"))])
+		#expect(
+			Config.Workspace(name: "A").tomlFields == [.init("name", .string("A")), .init("display", .string("main"))])
 	}
 
 	@Test func shareKeepsTheAppsOrderThenNames() {
@@ -280,15 +281,14 @@ struct ConfigWriterTests {
 
 	@Test func keepsTheCommentOfAnEntrysKey() throws {
 		let changed = try entry(1, "apps", .array([.string("Things")]), in: file(code, plan, chat))
-		#expect(
-			changed == file(code, plan.replacingOccurrences(of: "[\"Things\", \"Mail\"] #", with: "[\"Things\"] #"), chat))
+		let narrowed = plan.replacingOccurrences(of: "[\"Things\", \"Mail\"] #", with: "[\"Things\"] #")
+		#expect(changed == file(code, narrowed, chat))
 	}
 
 	@Test func addsAKeyAfterTheEntrysLastKey() throws {
-		#expect(
-			try entry(2, "default", .bool(true), in: file(code, plan, chat)) == file(code, plan, chat + "\ndefault = true"))
-		#expect(
-			try entry(0, "default", .bool(true), in: file(code, plan, chat)) == file(code + "\ndefault = true", plan, chat))
+		let before = file(code, plan, chat)
+		#expect(try entry(2, "default", .bool(true), in: before) == file(code, plan, chat + "\ndefault = true"))
+		#expect(try entry(0, "default", .bool(true), in: before) == file(code + "\ndefault = true", plan, chat))
 	}
 
 	@Test func removesAKeyOfAnEntry() throws {
@@ -305,7 +305,8 @@ struct ConfigWriterTests {
 
 	@Test func refusesADottedKeyInAnEntry() {
 		#expect(throws: ConfigError.self) {
-			try entry(0, "share", .table([.init("Time", .double(0.5))]), in: "[[workspace]]\nname = \"A\"\nshare.Time = 0.7")
+			try entry(
+				0, "share", .table([.init("Time", .double(0.5))]), in: "[[workspace]]\nname = \"A\"\nshare.Time = 0.7")
 		}
 	}
 
@@ -336,7 +337,8 @@ struct ConfigWriterTests {
 
 	@Test func addsAKeyAfterAnEntrysMultilineArray() throws {
 		let text = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\n\n[hotkeys]\nenabled = true"
-		let expected = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\ndisplay = \"main\"\n\n[hotkeys]\nenabled = true"
+		let expected =
+			"[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\ndisplay = \"main\"\n\n[hotkeys]\nenabled = true"
 		#expect(try entry(0, "display", .string("main"), in: text) == expected)
 	}
 
