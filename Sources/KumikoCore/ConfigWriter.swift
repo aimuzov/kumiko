@@ -53,39 +53,68 @@ public enum TOMLValue: Equatable, Sendable {
 	}
 }
 
-/// One key of one `[table]` set to a value, or taken out of the file.
+/// Where a key lives: a `[table]`, or one entry of an array of tables like `[[workspace]]`.
+public enum ConfigTarget: Equatable, Sendable {
+	case table(String)
+	/// The entry at that index, 0-based, counting the array's entries in file order.
+	case entry(String, Int)
+
+	var name: String {
+		switch self {
+		case let .table(name), let .entry(name, _): name
+		}
+	}
+
+	/// How errors name it: `wm`, `workspace #3`.
+	var description: String {
+		switch self {
+		case let .table(name): name
+		case let .entry(name, index): "\(name) #\(index + 1)"
+		}
+	}
+}
+
+/// One key of a `[table]` or of an array's entry set to a value, or taken out of the file.
 public struct ConfigEdit: Equatable, Sendable {
-	/// The table as its header names it: `wm`, `menubar`.
-	public var table: String
+	public var target: ConfigTarget
 	/// The key as the file spells it: `hide_apps`, not `hideApps`.
 	public var key: String
 	/// nil takes the key out, and with it back to its default.
 	public var value: TOMLValue?
 
-	public init(table: String, key: String, value: TOMLValue?) {
-		self.table = table
+	public init(target: ConfigTarget, key: String, value: TOMLValue?) {
+		self.target = target
 		self.key = key
 		self.value = value
+	}
+
+	public init(table: String, key: String, value: TOMLValue?) {
+		self.init(target: .table(table), key: key, value: value)
 	}
 }
 
 /// Changes kumiko.toml the way a person would: the line of the key gets a new value and every
 /// other byte, comments and blank lines included, stays where the user put it.
 ///
-/// It reads lines, not a TOML tree, so it knows only `[table]` sections and `key = value` lines in
-/// them. A key written any other way (dotted, or inside an inline table) is refused rather than
+/// It reads lines, not a TOML tree, so it knows only `[table]` sections, the entries of an array
+/// of tables (`[[workspace]]`) and `key = value` lines in them. A key written any other way (dotted, or inside an inline table) is refused rather than
 /// guessed at.
 public enum ConfigWriter {
 	public static func apply(_ edit: ConfigEdit, to text: String) throws(ConfigError) -> String {
-		let target = [edit.table, edit.key]
+		let target = [edit.target.name, edit.key]
 		let unchangeable = ConfigError.invalid(
-			"\(edit.table).\(edit.key) is written in a way the settings window cannot change; change it in kumiko.toml"
+			"\(edit.target.description).\(edit.key) is written in a way the settings window cannot change; change it in kumiko.toml"
 		)
+		let missing = ConfigError.invalid("there is no \(edit.target.description)")
 
 		var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 		var state = ScanState()
 		var table: [String] = []
 		var inSection = false
+		// Entries of the array seen so far, and whether the lines now are another entry of it, whose
+		// keys are as much the array's as the target's and say nothing against changing it.
+		var entries = 0
+		var inOtherEntry = false
 		// The section's last line that belongs to a key: a new key goes after it, before any
 		// comment that introduces the next section.
 		var insertAfter: Int?
@@ -108,7 +137,18 @@ public enum ConfigWriter {
 			if line[first] == "[" {
 				let array = first + 1 < line.count && line[first + 1] == "["
 				table = key(in: line, from: first + (array ? 2 : 1))?.parts ?? []
-				inSection = !array && table == [edit.table]
+
+				switch edit.target {
+				case let .table(name):
+					inSection = !array && table == [name]
+					inOtherEntry = false
+				case let .entry(name, position):
+					let isEntry = array && table == [name]
+					inSection = isEntry && entries == position
+					inOtherEntry = isEntry && !inSection
+					if isEntry { entries += 1 }
+				}
+
 				if inSection { insertAfter = index }
 				if table.starts(with: target) { throw unchangeable }
 				continue
@@ -117,6 +157,7 @@ public enum ConfigWriter {
 			guard let (parts, end) = key(in: line, from: first), end < line.count, line[end] == "=" else { continue }
 
 			let comment = scan(line, from: end + 1, &state)
+			if inOtherEntry { continue }
 			let path = table + parts
 
 			if path == target && inSection {
@@ -149,6 +190,9 @@ public enum ConfigWriter {
 			}
 		}
 
+		let entryIsMissing = if case let .entry(_, position) = edit.target { entries <= position } else { false }
+		if entryIsMissing { throw missing }
+
 		// A key that is not in the file already has its default.
 		guard let value = edit.value else { return text }
 
@@ -163,7 +207,7 @@ public enum ConfigWriter {
 		if !result.isEmpty {
 			result += result.hasSuffix("\n") ? "\n" : "\n\n"
 		}
-		return result + "[\(bare(edit.table))]\n\(entry)\n"
+		return result + "[\(bare(edit.target.name))]\n\(entry)\n"
 	}
 
 	/// Applies the edit to the file and returns the config it now holds. Nothing is written unless

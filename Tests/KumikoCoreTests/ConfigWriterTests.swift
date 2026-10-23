@@ -241,4 +241,71 @@ struct ConfigWriterTests {
 		let value = Config.Workspace.shareValue(["B": 0.3, "A": 0.6, "C": 0.1], order: ["C", "C", "B"])
 		#expect(value == .table([.init("C", .double(0.1)), .init("B", .double(0.3)), .init("A", .double(0.6))]))
 	}
+
+	// Shaped like the user's own config: rules before, a comment above the first entry and one
+	// right on top of the last, an inline table, a key with a comment of its own.
+	private let code = """
+		[[workspace]]
+		name = "Code"
+		display = "external"
+		apps = ["Ghostty", "Code"]
+		"""
+	private let plan = """
+		[[workspace]]
+		name = "Plan"
+		display = "builtin"
+		apps = ["Things", "Mail"] # the day
+		stack = ["Things", "Mail"]
+		"""
+	private let chat = """
+		[[workspace]]
+		name = "Chat"
+		apps = ["Time", "Telegram"]
+		share = { Time = 0.7 }
+		"""
+
+	private func file(_ first: String, _ second: String, _ third: String) -> String {
+		"[[wm.rule]]\napp = \"Finder\"\nmanage = true\n\n# Numbers follow alt-1 ... alt-=.\n\n" + first + "\n\n"
+			+ second + "\n\n# Chats last.\n" + third + "\n\n[hotkeys]\nenabled = true"
+	}
+
+	private func entry(_ index: Int, _ key: String, _ value: TOMLValue?, in text: String) throws -> String {
+		try ConfigWriter.apply(ConfigEdit(target: .entry("workspace", index), key: key, value: value), to: text)
+	}
+
+	@Test func setsAKeyOfTheNthEntryOnly() throws {
+		let changed = try entry(1, "display", .string("external"), in: file(code, plan, chat))
+		#expect(changed == file(code, plan.replacingOccurrences(of: "builtin", with: "external"), chat))
+	}
+
+	@Test func keepsTheCommentOfAnEntrysKey() throws {
+		let changed = try entry(1, "apps", .array([.string("Things")]), in: file(code, plan, chat))
+		#expect(
+			changed == file(code, plan.replacingOccurrences(of: "[\"Things\", \"Mail\"] #", with: "[\"Things\"] #"), chat))
+	}
+
+	@Test func addsAKeyAfterTheEntrysLastKey() throws {
+		#expect(
+			try entry(2, "default", .bool(true), in: file(code, plan, chat)) == file(code, plan, chat + "\ndefault = true"))
+		#expect(
+			try entry(0, "default", .bool(true), in: file(code, plan, chat)) == file(code + "\ndefault = true", plan, chat))
+	}
+
+	@Test func removesAKeyOfAnEntry() throws {
+		let changed = try entry(2, "share", nil, in: file(code, plan, chat))
+		#expect(changed == file(code, plan, chat.replacingOccurrences(of: "\nshare = { Time = 0.7 }", with: "")))
+		#expect(try Config.parse(changed).workspaces[2].share.isEmpty)
+	}
+
+	@Test func refusesAnEntryThatIsNotThere() {
+		#expect(throws: ConfigError.invalid("there is no workspace #4")) {
+			try entry(3, "display", .string("main"), in: file(code, plan, chat))
+		}
+	}
+
+	@Test func refusesADottedKeyInAnEntry() {
+		#expect(throws: ConfigError.self) {
+			try entry(0, "share", .table([.init("Time", .double(0.5))]), in: "[[workspace]]\nname = \"A\"\nshare.Time = 0.7")
+		}
+	}
 }
