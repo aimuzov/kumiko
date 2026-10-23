@@ -490,4 +490,39 @@ struct ConfigWriterTests {
 		}
 		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: text) }
 	}
+
+	@Test func appliesChangesInOrder() throws {
+		let changes: [any ConfigChange] = [
+			ConfigEdit(target: .entry("workspace", 1), key: "default", value: .bool(true)),
+			ConfigEdit(target: .entry("workspace", 0), key: "default", value: nil),
+		]
+		let changed = try ConfigWriter.apply(changes, to: file(code + "\ndefault = true", plan, chat))
+		#expect(changed == file(code, plan + "\ndefault = true", chat))
+	}
+
+	@Test func appliesEntryAndKeyChangesInOneBatch() throws {
+		let changes: [any ConfigChange] = [
+			EntryEdit.insert("workspace", fields: media.tomlFields),
+			ConfigEdit(target: .entry("workspace", 3), key: "display", value: .string("external")),
+		]
+		let original = file(code, plan, chat)
+		let changed = try ConfigWriter.apply(changes, to: original)
+		let inserted = try ConfigWriter.apply(EntryEdit.insert("workspace", fields: media.tomlFields), to: original)
+		#expect(changed == (try entry(3, "display", .string("external"), in: inserted)))
+		#expect(changed != inserted)
+	}
+
+	@Test func writesNoneOfTheChangesWhenOneFails() throws {
+		let url = FileManager.default.temporaryDirectory.appending(path: "kumiko-\(UUID()).toml")
+		defer { try? FileManager.default.removeItem(at: url) }
+		try file(code, plan, chat).write(to: url, atomically: true, encoding: .utf8)
+
+		#expect(throws: ConfigError.invalid("workspace \"Code\" is defined twice")) {
+			try ConfigWriter.write([
+				ConfigEdit(target: .entry("workspace", 2), key: "display", value: .string("main")),
+				ConfigEdit(target: .entry("workspace", 1), key: "name", value: .string("Code")),
+			], to: url)
+		}
+		#expect(try String(contentsOf: url, encoding: .utf8) == file(code, plan, chat))
+	}
 }

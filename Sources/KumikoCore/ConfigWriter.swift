@@ -103,6 +103,19 @@ public enum EntryEdit: Equatable, Sendable {
 	case move(String, from: Int, to: Int)
 }
 
+/// One change to kumiko.toml, text in and text out, so a single write can carry several.
+public protocol ConfigChange: Sendable {
+	func apply(to text: String) throws(ConfigError) -> String
+}
+
+extension ConfigEdit: ConfigChange {
+	public func apply(to text: String) throws(ConfigError) -> String { try ConfigWriter.apply(self, to: text) }
+}
+
+extension EntryEdit: ConfigChange {
+	public func apply(to text: String) throws(ConfigError) -> String { try ConfigWriter.apply(self, to: text) }
+}
+
 /// Changes kumiko.toml the way a person would: the line of the key gets a new value and every
 /// other byte, comments and blank lines included, stays where the user put it.
 ///
@@ -110,6 +123,14 @@ public enum EntryEdit: Equatable, Sendable {
 /// of tables (`[[workspace]]`) and `key = value` lines in them. A key written any other way (dotted,
 /// or inside an inline table) is refused rather than guessed at.
 public enum ConfigWriter {
+	public static func apply(_ changes: [any ConfigChange], to text: String) throws(ConfigError) -> String {
+		var text = text
+		for change in changes {
+			text = try change.apply(to: text)
+		}
+		return text
+	}
+
 	public static func apply(_ edit: ConfigEdit, to text: String) throws(ConfigError) -> String {
 		let target = [edit.target.name, edit.key]
 		let place = switch edit.target {
@@ -341,9 +362,14 @@ public enum ConfigWriter {
 		line.allSatisfy(\.isWhitespace)
 	}
 
-	/// Applies the edit to the file and returns the config it now holds. Nothing is written unless
-	/// the result is a valid config, so a file that is already broken stays as it is.
 	public static func write(_ edit: ConfigEdit, to url: URL) throws(ConfigError) -> Config {
+		try write([edit], to: url)
+	}
+
+	/// Applies the changes in order and writes the result once: all of them land or none does.
+	/// Nothing is written unless the result is a valid config, so a file that is already broken
+	/// stays as it is.
+	public static func write(_ changes: [any ConfigChange], to url: URL) throws(ConfigError) -> Config {
 		// A config linked in from a dotfiles repository stays a link: the write goes to its target.
 		let url = url.resolvingSymlinksInPath()
 		let path = url.path(percentEncoded: false)
@@ -357,7 +383,7 @@ public enum ConfigWriter {
 			throw ConfigError.unreadable(path, error.localizedDescription)
 		}
 
-		let changed = try apply(edit, to: text)
+		let changed = try apply(changes, to: text)
 		let config = try Config.parse(changed)
 
 		do {
