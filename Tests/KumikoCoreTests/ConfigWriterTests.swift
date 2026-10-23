@@ -225,4 +225,11 @@ struct ConfigWriterTests {
 	@Test func refusesToRemoveAKeyWrittenAnotherWay() {
 		#expect(throws: ConfigError.self) { try remove("wm", "gap", from: "wm = { gap = 4 }") }
 	}
+
+	@Test func writesArrays() throws {
+		let changed = try apply("vim", "blacklist", .array([.string("Code"), .string("Ghostty")]), to: "[vim]")
+		#expect(changed == "[vim]\nblacklist = [\"Code\", \"Ghostty\"]")
+		#expect(try Config.parse(changed).vim.blacklist == ["Code", "Ghostty"])
+		#expect(try apply("vim", "commands", .array([]), to: "[vim]") == "[vim]\ncommands = []")
+	}
 }

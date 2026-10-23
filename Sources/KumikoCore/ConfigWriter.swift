@@ -8,6 +8,8 @@ public enum TOMLValue: Equatable, Sendable {
 	case string(String)
 	/// An inline table, `{ top = 4, bottom = 40 }`, its keys in the order given.
 	indirect case table([Field])
+	/// `["Code", "Zed"]`, on one line.
+	indirect case array([TOMLValue])
 
 	public struct Field: Equatable, Sendable {
 		public var key: String
@@ -27,6 +29,7 @@ public enum TOMLValue: Equatable, Sendable {
 		// `36`, not `36.0`: that is what people write, and it still decodes as a Double.
 		case let .double(value): value == value.rounded() && abs(value) < 1e15 ? String(Int(value)) : String(value)
 		case let .string(value): Self.quote(value)
+		case let .array(values): "[" + values.map(\.literal).joined(separator: ", ") + "]"
 		case let .table(fields) where fields.isEmpty: "{}"
 		case let .table(fields):
 			"{ " + fields.map { "\(ConfigWriter.bare($0.key)) = \($0.value.literal)" }.joined(separator: ", ") + " }"
@@ -307,5 +310,27 @@ extension Insets {
 		return .table([
 			.init("top", .int(top)), .init("bottom", .int(bottom)), .init("left", .int(left)), .init("right", .int(right)),
 		])
+	}
+}
+
+extension Config.Workspace {
+	/// The entry as the settings window writes it. Keys that keep their default
+	/// are left out, so a new workspace is two lines, the way a person would start one.
+	public var tomlFields: [TOMLValue.Field] {
+		var fields: [TOMLValue.Field] = [.init("name", .string(name)), .init("display", .string(display))]
+		if !apps.isEmpty { fields.append(.init("apps", .array(apps.map(TOMLValue.string)))) }
+		if isDefault { fields.append(.init("default", .bool(true))) }
+		if !stack.isEmpty { fields.append(.init("stack", .array(stack.map(TOMLValue.string)))) }
+		if !last.isEmpty { fields.append(.init("last", .array(last.map(TOMLValue.string)))) }
+		if !share.isEmpty { fields.append(.init("share", Self.shareValue(share, order: apps))) }
+		return fields
+	}
+
+	/// `share` as an inline table. A dictionary has no order of its own; the apps go
+	/// in the order `order` names them, the rest after them by name, so the line
+	/// reads the same on every write.
+	public static func shareValue(_ share: [String: Double], order: [String]) -> TOMLValue {
+		let keys = order.filter { share[$0] != nil } + share.keys.filter { !order.contains($0) }.sorted()
+		return .table(keys.map { .init($0, .double(share[$0]!)) })
 	}
 }
