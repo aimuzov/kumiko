@@ -407,4 +407,62 @@ struct ConfigWriterTests {
 			try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 3), to: file(code, plan, chat))
 		}
 	}
+
+	private let sub = "[[workspace]]\nname = \"A\"\n\n[workspace.share]\nTime = 0.7"
+
+	@Test func insertsAfterTheLastEntrysSubTable() throws {
+		let insert = EntryEdit.insert("workspace", fields: media.tomlFields)
+		#expect(try ConfigWriter.apply(insert, to: sub + "\n")
+			== sub + "\n\n[[workspace]]\nname = \"Media\"\ndisplay = \"builtin\"\n")
+	}
+
+	@Test func removesAnEntryWithItsSubTable() throws {
+		let text = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n[workspace.share]\nTime = 0.7"
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 1), to: text) == "[[workspace]]\nname = \"A\"")
+
+		let first = sub + "\n\n[[workspace]]\nname = \"B\""
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: first) == "[[workspace]]\nname = \"B\"")
+	}
+
+	@Test func movesAnEntryWithItsSubTable() throws {
+		let text = sub + "\n\n[[workspace]]\nname = \"B\""
+		let moved = try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 1), to: text)
+
+		#expect(moved == "[[workspace]]\nname = \"B\"\n\n" + sub)
+		#expect(try Config.parse(moved).workspaces.map(\.name) == ["B", "A"])
+		#expect(try Config.parse(moved).workspaces[1].share == ["Time": 0.7])
+	}
+
+	@Test func refusesAnArrayWrittenInline() {
+		let text = "workspace = [{ name = \"A\" }]\n\n[wm]\ngap = 4"
+		let refusal = ConfigError.invalid(
+			"workspace is written in a way the settings window cannot change; change it in kumiko.toml"
+		)
+		#expect(throws: refusal) {
+			try ConfigWriter.apply(EntryEdit.insert("workspace", fields: media.tomlFields), to: text)
+		}
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: text) }
+	}
+
+	@Test func removesTheOnlyEntry() throws {
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: "[[workspace]]\nname = \"A\"\n") == "")
+	}
+
+	@Test func movesAnEntryOntoItselfAsNothing() throws {
+		let text = file(code, plan, chat)
+		#expect(try ConfigWriter.apply(EntryEdit.move("workspace", from: 1, to: 1), to: text) == text)
+	}
+
+	@Test func movesAMultilineEntryWhole() throws {
+		let multi = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]"
+		let other = "[[workspace]]\nname = \"B\""
+		#expect(try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 1), to: multi + "\n\n" + other)
+			== other + "\n\n" + multi)
+	}
+
+	@Test func refusesAMoveFromAnEntryThatIsNotThere() {
+		#expect(throws: ConfigError.invalid("there is no workspace #4")) {
+			try ConfigWriter.apply(EntryEdit.move("workspace", from: 3, to: 0), to: file(code, plan, chat))
+		}
+	}
 }
