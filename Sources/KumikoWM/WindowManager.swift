@@ -69,7 +69,7 @@ public final class WindowManager {
 		self.tracker = tracker
 		self.config = config
 		self.stateFile = stateFile
-		placement = Placement(config.workspaces)
+		placement = Placement(config.wm.useWorkspaces ? config.workspaces : [])
 	}
 
 	public func start() {
@@ -103,7 +103,7 @@ public final class WindowManager {
 
 	public func apply(_ config: Config) {
 		self.config = config
-		placement = Placement(config.workspaces)
+		placement = Placement(config.wm.useWorkspaces ? config.workspaces : [])
 
 		if !config.wm.enabled {
 			showEverything()
@@ -326,8 +326,10 @@ public final class WindowManager {
 	/// Rebuilds the workspace list from the config, keeping the layout of every workspace whose
 	/// name stays, and makes sure each display shows one.
 	private func updateWorkspaces(_ displays: [Display]) {
-		var configs = config.workspaces.isEmpty
-			? (1...9).map { Config.Workspace(name: String($0)) }
+		// With workspaces off nothing comes from the config, and the loop below gives every display
+		// the one workspace it then has.
+		var configs = !config.wm.useWorkspaces ? []
+			: config.workspaces.isEmpty ? (1...9).map { Config.Workspace(name: String($0)) }
 			: config.workspaces
 
 		// A display no workspace is meant for still gets one, or it could show nothing at all.

@@ -319,6 +319,11 @@ public struct Config: Equatable, Sendable {
 		/// Window shadows. Off needs the scripting addition in Dock (`kumiko sa load`), since only
 		/// Dock may change other apps' windows; without it windows keep the shadow macOS gives them.
 		public var shadows = true
+		/// `[[workspace]]` in use. Off, every display has a single workspace of its own and all its
+		/// windows are tiled there together.
+		public var useWorkspaces = true
+		/// `[[wm.rule]]` in use. Off, `manage` alone decides for every window.
+		public var useRules = true
 		/// `[[wm.rule]]` entries, in file order; for a given window the last matching one wins.
 		public var rules: [WindowRule] = []
 
@@ -341,12 +346,16 @@ public struct Config: Equatable, Sendable {
 			padding = try container.decodeIfPresent(Insets.self, forKey: .padding) ?? Insets(all: 8)
 			hideApps = try container.decodeIfPresent(Bool.self, forKey: .hideApps) ?? true
 			shadows = try container.decodeIfPresent(Bool.self, forKey: .shadows) ?? true
+			useWorkspaces = try container.decodeIfPresent(Bool.self, forKey: .useWorkspaces) ?? true
+			useRules = try container.decodeIfPresent(Bool.self, forKey: .useRules) ?? true
 			rules = try container.decodeIfPresent([WindowRule].self, forKey: .rules) ?? []
 		}
 
 		private enum CodingKeys: String, CodingKey {
 			case enabled, manage, gap, padding, shadows
 			case hideApps = "hide_apps"
+			case useWorkspaces = "workspaces"
+			case useRules = "rules"
 			case rules = "rule"
 		}
 	}

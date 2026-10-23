@@ -197,6 +197,14 @@ struct ConfigTests {
 		#expect(try Config.parse("[wm]\nhide_apps = false").wm.hideApps == false)
 	}
 
+	@Test func workspacesAndRulesAreOnUnlessTurnedOff() throws {
+		let defaults = try Config.parse("").wm
+		#expect(defaults.useWorkspaces && defaults.useRules)
+
+		let off = try Config.parse("[wm]\nworkspaces = false\nrules = false").wm
+		#expect(!off.useWorkspaces && !off.useRules)
+	}
+
 	@Test func shadowsStayUnlessTurnedOff() throws {
 		#expect(try Config.parse("").wm.shadows)
 		#expect(try Config.parse("[wm]\nshadows = false").wm.shadows == false)

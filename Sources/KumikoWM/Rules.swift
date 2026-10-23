@@ -17,7 +17,7 @@ struct Rules {
 	/// with a config that loaded; such a rule is dropped rather than crashing.
 	init(_ config: Config.WM) {
 		fallback = config.manage
-		rules = config.rules.compactMap { rule in
+		rules = (config.useRules ? config.rules : []).compactMap { rule in
 			do {
 				// The app pattern is anchored so that "Code" does not also catch "Xcode".
 				let app = try rule.app.map { try NSRegularExpression(pattern: "^(?:\($0))$") }

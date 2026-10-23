@@ -6,6 +6,14 @@ import Testing
 struct RulesTests {
 	private let standard = "AXStandardWindow"
 
+	@Test func rulesTurnedOffLeaveTheDefault() {
+		var config = Config.WM(manage: false, rules: [WindowRule(app: "Ghostty", manage: true)])
+		#expect(Rules(config).isManaged(app: "Ghostty", title: "", subrole: standard))
+
+		config.useRules = false
+		#expect(!Rules(config).isManaged(app: "Ghostty", title: "", subrole: standard))
+	}
+
 	@Test func defaultPolicyAppliesWithoutRules() {
 		#expect(Rules(.init(manage: true)).isManaged(app: "Ghostty", title: "", subrole: standard))
 		#expect(!Rules(.init(manage: false)).isManaged(app: "Ghostty", title: "", subrole: standard))
