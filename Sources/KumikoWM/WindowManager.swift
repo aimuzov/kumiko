@@ -34,6 +34,9 @@ public final class WindowManager {
 	private var expected: [UInt32: CGRect] = [:]
 	private var placement = Placement([])
 	private var previousWorkspace: String?
+	/// New name to old, from the settings window before it writes a rename, so the next pass
+	/// keeps the workspace's layout and windows instead of placing them again.
+	private var renames: [String: String] = [:]
 	private var hasShownFocusedWorkspace = false
 
 	/// Focused windows, oldest first, for `focus recent`.
@@ -345,11 +348,14 @@ public final class WindowManager {
 		}
 
 		let old = Dictionary(workspaces.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+		let names = Set(configs.map(\.name))
 
 		workspaces = configs.map { config in
 			let display = Display.matching(config.display, in: displays) ?? displays[0]
+			// The old name must be gone from the file too: one still there was not renamed after all.
+			let renamed = renames[config.name].flatMap { names.contains($0) ? nil : old[$0] }
 
-			if let workspace = old[config.name] {
+			if let workspace = old[config.name] ?? renamed {
 				workspace.config = config
 				workspace.display = display
 				return workspace
@@ -359,8 +365,8 @@ public final class WindowManager {
 		}
 
 		// Windows of a workspace that is gone are placed again, like new ones.
-		let names = Set(workspaces.map(\.name))
-		for (id, workspace) in assignment where !names.contains(workspace.name) {
+		let kept = Set(workspaces.map(\.name))
+		for (id, workspace) in assignment where !kept.contains(workspace.name) {
 			assignment[id] = nil
 		}
 
@@ -372,6 +378,14 @@ public final class WindowManager {
 
 		for id in visible.keys where !displays.contains(where: { $0.id == id }) {
 			visible[id] = nil
+		}
+
+		// A hint is used up once the file has the new name; until then, passes that come before the
+		// reload leave it for the one that brings it.
+		let arrived = renames.keys.filter(names.contains)
+		if !arrived.isEmpty {
+			arrived.forEach { renames[$0] = nil }
+			if hasShownFocusedWorkspace { saveVisible() }
 		}
 	}
 
@@ -664,6 +678,12 @@ public final class WindowManager {
 
 		return workspace.tree.visibleWindows.first
 			?? windows(of: workspace).first { tracker.windows[$0]?.isMinimized == false }
+	}
+
+	/// Says a workspace is about to be renamed in the file. A rename typed by hand is not told, and
+	/// stays what it always was: one workspace gone and another one new.
+	public func rename(_ old: String, to new: String) {
+		renames[new] = old
 	}
 
 	/// Brings forward the window of an app on a workspace, showing the workspace first when it is
