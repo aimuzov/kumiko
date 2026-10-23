@@ -150,6 +150,10 @@ public final class WindowManager {
 		return (tree.stackIndex(of: id), tree.stackCount(of: id))
 	}
 
+	/// `[[workspace]]` in use. Off, each display has the one workspace of its own, which has nothing
+	/// to tell apart from.
+	public var usesWorkspaces: Bool { config.wm.useWorkspaces }
+
 	public var workspaceStates: [WorkspaceState] {
 		let focused = focusedWorkspace
 		return workspaces.enumerated().map { index, workspace in
@@ -588,8 +592,8 @@ public final class WindowManager {
 	private func area(of display: Display) -> CGRect {
 		let padding = config.wm.padding
 		let bar = config.bar.enabled ? config.bar.height : 0
-		let top = Double(padding.top) + (config.bar.position == .top ? bar : 0)
-		let bottom = Double(padding.bottom) + (config.bar.position == .bottom ? bar : 0)
+		let top = Double(padding.top)
+		let bottom = Double(padding.bottom) + bar
 
 		return CGRect(
 			x: display.visibleFrame.minX + Double(padding.left),
@@ -660,6 +664,25 @@ public final class WindowManager {
 
 		return workspace.tree.visibleWindows.first
 			?? windows(of: workspace).first { tracker.windows[$0]?.isMinimized == false }
+	}
+
+	/// Brings forward the window of an app on a workspace, showing the workspace first when it is
+	/// hidden: a click on the app's icon in the bar. Of several windows the app has there, the one
+	/// used last wins.
+	@discardableResult
+	public func focus(app pid: pid_t, on name: String) -> Bool {
+		guard config.wm.enabled, let workspace = workspaces.first(where: { $0.name == name }) else { return false }
+
+		let candidates = windows(of: workspace).filter { tracker.windows[$0]?.pid == pid }
+		let id = history.last(where: candidates.contains)
+			?? workspace.tree.visibleWindows.first(where: candidates.contains)
+			?? candidates.first { tracker.windows[$0]?.isMinimized == false }
+			?? candidates.first
+		guard let id else { return false }
+
+		show(workspace)
+		tracker.focus(id)
+		return true
 	}
 
 	private func resolve(_ target: String, from current: Workspace?) -> Workspace? {

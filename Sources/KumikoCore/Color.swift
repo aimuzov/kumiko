@@ -31,6 +31,13 @@ public struct Color: Equatable, Sendable {
 		throw ConfigError.invalid("bad colour \"\(text)\", expected #rrggbb, #rrggbbaa or 0xaarrggbb")
 	}
 
+	/// The colour as the config writes it: `#rrggbb`, or `#rrggbbaa` when it is not opaque.
+	public var hex: String {
+		let bytes = [red, green, blue, alpha].map { Int((min(max($0, 0), 1) * 255).rounded()) }
+		let digits = (bytes[3] == 255 ? bytes.dropLast() : bytes[...]).map { String(format: "%02x", $0) }
+		return "#" + digits.joined()
+	}
+
 	private init(argb: UInt32) {
 		alpha = Double((argb >> 24) & 0xFF) / 255
 		red = Double((argb >> 16) & 0xFF) / 255

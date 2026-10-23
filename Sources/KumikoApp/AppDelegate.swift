@@ -29,7 +29,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private var server: IPCServer?
 	private var watcher: ConfigWatcher?
 	private var statusMenu: StatusMenu?
-	private lazy var settings = SettingsWindow(app: self)
+	/// Made on first show, so asking whether it is open makes nothing.
+	private var settingsWindow: SettingsWindow?
+
+	private var settings: SettingsWindow {
+		if let settingsWindow { return settingsWindow }
+		let window = SettingsWindow(app: self)
+		settingsWindow = window
+		return window
+	}
 
 	init(paths: Paths) {
 		self.paths = paths
@@ -65,10 +73,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		let hotkeys = Hotkeys(bus: bus, config: config.hotkeys) { commands.handle($0) }
 		self.tracker = tracker
 		self.manager = manager
+		tracker.keepsDockIcon = { [weak self] in self?.settingsWindow?.isOpen == true }
 		let borders = Borders(bus: bus, config: config.borders, focused: nil) { tracker.windows[$0] }
 		let shadows = Shadows(bus: bus, tracker: tracker, config: config.wm)
 		self.shadows = shadows
 		let windowServer = WindowServerEvents(bus: bus)
+		borders.onOwnWindow = { windowServer.own = $0 }
 		let bar = Bar(bus: bus, tracker: tracker, manager: manager, config: config.bar)
 		let menuBar = MenuBarHider(config: config.menuBar)
 		// Vim gets the keys the hotkeys leave alone, so a hotkey still works inside a text field.

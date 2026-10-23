@@ -27,6 +27,18 @@ public enum ScriptingAddition {
 		return URL(filePath: "/tmp/kumiko-sa_\(user).socket")
 	}
 
+	/// Whether System Integrity Protection lets the payload into Dock: it needs filesystem protections
+	/// and debugging restrictions off, the way yabai's wiki has them. `csr_check` answers 0 for what
+	/// SIP allows.
+	public static var isAllowedBySIP: Bool {
+		typealias Check = @convention(c) (UInt32) -> Int32
+		guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "csr_check") else { return false }
+		let check = unsafeBitCast(symbol, to: Check.self)
+		let unrestrictedFilesystem: UInt32 = 1 << 1
+		let taskForPID: UInt32 = 1 << 2
+		return check(unrestrictedFilesystem) == 0 && check(taskForPID) == 0
+	}
+
 	/// The version of the payload loaded in Dock, nil when none answers.
 	public static func handshake() -> String? {
 		guard let reply = try? exchange([Opcode.handshake.rawValue], answered: true) else { return nil }

@@ -5,19 +5,24 @@ import SwiftUI
 
 /// The settings window, laid out the way Raycast lays out its own: a sidebar of the app's own pages
 /// and of its modules, and a page for each with the module's switch in its top right corner.
-/// kumiko.toml stays the source of every module value. For now the pages show what the file says;
-/// changing values from here waits for a writer that keeps the file as the user wrote it.
+/// kumiko.toml stays the source of every module value: the pages show what the file says, and a
+/// control changed here rewrites only its own line of the file.
 @MainActor
 final class SettingsWindow {
 	private let model: SettingsModel
 	private var window: NSWindow?
 	private var closeObserver: (any NSObjectProtocol)?
 	private var keyObserver: (any NSObjectProtocol)?
+	private let bringForward: () -> Void
+	/// From show until the window is closed, minimized and hidden included: all that time kumiko
+	/// keeps its Dock icon, the way back to the window.
+	private(set) var isOpen = false
 
 	init(app: AppDelegate) {
 		model = SettingsModel(configFile: app.paths.configFile, config: app.config, error: app.configError?.description) {
 			[weak app] in app?.menuBar?.items()
 		}
+		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
 
 		app.bus.subscribe { [weak self, unowned app] event in
 			guard case .configReloaded = event else { return }
@@ -52,8 +57,11 @@ final class SettingsWindow {
 
 			closeObserver = NotificationCenter.default.addObserver(
 				forName: NSWindow.willCloseNotification, object: window, queue: .main
-			) { _ in
-				MainActor.assumeIsolated { _ = NSApp.setActivationPolicy(.accessory) }
+			) { [weak self] _ in
+				MainActor.assumeIsolated {
+					self?.isOpen = false
+					_ = NSApp.setActivationPolicy(.accessory)
+				}
 			}
 			// Coming back from System Settings with a permission granted: the warning goes away.
 			keyObserver = NotificationCenter.default.addObserver(
@@ -66,10 +74,20 @@ final class SettingsWindow {
 		model.refresh()
 
 		// kumiko has no Dock icon, and an app without one gets no menu bar and no place in cmd-tab;
-		// it has one while the window is in front, as on an empty workspace.
+		// it has one while the window is open.
+		isOpen = true
 		NSApp.setActivationPolicy(.regular)
-		NSApp.activate()
 		window?.makeKeyAndOrderFront(nil)
+
+		// The new policy takes hold on the next pass of the run loop. Activated before that, kumiko
+		// stays where cmd-tab put a newcomer, last.
+		DispatchQueue.main.async { [weak self] in
+			MainActor.assumeIsolated {
+				NSApp.activate()
+				self?.bringForward()
+				self?.window?.makeKeyAndOrderFront(nil)
+			}
+		}
 		return true
 	}
 }
@@ -79,12 +97,24 @@ final class SettingsModel: ObservableObject {
 	let configFile: URL
 	@Published private(set) var config: Config
 	@Published private(set) var error: String?
+	/// Why the last change made here was not written.
+	@Published private(set) var writeError: String?
 	// In the model rather than in @State: the State macro needs a plugin only Xcode ships.
 	@Published var pane = Pane.general
 	@Published private(set) var opensAtLogin = LoginItem.isEnabled
 	@Published private(set) var payloadVersion: String?
+	@Published private(set) var sipAllowsPayload = ScriptingAddition.isAllowedBySIP
 	@Published private(set) var missing = Permission.missing
 	@Published var search = ""
+	/// The padding's sides are set one by one even while they are all the same.
+	@Published var paddingPerSide = false
+	/// The bar's scale while its slider is dragged; written to the file when it is let go.
+	@Published var draggedBarScale: Double?
+	/// The colour panel's own last pick, kept while the file holds it. The panel works in the
+	/// display's wide gamut and the file in sRGB: handed the clipped colour back, the panel would
+	/// pull its cursor in from the edge of the wheel on every step of a drag.
+	@Published private(set) var pickedBorderColor: SwiftUI.Color?
+	private var pendingBorderColor: DispatchWorkItem?
 	/// The menu bar items either side of the divider, nil while menu bar hiding is off.
 	@Published private(set) var menuBarItems: (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
 	private let readMenuBar: () -> (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
@@ -102,12 +132,95 @@ final class SettingsModel: ObservableObject {
 	func update(_ config: Config, error: String?) {
 		self.config = config
 		self.error = error
+		writeError = nil
+
+		// A colour changed in the file by hand is no longer the panel's pick.
+		if let picked = pickedBorderColor, pendingBorderColor == nil,
+		   KumikoCore.Color(NSColor(picked))?.hex != config.borders.color?.hex
+		{
+			pickedBorderColor = nil
+		}
+	}
+
+	/// Writes one key to kumiko.toml. The page shows the new value at once: the reload that applies
+	/// it to the modules comes after the watcher's pause and brings back the same config.
+	func set(_ table: String, _ key: String, _ value: TOMLValue?) {
+		do throws(ConfigError) {
+			config = try ConfigWriter.write(ConfigEdit(table: table, key: key, value: value), to: configFile)
+			writeError = nil
+		} catch {
+			writeError = error.description
+		}
+	}
+
+	/// Takes the key out of the file, which puts it back to its default; nil while it has the default
+	/// already, so a row shows no reset it has no use for.
+	func reset<Value: Equatable>(_ keyPath: KeyPath<Config, Value>, _ table: String, _ key: String) -> (() -> Void)? {
+		config[keyPath: keyPath] == Config()[keyPath: keyPath] ? nil : { self.set(table, key, nil) }
+	}
+
+	func binding<Value>(
+		_ keyPath: KeyPath<Config, Value>, _ table: String, _ key: String, as value: @escaping (Value) -> TOMLValue
+	) -> Binding<Value> {
+		Binding(get: { self.config[keyPath: keyPath] }, set: { self.set(table, key, value($0)) })
+	}
+
+	func binding(_ keyPath: KeyPath<Config, Bool>, _ table: String, _ key: String) -> Binding<Bool> {
+		binding(keyPath, table, key, as: TOMLValue.bool)
+	}
+
+	func binding(_ keyPath: KeyPath<Config, Int>, _ table: String, _ key: String) -> Binding<Int> {
+		binding(keyPath, table, key, as: TOMLValue.int)
+	}
+
+	func binding(_ keyPath: KeyPath<Config, Double>, _ table: String, _ key: String) -> Binding<Double> {
+		binding(keyPath, table, key, as: TOMLValue.double)
+	}
+
+	/// The colour panel reports every step of a drag. The file gets the colour once it has rested for
+	/// a moment, not dozens of times a second, each of them a reload of the whole config.
+	func pickBorderColor(_ color: SwiftUI.Color) {
+		pickedBorderColor = color
+		pendingBorderColor?.cancel()
+
+		let write = DispatchWorkItem { [weak self] in
+			MainActor.assumeIsolated {
+				guard let self else { return }
+				self.pendingBorderColor = nil
+				guard let picked = self.pickedBorderColor, let color = KumikoCore.Color(NSColor(picked)) else { return }
+				self.set("borders", "color", .string(color.hex))
+			}
+		}
+		pendingBorderColor = write
+		DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250), execute: write)
+	}
+
+	/// Back to the frame's own colour; nil while it has that colour or follows the accent, where a
+	/// reset has nothing to give back.
+	var resetBorderColor: (() -> Void)? {
+		guard let color = config.borders.color, color != Config.Borders.ownColor else { return nil }
+		return { self.setBorderColor(Config.Borders.ownColor) }
+	}
+
+	/// Off, the frame gets its own colour back, which the picker then starts from.
+	func useAccentBorderColor(_ on: Bool) {
+		setBorderColor(on ? nil : Config.Borders.ownColor)
+	}
+
+	/// nil is the accent. A colour the picker has not written yet is dropped, so it does not land
+	/// after this one.
+	private func setBorderColor(_ color: KumikoCore.Color?) {
+		pendingBorderColor?.cancel()
+		pendingBorderColor = nil
+		pickedBorderColor = nil
+		set("borders", "color", .string(color?.hex ?? "accent"))
 	}
 
 	/// What lives outside the config and may have changed while the window was closed.
 	func refresh() {
 		opensAtLogin = LoginItem.isEnabled
 		payloadVersion = ScriptingAddition.handshake()
+		sipAllowsPayload = ScriptingAddition.isAllowedBySIP
 		missing = Permission.missing
 		menuBarItems = readMenuBar()
 	}
@@ -214,19 +327,24 @@ enum Pane: String, CaseIterable, Identifiable {
 		}
 	}
 
-	/// The module switch in the page's corner; nil for the app's own pages.
-	func isEnabled(in config: Config) -> Bool? {
+	/// The module switch in the page's corner and the key of the file it writes; nil for the app's
+	/// own pages.
+	var enabledSetting: (keyPath: KeyPath<Config, Bool>, table: String, key: String)? {
 		switch self {
 		case .general, .advanced, .about: nil
-		case .windows: config.wm.enabled
-		case .workspaces: config.wm.useWorkspaces
-		case .rules: config.wm.useRules
-		case .hotkeys: config.hotkeys.enabled
-		case .bar: config.bar.enabled
-		case .borders: config.borders.enabled
-		case .menubar: config.menuBar.enabled
-		case .vim: config.vim.enabled
+		case .windows: (\.wm.enabled, "wm", "enabled")
+		case .workspaces: (\.wm.useWorkspaces, "wm", "workspaces")
+		case .rules: (\.wm.useRules, "wm", "rules")
+		case .hotkeys: (\.hotkeys.enabled, "hotkeys", "enabled")
+		case .bar: (\.bar.enabled, "bar", "enabled")
+		case .borders: (\.borders.enabled, "borders", "enabled")
+		case .menubar: (\.menuBar.enabled, "menubar", "enabled")
+		case .vim: (\.vim.enabled, "vim", "enabled")
 		}
+	}
+
+	func isEnabled(in config: Config) -> Bool? {
+		enabledSetting.map { config[keyPath: $0.keyPath] }
 	}
 }
 
@@ -250,14 +368,13 @@ private struct SettingsView: View {
 					.frame(maxWidth: .infinity)
 			}
 			.overlay(alignment: .topTrailing) {
-				if let enabled = model.pane.isEnabled(in: model.config) {
+				if let setting = model.pane.enabledSetting {
 					// On the line of the traffic lights, where Raycast keeps a page's own switch.
-					Toggle("", isOn: .constant(enabled))
+					Toggle("", isOn: model.binding(setting.keyPath, setting.table, setting.key))
 						.toggleStyle(.switch)
 						.controlSize(.small)
 						.labelsHidden()
-						.disabled(true)
-						.help(enabled ? "On in kumiko.toml" : "Off in kumiko.toml")
+						.help("\(setting.table).\(setting.key) in kumiko.toml")
 						.padding(.top, 19)
 						.padding(.trailing, 18)
 				}
@@ -375,17 +492,26 @@ private struct Page: View {
 				}
 			}
 
+			// A broken file refuses every write with its own error, which is already shown above.
+			if let writeError = model.writeError, writeError != model.error {
+				Card {
+					Label(writeError, systemImage: "exclamationmark.triangle.fill")
+						.foregroundStyle(.red)
+						.padding(.vertical, 10)
+				}
+			}
+
 			switch model.pane {
 			case .general: GeneralPage(model: model)
 			case .advanced: AdvancedPage(model: model)
 			case .about: AboutPage()
-			case .windows: WindowsPage(wm: model.config.wm, payloadVersion: model.payloadVersion)
+			case .windows: WindowsPage(model: model)
 			case .workspaces: WorkspacesPage(workspaces: model.config.workspaces)
-			case .rules: RulesPage(wm: model.config.wm)
+			case .rules: RulesPage(model: model)
 			case .hotkeys: HotkeysPage(hotkeys: model.config.hotkeys)
-			case .bar: BarPage(bar: model.config.bar)
-			case .borders: BordersPage(borders: model.config.borders)
-			case .menubar: MenuBarPage(menuBar: model.config.menuBar, items: model.menuBarItems)
+			case .bar: BarPage(model: model)
+			case .borders: BordersPage(model: model)
+			case .menubar: MenuBarPage(model: model)
 			case .vim: VimPage(vim: model.config.vim)
 			}
 		}
@@ -437,6 +563,64 @@ private struct PermissionWarning: View {
 	}
 }
 
+/// What turning shadows off asks of SIP, in the same amber as a missing permission. The steps are
+/// yabai's, whose scripting addition gets into Dock the same way.
+private struct SIPNote: View {
+	#if arch(arm64)
+		private static let startup =
+			"Shut down the Mac, then hold the power button until the startup options appear and choose Options."
+		private static let command = "csrutil enable --without fs --without debug --without nvram"
+	#else
+		private static let startup = "Shut down the Mac, then hold Cmd-R while it starts."
+		private static let command = "csrutil disable --with kext --with dtrace --with nvram --with basesystem"
+	#endif
+
+	var body: some View {
+		HStack(alignment: .top, spacing: 10) {
+			Image(systemName: "exclamationmark.triangle")
+				.foregroundStyle(.orange)
+			VStack(alignment: .leading, spacing: 8) {
+				Text(
+					"Turning shadows off needs System Integrity Protection partly disabled: only Dock may change "
+						+ "other apps' windows, and kumiko gets into Dock through a scripting addition."
+				)
+				step(1, Self.startup)
+				step(2, "In Recovery, open Utilities › Terminal and run:", command: Self.command)
+				#if arch(arm64)
+					step(3, "Restart, then in Terminal run this and restart again:", command: "sudo nvram boot-args=-arm64e_preview_abi")
+					step(4, "Load the scripting addition:", command: "sudo kumiko sa load")
+				#else
+					step(3, "Restart and load the scripting addition:", command: "sudo kumiko sa load")
+				#endif
+				Link(
+					"Full instructions in yabai's wiki",
+					destination: URL(string: "https://github.com/koekeishiya/yabai/wiki/Disabling-System-Integrity-Protection")!
+				)
+			}
+			.font(.callout)
+			.fixedSize(horizontal: false, vertical: true)
+			Spacer(minLength: 0)
+		}
+		.padding(14)
+		.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.orange.opacity(0.07)))
+		.overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.orange.opacity(0.35)))
+	}
+
+	private func step(_ number: Int, _ text: String, command: String? = nil) -> some View {
+		VStack(alignment: .leading, spacing: 4) {
+			Text("\(number). \(text)")
+			if let command {
+				Text(command)
+					.font(.system(.callout, design: .monospaced))
+					.textSelection(.enabled)
+					.padding(.horizontal, 8)
+					.padding(.vertical, 4)
+					.background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.primary.opacity(0.05)))
+			}
+		}
+	}
+}
+
 /// A rounded group of rows, Raycast's way of grouping settings.
 private struct Card<Content: View>: View {
 	var title: String?
@@ -465,11 +649,15 @@ private struct Row<Trailing: View>: View {
 	let title: String
 	var detail: String?
 	var last = false
+	/// Puts the setting back to its default; the row shows a button for it when given one.
+	var reset: (() -> Void)?
 	@ViewBuilder var trailing: Trailing
 
 	var body: some View {
 		VStack(spacing: 0) {
-			HStack(alignment: .firstTextBaseline) {
+			// Centred, as System Settings has it: a control with no text of its own, a switch or a
+			// colour well, has no baseline to sit on and would ride up to the top of the row.
+			HStack(alignment: .center) {
 				VStack(alignment: .leading, spacing: 2) {
 					Text(title)
 					if let detail {
@@ -479,6 +667,14 @@ private struct Row<Trailing: View>: View {
 					}
 				}
 				Spacer(minLength: 16)
+				if let reset {
+					Button(action: reset) {
+						Image(systemName: "arrow.counterclockwise")
+					}
+					.buttonStyle(.borderless)
+					.foregroundStyle(.secondary)
+					.help("Back to the default")
+				}
 				trailing
 			}
 			.padding(.vertical, 10)
@@ -498,20 +694,66 @@ extension Row where Trailing == Text {
 	}
 }
 
-/// A setting that is on or off, shown as the switch it will become once the window can write.
 private struct SwitchRow: View {
 	let title: String
 	var detail: String?
-	let on: Bool
+	let on: Binding<Bool>
+	var disabled = false
 	var last = false
+	var reset: (() -> Void)?
 
 	var body: some View {
-		Row(title: title, detail: detail, last: last) {
-			Toggle("", isOn: .constant(on))
+		Row(title: title, detail: detail, last: last, reset: disabled ? nil : reset) {
+			Toggle("", isOn: on)
 				.toggleStyle(.switch)
 				.labelsHidden()
-				.disabled(true)
+				.disabled(disabled)
 		}
+	}
+}
+
+/// A number typed in or set a step at a time, its unit after it. A typed number is written when
+/// the field is left or return is pressed, not with every key, and kept within the range.
+private struct StepperRow: View {
+	let title: String
+	var detail: String?
+	let value: Binding<Double>
+	let range: ClosedRange<Double>
+	var step = 1.0
+	/// Whole numbers only, for keys the file reads as integers.
+	var whole = false
+	var unit = "pt"
+	/// What 0 stands for, written in place of the unit: "Never".
+	var zero: String?
+	var last = false
+	var reset: (() -> Void)?
+
+	var body: some View {
+		let clamped = Binding(
+			get: { value.wrappedValue },
+			set: { value.wrappedValue = min(max(whole ? $0.rounded() : $0, range.lowerBound), range.upperBound) }
+		)
+
+		Row(title: title, detail: detail, last: last, reset: reset) {
+			HStack(spacing: 6) {
+				TextField("", value: clamped, format: .number.precision(.fractionLength(whole ? 0...0 : 0...1)))
+					.textFieldStyle(.roundedBorder)
+					.multilineTextAlignment(.trailing)
+					.monospacedDigit()
+					.frame(width: 56)
+				Text(value.wrappedValue == 0 ? zero ?? unit : unit)
+					.foregroundStyle(.secondary)
+				Stepper("", value: clamped, in: range, step: step)
+					.labelsHidden()
+			}
+		}
+	}
+}
+
+extension Binding where Value == Int {
+	/// For a field that edits numbers as Doubles.
+	var asDouble: Binding<Double> {
+		Binding<Double>(get: { Double(wrappedValue) }, set: { wrappedValue = Int($0.rounded()) })
 	}
 }
 
@@ -521,6 +763,26 @@ private func points(_ value: Double) -> String {
 
 private func list(_ items: [String]) -> String {
 	items.isEmpty ? "None" : items.joined(separator: ", ")
+}
+
+extension KumikoCore.Color {
+	/// The accent colour of System Settings, what a frame with no colour of its own is drawn in.
+	static var accent: KumikoCore.Color {
+		KumikoCore.Color(NSColor.controlAccentColor) ?? KumikoCore.Color(red: 0, green: 0.48, blue: 1)
+	}
+
+	/// nil for a colour sRGB has no components for, like a pattern.
+	init?(_ color: NSColor) {
+		guard let srgb = color.usingColorSpace(.sRGB) else { return nil }
+		self.init(
+			red: Double(srgb.redComponent), green: Double(srgb.greenComponent), blue: Double(srgb.blueComponent),
+			alpha: Double(srgb.alphaComponent)
+		)
+	}
+
+	var view: SwiftUI.Color {
+		SwiftUI.Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
+	}
 }
 
 // MARK: - App pages
@@ -557,7 +819,8 @@ private struct AdvancedPage: View {
 			Row(
 				"Changes",
 				value: "",
-				detail: "Every module setting lives in this file. Saving it applies the change at once.",
+				detail: "Every module setting lives in this file. A change made in this window rewrites its own line; "
+					+ "what the window has no control for is changed in the file. Saving it applies the change at once.",
 				last: true
 			)
 		}
@@ -576,39 +839,100 @@ private struct AboutPage: View {
 // MARK: - Module pages
 
 private struct WindowsPage: View {
-	let wm: Config.WM
-	let payloadVersion: String?
+	@ObservedObject var model: SettingsModel
+
+	private var wm: Config.WM { model.config.wm }
 
 	var body: some View {
 		Card(title: "Layout") {
-			Row("Gap", value: "\(wm.gap) pt")
-			Row("Padding", value: Self.describe(wm.padding), last: true)
+			StepperRow(
+				title: "Gap", value: model.binding(\.wm.gap, "wm", "gap").asDouble, range: 0...64, whole: true,
+				reset: model.reset(\.wm.gap, "wm", "gap")
+			)
+
+			// Each side's reset puts the whole padding back: the file has one key for all four.
+			let resetPadding = model.reset(\.wm.padding, "wm", "padding")
+
+			if perSide {
+				StepperRow(title: "Top", value: side(\.top).asDouble, range: 0...200, whole: true, reset: resetPadding)
+				StepperRow(title: "Bottom", value: side(\.bottom).asDouble, range: 0...200, whole: true, reset: resetPadding)
+				StepperRow(title: "Left", value: side(\.left).asDouble, range: 0...200, whole: true, reset: resetPadding)
+				StepperRow(title: "Right", value: side(\.right).asDouble, range: 0...200, whole: true, reset: resetPadding)
+			} else {
+				StepperRow(
+					title: "Padding",
+					detail: "Space between the windows and the screen edges.",
+					value: Binding(get: { wm.padding.top }, set: { setPadding(Insets(all: $0)) }).asDouble,
+					range: 0...200,
+					whole: true,
+					reset: resetPadding
+				)
+			}
+
+			SwitchRow(
+				title: "Padding per side",
+				detail: perSide ? nil : "Top, bottom, left and right one by one, for room under a bar or a notch.",
+				on: Binding(
+					get: { perSide },
+					set: { on in
+						model.paddingPerSide = on
+						// Back to one number: every side takes the top's.
+						if !on && !isUniform { setPadding(Insets(all: wm.padding.top)) }
+					}
+				),
+				last: true
+			)
 		}
 
 		Card(title: "Hidden Workspaces") {
 			SwitchRow(
 				title: "Hide apps with no window on screen",
 				detail: "An app whose windows are all on hidden workspaces is hidden, like cmd-h.",
-				on: wm.hideApps,
-				last: true
+				on: model.binding(\.wm.hideApps, "wm", "hide_apps"),
+				last: true,
+				reset: model.reset(\.wm.hideApps, "wm", "hide_apps")
 			)
 		}
 
 		Card(title: "Shadows") {
-			SwitchRow(title: "Window shadows", on: wm.shadows)
+			SwitchRow(
+				title: "Window shadows",
+				on: model.binding(\.wm.shadows, "wm", "shadows"),
+				disabled: !model.sipAllowsPayload,
+				reset: model.reset(\.wm.shadows, "wm", "shadows")
+			)
 			Row(
 				"Scripting addition",
-				value: payloadVersion.map { "Loaded, version \($0)" } ?? "Not loaded",
-				detail: payloadVersion == nil ? "Turning shadows off needs it: sudo kumiko sa load" : nil,
+				value: model.payloadVersion.map { "Loaded, version \($0)" } ?? "Not loaded",
+				detail: model.payloadVersion == nil && model.sipAllowsPayload
+					? "Turning shadows off needs it: sudo kumiko sa load" : nil,
 				last: true
 			)
 		}
+
+		if !model.sipAllowsPayload {
+			SIPNote()
+		}
 	}
 
-	private static func describe(_ padding: Insets) -> String {
-		let sides = [padding.top, padding.bottom, padding.left, padding.right]
-		if Set(sides).count == 1 { return "\(padding.top) pt" }
-		return "\(padding.top) · \(padding.bottom) · \(padding.left) · \(padding.right) pt"
+	private var isUniform: Bool { wm.padding == Insets(all: wm.padding.top) }
+
+	/// Sides that differ in the file can only be shown one by one.
+	private var perSide: Bool { model.paddingPerSide || !isUniform }
+
+	private func setPadding(_ padding: Insets) {
+		model.set("wm", "padding", padding.tomlValue)
+	}
+
+	private func side(_ keyPath: WritableKeyPath<Insets, Int>) -> Binding<Int> {
+		Binding(
+			get: { wm.padding[keyPath: keyPath] },
+			set: { value in
+				var padding = wm.padding
+				padding[keyPath: keyPath] = value
+				setPadding(padding)
+			}
+		)
 	}
 }
 
@@ -642,15 +966,18 @@ private struct WorkspacesPage: View {
 }
 
 private struct RulesPage: View {
-	let wm: Config.WM
+	@ObservedObject var model: SettingsModel
+
+	private var wm: Config.WM { model.config.wm }
 
 	var body: some View {
 		Card {
 			SwitchRow(
 				title: "Manage windows by default",
 				detail: "For windows no rule below speaks about.",
-				on: wm.manage,
-				last: true
+				on: model.binding(\.wm.manage, "wm", "manage"),
+				last: true,
+				reset: model.reset(\.wm.manage, "wm", "manage")
 			)
 		}
 
@@ -692,35 +1019,125 @@ private struct HotkeysPage: View {
 }
 
 private struct BarPage: View {
-	let bar: Config.Bar
+	@ObservedObject var model: SettingsModel
+
+	private var bar: Config.Bar { model.config.bar }
+
+	/// The height goes along with the scale, as the items in the bar do, so the file keeps the height
+	/// the bar really has.
+	private func setScale(_ scale: Double) {
+		// A twelfth has no end in decimals; four places keep the file readable and the height whole.
+		let scale = (scale * 10_000).rounded() / 10_000
+		var scaled = bar
+		scaled.scale = scale
+		let height = max((bar.height * scale / bar.scale).rounded(), scaled.minimumHeight)
+		model.set("bar", "scale", .double(scale))
+		model.set("bar", "height", .double(height))
+	}
 
 	var body: some View {
-		Card(title: "Placement") {
-			Row("Position", value: bar.position.rawValue.capitalized)
-			Row("Height", value: points(bar.height), last: true)
+		Card(title: "Size") {
+			Row(title: "Scale", detail: "Text and icons. The bar grows with them.") {
+				let scale = model.draggedBarScale ?? bar.scale
+
+				HStack(spacing: 8) {
+					// Written once on release: every step of a drag would rewrite the file and lay the
+					// windows out again. Arrow keys move it without a drag, and write at once.
+					Slider(
+						value: Binding(
+							get: { scale },
+							set: { model.draggedBarScale != nil ? (model.draggedBarScale = $0) : setScale($0) }
+						),
+						in: 1...2,
+						// A twelfth is 3 points of the bar's 36, so every step is a whole height.
+						step: 1.0 / 12
+					) { dragging in
+						if dragging {
+							model.draggedBarScale = bar.scale
+						} else if let dragged = model.draggedBarScale {
+							model.draggedBarScale = nil
+							if dragged != bar.scale { setScale(dragged) }
+						}
+					}
+					.frame(width: 160)
+
+					Text("\(Int((scale * 100).rounded()))%")
+						.foregroundStyle(.secondary)
+						.monospacedDigit()
+						.frame(width: 40, alignment: .trailing)
+				}
+			}
+			StepperRow(
+				title: "Height",
+				detail: "At least \(points(bar.minimumHeight)) at this scale.",
+				value: model.binding(\.bar.height, "bar", "height"),
+				range: bar.minimumHeight...(80 * bar.scale).rounded(),
+				last: true,
+				reset: model.reset(\.bar.height, "bar", "height")
+			)
 		}
 
 		Card(title: "Items") {
 			Row("Left", value: list(bar.left))
 			Row("Right", value: list(bar.right), last: true)
 		}
+
+		Card(title: "Magnification") {
+			Row(
+				title: "Magnify app icons", detail: "Under the pointer, the way the Dock does.",
+				reset: model.reset(\.bar.magnification, "bar", "magnification")
+			) {
+				Picker("", selection: model.binding(\.bar.magnification, "bar", "magnification") { .string($0.rawValue) }) {
+					Text("Like the Dock").tag(Config.Bar.Magnification.dock)
+					Text("On").tag(Config.Bar.Magnification.on)
+					Text("Off").tag(Config.Bar.Magnification.off)
+				}
+				.pickerStyle(.segmented)
+				.labelsHidden()
+				.fixedSize()
+			}
+			StepperRow(
+				title: "Size",
+				detail: "Up to 128 pt, over the windows above the bar.",
+				value: model.binding(\.bar.magnificationSize, "bar", "magnification_size"),
+				range: 0...128,
+				step: 2,
+				zero: "Like the Dock",
+				last: true,
+				reset: model.reset(\.bar.magnificationSize, "bar", "magnification_size")
+			)
+			.disabled(bar.magnification == .off)
+		}
 	}
 }
 
 private struct BordersPage: View {
-	let borders: Config.Borders
+	@ObservedObject var model: SettingsModel
+
+	private var borders: Config.Borders { model.config.borders }
+
+	/// What the well shows: the panel's own pick while it stands, else the frame's colour, the
+	/// accent included.
+	private var color: SwiftUI.Color { model.pickedBorderColor ?? (borders.color ?? .accent).view }
 
 	var body: some View {
 		Card(title: "Look") {
-			Row("Width", value: points(borders.width))
-			Row(title: "Color", detail: "Corners follow each window's own radius.", last: true) {
-				RoundedRectangle(cornerRadius: 5)
-					.fill(SwiftUI.Color(
-						.sRGB, red: borders.color.red, green: borders.color.green, blue: borders.color.blue,
-						opacity: borders.color.alpha
-					))
-					.frame(width: 44, height: 22)
-					.overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.separator))
+			StepperRow(
+				title: "Width", value: model.binding(\.borders.width, "borders", "width"), range: 1...20,
+				reset: model.reset(\.borders.width, "borders", "width")
+			)
+			SwitchRow(
+				title: "Use accent color",
+				detail: "The one chosen in System Settings › Appearance. The frame follows when it changes.",
+				on: Binding(get: { borders.color == nil }, set: { model.useAccentBorderColor($0) })
+			)
+			Row(
+				title: "Color", detail: "Corners follow each window's own radius.", last: true,
+				reset: model.resetBorderColor
+			) {
+				ColorPicker("", selection: Binding(get: { color }, set: model.pickBorderColor), supportsOpacity: true)
+					.labelsHidden()
+					.disabled(borders.color == nil)
 			}
 		}
 
@@ -731,11 +1148,10 @@ private struct BordersPage: View {
 }
 
 private struct MenuBarPage: View {
-	let menuBar: Config.MenuBar
-	let items: (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
+	@ObservedObject var model: SettingsModel
 
 	var body: some View {
-		if let items {
+		if let items = model.menuBarItems {
 			ItemsCard(title: "Always Shown", items: items.shown, empty: "No items right of the divider.")
 			ItemsCard(
 				title: "Hidden",
@@ -745,11 +1161,16 @@ private struct MenuBarPage: View {
 		}
 
 		Card(title: "Hiding") {
-			Row(
-				"Hide again after",
-				value: menuBar.rehide == 0 ? "Never" : "\(Int(menuBar.rehide)) s",
+			StepperRow(
+				title: "Hide again after",
 				detail: "Cmd-drag an item across the divider to move it between the lists.",
-				last: true
+				value: model.binding(\.menuBar.rehide, "menubar", "rehide"),
+				range: 0...120,
+				step: 5,
+				unit: "s",
+				zero: "Never",
+				last: true,
+				reset: model.reset(\.menuBar.rehide, "menubar", "rehide")
 			)
 		}
 	}

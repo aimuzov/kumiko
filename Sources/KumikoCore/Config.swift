@@ -66,18 +66,40 @@ public struct Config: Equatable, Sendable {
 
 	/// `[bar]`: the status bar, one per display.
 	public struct Bar: Equatable, Sendable, Decodable {
-		public enum Position: String, Sendable, Decodable { case top, bottom }
+		/// `dock` magnifies the app icons exactly when the Dock is set to magnify its own.
+		public enum Magnification: String, Sendable, Decodable { case dock, on, off }
+
+		/// The bar's height at scale 1: what its items need.
+		public static let baseHeight = 36.0
 
 		public var enabled = true
-		public var position = Position.bottom
-		/// Height of the bar; the window manager keeps this much of the screen free for it.
-		public var height = 36.0
+		/// Height of the bar; the window manager keeps this much of the screen free for it. Never less
+		/// than the scaled items need, whatever the file says, so a larger scale cannot push the bar
+		/// over the windows.
+		public var height: Double {
+			get { max(fileHeight, minimumHeight) }
+			set { fileHeight = newValue }
+		}
+		private var fileHeight = baseHeight
+		/// How large the items are drawn: their text, icons and the space between them.
+		public var scale = 1.0
+		/// In whole points. A scale written short of its fraction, like 1.1667 for 7/6, is 42.0012 and
+		/// makes 42; anything further from a whole point is rounded up, so the items still fit.
+		public var minimumHeight: Double {
+			let exact = Self.baseHeight * scale
+			return abs(exact - exact.rounded()) < 0.01 ? exact.rounded() : exact.rounded(.up)
+		}
 		/// Space between the screen edges and the outermost items.
 		public var padding = 4.0
 		/// Empty means the font of the macOS menu bar, which is what the bar looks like by default.
 		public var font = ""
 		/// 0 means the size of the menu bar font.
 		public var fontSize = 0.0
+		/// App icons grow under the pointer, the way the Dock's do.
+		public var magnification = Magnification.dock
+		/// How tall an icon right under the pointer grows, in points. 0 grows it as much as the Dock
+		/// grows its own; either way no taller than 128, the Dock's largest. It grows over the windows.
+		public var magnificationSize = 0.0
 		/// Items from the left edge inward.
 		public var left = ["workspaces", "mode", "window"]
 		/// Items from the right edge inward.
@@ -164,11 +186,15 @@ public struct Config: Equatable, Sendable {
 			let container = try decoder.container(keyedBy: CodingKeys.self)
 			let defaults = Bar()
 			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
-			position = try container.decodeIfPresent(Position.self, forKey: .position) ?? defaults.position
 			height = try container.decodeIfPresent(Double.self, forKey: .height) ?? defaults.height
+			scale = try container.decodeIfPresent(Double.self, forKey: .scale) ?? defaults.scale
 			padding = try container.decodeIfPresent(Double.self, forKey: .padding) ?? defaults.padding
 			font = try container.decodeIfPresent(String.self, forKey: .font) ?? defaults.font
 			fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? defaults.fontSize
+			magnification = try container.decodeIfPresent(Magnification.self, forKey: .magnification)
+				?? defaults.magnification
+			magnificationSize = try container.decodeIfPresent(Double.self, forKey: .magnificationSize)
+				?? defaults.magnificationSize
 			left = try container.decodeIfPresent([String].self, forKey: .left) ?? defaults.left
 			right = try container.decodeIfPresent([String].self, forKey: .right) ?? defaults.right
 			colors = try container.decodeIfPresent(Palette.self, forKey: .colors) ?? defaults.colors
@@ -177,8 +203,9 @@ public struct Config: Equatable, Sendable {
 		}
 
 		private enum CodingKeys: String, CodingKey {
-			case enabled, position, height, padding, font, left, right, colors, input, shell
+			case enabled, height, scale, padding, font, left, right, colors, input, shell, magnification
 			case fontSize = "font_size"
+			case magnificationSize = "magnification_size"
 		}
 	}
 
@@ -231,7 +258,12 @@ public struct Config: Equatable, Sendable {
 		public var enabled = true
 		/// Thickness in points, drawn outside the window.
 		public var width = 4.0
-		public var color = Color(red: 0.54, green: 0.68, blue: 0.96)
+		/// nil follows the accent colour of System Settings: no key, or `color = "accent"`, which is
+		/// how the settings window gives the accent back without removing the key.
+		public var color: Color?
+		/// The colour of a frame that is not in the accent and has none picked for it: the blue of
+		/// the bar's palette, which kumiko's frames were before they followed the accent.
+		public static let ownColor = try! Color.parse("#8aadf4")
 		/// Apps whose windows get no frame: games, mirroring.
 		public var blacklist: [String] = []
 
@@ -243,7 +275,7 @@ public struct Config: Equatable, Sendable {
 			width = try container.decodeIfPresent(Double.self, forKey: .width) ?? 4
 			blacklist = try container.decodeIfPresent([String].self, forKey: .blacklist) ?? []
 
-			if let text = try container.decodeIfPresent(String.self, forKey: .color) {
+			if let text = try container.decodeIfPresent(String.self, forKey: .color), text.lowercased() != "accent" {
 				do { color = try Color.parse(text) } catch { throw error }
 			}
 		}
@@ -386,6 +418,14 @@ public struct Config: Equatable, Sendable {
 
 		for item in config.bar.left + config.bar.right where !barItems.contains(item) {
 			throw ConfigError.invalid("bar: no item \"\(item)\"")
+		}
+
+		if !(config.bar.scale > 0) {
+			throw ConfigError.invalid("bar: scale must be greater than 0")
+		}
+
+		if config.bar.magnificationSize < 0 {
+			throw ConfigError.invalid("bar: magnification_size must not be negative")
 		}
 
 		if config.menuBar.rehide < 0 {

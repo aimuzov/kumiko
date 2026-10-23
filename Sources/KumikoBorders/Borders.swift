@@ -15,6 +15,10 @@ public final class Borders {
 	private var config: Config.Borders
 	private var focused: UInt32?
 	private var overlay: BorderWindow?
+	private var observers: [any NSObjectProtocol] = []
+	/// Told which of kumiko's own windows is in focus, nil when none is, so the WindowServer's move
+	/// events come for it too and the frame keeps up with a drag.
+	public var onOwnWindow: @MainActor (UInt32?) -> Void = { _ in }
 
 	/// `lookup` answers what the tracker knows about a window.
 	public init(bus: EventBus, config: Config.Borders, focused: UInt32?, lookup: @escaping WindowLookup) {
@@ -26,7 +30,72 @@ public final class Borders {
 
 	public func start() {
 		bus.subscribe { [weak self] event in self?.handle(event) }
+		observeOwnWindows()
+		observeAccentColor()
 		update()
+	}
+
+	/// A frame in the accent colour takes the new one as soon as it is picked in System Settings.
+	/// AppKit posts its own notification once it has the new colour; the distributed one comes from
+	/// System Settings and may come first, so the colour is read on the next pass of the run loop.
+	private func observeAccentColor() {
+		let restyle: @Sendable (Notification) -> Void = { [weak self] _ in
+			DispatchQueue.main.async {
+				MainActor.assumeIsolated {
+					guard let self, self.config.color == nil else { return }
+					self.overlay?.style(self.config)
+				}
+			}
+		}
+
+		observers.append(
+			NotificationCenter.default.addObserver(
+				forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: restyle
+			)
+		)
+		observers.append(
+			DistributedNotificationCenter.default().addObserver(
+				forName: NSNotification.Name("AppleColorPreferencesChangedNotification"), object: nil, queue: .main,
+				using: restyle
+			)
+		)
+	}
+
+	/// kumiko's own windows, the settings, are not the tracker's, so no bus event speaks of them;
+	/// the frame follows them by AppKit's notifications instead.
+	private func observeOwnWindows() {
+		let center = NotificationCenter.default
+		let names = [
+			NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.didMoveNotification,
+			NSWindow.didResizeNotification, NSWindow.didMiniaturizeNotification,
+			NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+		]
+
+		for name in names {
+			observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+				// The overlay moves to another screen with its window; that is no reason to look again.
+				guard !(notification.object is BorderWindow) else { return }
+				MainActor.assumeIsolated { self?.update() }
+			})
+		}
+
+		// A closing window is still key while it closes; look once it is gone.
+		observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) {
+			[weak self] _ in
+			DispatchQueue.main.async { MainActor.assumeIsolated { self?.update() } }
+		})
+	}
+
+	/// kumiko's own window in focus, like the settings. The tracker leaves kumiko out and never
+	/// reports one, so this comes before the window it last reported.
+	private var ownFocused: NSWindow? {
+		guard
+			NSApp.isActive,
+			let window = NSApp.keyWindow,
+			window.styleMask.contains(.titled), !window.styleMask.contains(.fullScreen),
+			window.isVisible, !window.isMiniaturized
+		else { return nil }
+		return window
 	}
 
 	public func apply(_ config: Config.Borders) {
@@ -59,7 +128,7 @@ public final class Borders {
 	/// A move or resize of the focused window, straight from the WindowServer. Only the frame's
 	/// path changes, so this skips everything `update` checks and reads nothing from the app.
 	private func follow(_ id: UInt32, _ bounds: CGRect) {
-		guard id == focused else { return }
+		guard id == ownFocused.map({ UInt32($0.windowNumber) }) ?? focused else { return }
 
 		// A frame that stepped aside because the window was not on screen yet (on its way out of
 		// a corner as its workspace is shown) checks again now that the window moved.
@@ -82,17 +151,9 @@ public final class Borders {
 
 	/// Puts the frame around the focused window, or takes it away when there is nothing to frame.
 	private func update() {
-		guard
-			config.enabled,
-			let id = focused,
-			let info = lookup(id),
-			!info.isMinimized, !info.isHidden, !info.isFullscreen,
-			!config.blacklist.contains(info.app),
-			info.subrole == "AXStandardWindow",
-			// The WindowServer's frame is current; the AX one may still be the corner it left.
-			case let bounds = WindowServer.bounds(of: id) ?? info.frame,
-			Self.isOnScreen(bounds)
-		else {
+		onOwnWindow(ownFocused.map { UInt32($0.windowNumber) })
+
+		guard config.enabled, let (id, bounds) = target() else {
 			overlay?.orderOut(nil)
 			return
 		}
@@ -103,6 +164,33 @@ public final class Borders {
 
 		place(overlay, around: bounds)
 		overlay.order(.above, relativeTo: Int(id))
+	}
+
+	/// The window to frame and its frame in AX coordinates; nil when there is nothing to frame.
+	private func target() -> (id: UInt32, bounds: CGRect)? {
+		if let window = ownFocused {
+			let id = UInt32(window.windowNumber)
+			return (id, WindowServer.bounds(of: id) ?? Self.topLeft(window.frame))
+		}
+
+		guard
+			let id = focused,
+			let info = lookup(id),
+			!info.isMinimized, !info.isHidden, !info.isFullscreen,
+			!config.blacklist.contains(info.app),
+			info.subrole == "AXStandardWindow",
+			// The WindowServer's frame is current; the AX one may still be the corner it left.
+			case let bounds = WindowServer.bounds(of: id) ?? info.frame,
+			Self.isOnScreen(bounds)
+		else { return nil }
+
+		return (id, bounds)
+	}
+
+	/// An AppKit frame, origin bottom left, in the top-left coordinates AX uses.
+	private static func topLeft(_ frame: CGRect) -> CGRect {
+		let height = NSScreen.screens.first?.frame.height ?? 0
+		return CGRect(x: frame.minX, y: height - frame.maxY, width: frame.width, height: frame.height)
 	}
 
 	/// A window parked in a screen corner by a hidden workspace has a point or two on screen; it is
@@ -169,9 +257,11 @@ private final class BorderWindow: NSWindow {
 	func style(_ config: Config.Borders) {
 		width = config.width
 		shape.lineWidth = width
-		shape.strokeColor = CGColor(
-			srgbRed: config.color.red, green: config.color.green, blue: config.color.blue, alpha: config.color.alpha
-		)
+		if let color = config.color {
+			shape.strokeColor = CGColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+		} else {
+			shape.strokeColor = NSColor.controlAccentColor.usingColorSpace(.sRGB)?.cgColor
+		}
 		redraw()
 	}
 
