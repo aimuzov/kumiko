@@ -20,6 +20,8 @@ app="$root/dist/Kumiko.app"
 
 # The vim module links libvim, which SwiftPM cannot build itself.
 "$root/scripts/libvim.sh" >/dev/null
+# The scripting addition is C built for Dock's arm64e, which SwiftPM cannot target either.
+osax=$("$root/scripts/osax.sh")
 
 version=$(sed -n 's/.*static let version = "\(.*\)".*/\1/p' "$root/Sources/KumikoCore/Version.swift")
 identifier=$(sed -n 's/.*static let bundleIdentifier = "\(.*\)".*/\1/p' "$root/Sources/KumikoCore/Version.swift")
@@ -32,6 +34,8 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 cp "$bin/KumikoApp" "$app/Contents/MacOS/KumikoApp"
 cp "$bin/kumiko" "$app/Contents/MacOS/kumiko"
+# `kumiko sa install` copies these into /Library/ScriptingAdditions and signs them there.
+cp -R "$osax" "$app/Contents/Resources/osax"
 
 cat >"$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

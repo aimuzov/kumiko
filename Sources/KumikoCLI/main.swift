@@ -2,7 +2,8 @@ import Foundation
 import KumikoCore
 
 // A thin client: every command is answered by the running app, so the CLI stays fast enough to be
-// called from a hotkey or a shell loop. Only help and version are answered locally.
+// called from a hotkey or a shell loop. Only help, version and the scripting addition are answered
+// locally.
 
 let usage = """
 	usage: kumiko <command> [arguments]
@@ -35,6 +36,9 @@ let usage = """
 	  menubar show|hide|toggle
 	             show or hide the status items left of the divider
 
+	  sa status|install|load|uninstall|sudoers
+	             the scripting addition in Dock, for window shadows;
+	             install, load and uninstall need sudo
 	  version    print the version of the running app
 	  quit       quit the app, putting hidden windows back on screen
 
@@ -54,6 +58,8 @@ case nil, "-h", "--help", "help":
 case "--version":
 	print(Kumiko.version)
 	exit(0)
+case "sa":
+	exit(scriptingAdditionCommand(Array(args.dropFirst())))
 default:
 	break
 }

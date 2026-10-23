@@ -58,7 +58,7 @@ public enum IPCClient {
 		return response
 	}
 
-	private static func connectedSocket(_ url: URL) throws -> Int32 {
+	static func connectedSocket(_ url: URL) throws -> Int32 {
 		let fd = socket(AF_UNIX, SOCK_STREAM, 0)
 		guard fd >= 0 else { throw IPCError.system("socket", errno) }
 
@@ -170,7 +170,7 @@ public final class IPCServer: @unchecked Sendable {
 
 // MARK: - Socket helpers
 
-private func socketAddress(_ url: URL) throws -> sockaddr_un {
+func socketAddress(_ url: URL) throws -> sockaddr_un {
 	let path = url.path(percentEncoded: false)
 	var address = sockaddr_un()
 	address.sun_family = sa_family_t(AF_UNIX)
@@ -186,7 +186,7 @@ private func socketAddress(_ url: URL) throws -> sockaddr_un {
 	return address
 }
 
-private func setTimeout(_ fd: Int32, _ seconds: TimeInterval) {
+func setTimeout(_ fd: Int32, _ seconds: TimeInterval) {
 	var value = timeval(tv_sec: Int(seconds), tv_usec: Int32((seconds - seconds.rounded(.down)) * 1_000_000))
 	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &value, socklen_t(MemoryLayout<timeval>.size))
 	setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &value, socklen_t(MemoryLayout<timeval>.size))
@@ -195,7 +195,7 @@ private func setTimeout(_ fd: Int32, _ seconds: TimeInterval) {
 	setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
 }
 
-private func writeAll(_ fd: Int32, _ data: Data) throws {
+func writeAll(_ fd: Int32, _ data: Data) throws {
 	try data.withUnsafeBytes { buffer in
 		var offset = 0
 		while offset < buffer.count {
@@ -206,7 +206,7 @@ private func writeAll(_ fd: Int32, _ data: Data) throws {
 	}
 }
 
-private func readAll(_ fd: Int32) throws -> Data {
+func readAll(_ fd: Int32) throws -> Data {
 	var data = Data()
 	var buffer = [UInt8](repeating: 0, count: 4096)
 

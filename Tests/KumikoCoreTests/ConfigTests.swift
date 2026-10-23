@@ -197,6 +197,11 @@ struct ConfigTests {
 		#expect(try Config.parse("[wm]\nhide_apps = false").wm.hideApps == false)
 	}
 
+	@Test func shadowsStayUnlessTurnedOff() throws {
+		#expect(try Config.parse("").wm.shadows)
+		#expect(try Config.parse("[wm]\nshadows = false").wm.shadows == false)
+	}
+
 	@Test func bordersTakeTheJankyBordersSettings() throws {
 		let config = try Config.parse("""
 			[borders]

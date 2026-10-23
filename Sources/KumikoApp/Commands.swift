@@ -105,6 +105,10 @@ struct Commands {
 			}
 		}
 
+		if let shadows = app.shadows {
+			lines.append("  shadows: \(shadows.statusDescription)")
+		}
+
 		if config.bar.enabled, let bar = app.bar {
 			lines.append("  bar tone: \(bar.toneDescription)")
 		}
