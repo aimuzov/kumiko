@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var manager: WindowManager?
 	private(set) var hotkeys: Hotkeys?
 	private var borders: Borders?
+	private(set) var shadows: Shadows?
 	private(set) var bar: Bar?
 	private var vim: Vim?
 	private var windowServer: WindowServerEvents?
@@ -62,6 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		self.tracker = tracker
 		self.manager = manager
 		let borders = Borders(bus: bus, config: config.borders, focused: nil) { tracker.windows[$0] }
+		let shadows = Shadows(bus: bus, tracker: tracker, config: config.wm)
+		self.shadows = shadows
 		let windowServer = WindowServerEvents(bus: bus)
 		let bar = Bar(bus: bus, tracker: tracker, manager: manager, config: config.bar)
 		// Vim gets the keys the hotkeys leave alone, so a hotkey still works inside a text field.
@@ -79,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 				manager.apply(config)
 				hotkeys.apply(config.hotkeys)
 				borders.apply(config.borders)
+				shadows.apply(config.wm)
 				bar.apply(config.bar)
 				vim.apply(config.vim)
 			}
@@ -87,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		// The manager listens before the tracker starts, so it sees the windows that are already open.
 		manager.start()
 		borders.start()
+		shadows.start()
 		windowServer.start()
 		bar.start()
 		vim.start()
@@ -107,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		watcher?.stop()
 		// Windows of hidden workspaces sit in a screen corner; quitting must not leave them there.
 		manager?.showEverything()
+		shadows?.restore()
 		tracker?.stop()
 		hotkeys?.stop()
 	}

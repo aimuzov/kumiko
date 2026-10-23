@@ -294,6 +294,9 @@ public struct Config: Equatable, Sendable {
 		/// Hide an app (like cmd-h) while none of its windows is on a shown workspace. Its windows
 		/// then leave the screen corner and Mission Control instead of waiting there.
 		public var hideApps = true
+		/// Window shadows. Off needs the scripting addition in Dock (`kumiko sa load`), since only
+		/// Dock may change other apps' windows; without it windows keep the shadow macOS gives them.
+		public var shadows = true
 		/// `[[wm.rule]]` entries, in file order; for a given window the last matching one wins.
 		public var rules: [WindowRule] = []
 
@@ -315,11 +318,12 @@ public struct Config: Equatable, Sendable {
 			gap = try container.decodeIfPresent(Int.self, forKey: .gap) ?? 8
 			padding = try container.decodeIfPresent(Insets.self, forKey: .padding) ?? Insets(all: 8)
 			hideApps = try container.decodeIfPresent(Bool.self, forKey: .hideApps) ?? true
+			shadows = try container.decodeIfPresent(Bool.self, forKey: .shadows) ?? true
 			rules = try container.decodeIfPresent([WindowRule].self, forKey: .rules) ?? []
 		}
 
 		private enum CodingKeys: String, CodingKey {
-			case enabled, manage, gap, padding
+			case enabled, manage, gap, padding, shadows
 			case hideApps = "hide_apps"
 			case rules = "rule"
 		}
