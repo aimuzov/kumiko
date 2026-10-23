@@ -411,8 +411,22 @@ private struct AppRow: View {
 			.controlSize(.small)
 			.padding(.vertical, 8)
 
+			if let earlier = earlierWorkspace {
+				Text("Opens in \(earlier), which comes first")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+					.frame(maxWidth: .infinity, alignment: .trailing)
+					.padding(.bottom, 8)
+			}
+
 			Divider()
 		}
+	}
+
+	/// The first workspace before this one whose `apps` also match the app, and so wins it.
+	private var earlierWorkspace: String? {
+		guard workspace.listsInApps(app), !workspace.isPattern(app) else { return nil }
+		return model.workspaces.prefix { $0.name != workspace.name }.first { $0.opens(app) }?.name
 	}
 
 	/// `exact` lists compare app names as they are, which a pattern row never is.
