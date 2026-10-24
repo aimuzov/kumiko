@@ -430,15 +430,17 @@ public final class WindowManager {
 			tree.stack(info.id, onto: other)
 		}
 
-		// Pinned-last apps go back to the end every time anything joins, not only when they do.
-		if let pinned = tree.visibleWindows.first(where: { rules.last.contains(tracker.windows[$0]?.app ?? "") }),
-		   let last = tree.visibleWindows.last, pinned != last
-		{
-			tree.swap(pinned, last)
+		// The windows take the order of their apps every time anything joins, not only when they do,
+		// and only then: a window moved by hand stays where it was put until the next one comes.
+		let order = rules.layoutOrder(tree.visibleWindows.map { ($0, tracker.windows[$0]?.app ?? "") })
+		for (place, id) in order.enumerated() {
+			let current = tree.visibleWindows
+			guard current.indices.contains(place), current[place] != id else { continue }
+			tree.swap(current[place], id)
 		}
 
-		// After the swap, and for every window with a share, not only the newcomer: the window that
-		// has a share may have joined first, when it had no split to take a share of.
+		// After the reorder, and for every window with a share, not only the newcomer: the window
+		// that has a share may have joined first, when it had no split to take a share of.
 		for id in tree.visibleWindows {
 			if let app = tracker.windows[id]?.app, let share = rules.share[app] {
 				tree.setShare(id, share)

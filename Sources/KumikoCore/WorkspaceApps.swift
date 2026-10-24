@@ -46,10 +46,36 @@ extension Config.Workspace {
 		return apps.contains { Self.matcher(for: $0)?.firstMatch(in: app, range: range) != nil }
 	}
 
+	/// The `apps` entries in the order their windows are laid out: as written, except the ones
+	/// an older file pins with `last`, which go after the rest.
+	public var orderedApps: [String] {
+		apps.filter { !isPinnedLast($0) } + apps.filter(isPinnedLast)
+	}
+
+	private func isPinnedLast(_ entry: String) -> Bool { last.contains(Self.name(of: entry) ?? entry) }
+
+	/// Where a window of `app` goes in the layout, lower first: the place of the first entry
+	/// that matches it, then the apps no entry matches, then the ones `last` pins.
+	public func layoutRank(of app: String) -> Int {
+		if last.contains(app) { return apps.count + 1 }
+		let range = NSRange(app.startIndex..., in: app)
+		return orderedApps.firstIndex { Self.matcher(for: $0)?.firstMatch(in: app, range: range) != nil } ?? apps.count
+	}
+
+	/// The windows in layout order. Stable: windows of one app, and windows no entry ranks,
+	/// keep the order they had, so a reorder moves only what the ranks say must move.
+	public func layoutOrder<ID>(_ windows: [(id: ID, app: String)]) -> [ID] {
+		windows.enumerated()
+			.map { (rank: layoutRank(of: $0.element.app), place: $0.offset, id: $0.element.id) }
+			.sorted { ($0.rank, $0.place) < ($1.rank, $1.place) }
+			.map(\.id)
+	}
+
 	/// What a settings row calls an `apps` entry: the name it spells, else the pattern as written.
+	/// In layout order, which the rows are dragged to change.
 	public var appRows: [String] {
 		var seen: [String] = []
-		let named = apps.map { Self.name(of: $0) ?? $0 }
+		let named = orderedApps.map { Self.name(of: $0) ?? $0 }
 		for app in named + stack + last + share.keys.sorted() where !seen.contains(app) {
 			seen.append(app)
 		}

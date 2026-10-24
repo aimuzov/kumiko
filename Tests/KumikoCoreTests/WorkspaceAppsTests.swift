@@ -54,4 +54,22 @@ struct WorkspaceAppsTests {
 		#expect(workspace.opens("Code"))
 		#expect(!workspace.opens("Xcode"))
 	}
+
+	@Test("windows follow the order of the apps, unranked ones after, pinned last ones at the end")
+	func layoutOrder() {
+		let workspace = Workspace(name: "w", apps: ["Telegram", "Arc|Dia", "Time"], last: ["Telegram"])
+		let windows: [(id: Int, app: String)] = [
+			(1, "Time"), (2, "Finder"), (3, "Telegram"), (4, "Dia"), (5, "Notes"), (6, "Arc"), (7, "Time"),
+		]
+		#expect(workspace.layoutOrder(windows) == [4, 6, 1, 7, 2, 5, 3])
+		#expect(workspace.orderedApps == ["Arc|Dia", "Time", "Telegram"])
+		#expect(workspace.appRows == ["Arc|Dia", "Time", "Telegram"])
+	}
+
+	@Test("windows already in order stay as they are")
+	func stableOrder() {
+		let workspace = Workspace(name: "w", apps: ["A", "B"])
+		let windows: [(id: Int, app: String)] = [(1, "A"), (2, "A"), (3, "B"), (4, "C")]
+		#expect(workspace.layoutOrder(windows) == [1, 2, 3, 4])
+	}
 }
