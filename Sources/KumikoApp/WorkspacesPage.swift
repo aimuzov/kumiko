@@ -506,8 +506,7 @@ private struct WorkspaceIsland: View {
 				Divider()
 				settings
 				AppTable(model: model, workspace: workspace)
-				Divider()
-				footer
+				Spacer().frame(height: 4)
 			}
 		}
 		.padding(.horizontal, 12)
@@ -542,10 +541,23 @@ private struct WorkspaceIsland: View {
 
 	private var header: some View {
 		HStack(spacing: 8) {
-			// Only a closed island moves; an open one shows no handle to promise it.
-			Image(systemName: "line.3.horizontal")
-				.foregroundStyle(.tertiary)
-				.opacity(expanded ? 0 : 1)
+			// Only a closed island moves, so an open one puts its remove button where the handle was.
+			// The button takes its own click: the header's press gesture gives way to it.
+			ZStack {
+				if expanded {
+					Button { model.workspacePendingRemoval = workspace.name } label: {
+						Image(systemName: "trash")
+					}
+					.buttonStyle(.borderless)
+					.foregroundStyle(.secondary)
+					.help("Remove Workspace")
+					.accessibilityLabel("Remove Workspace")
+				} else {
+					Image(systemName: "line.3.horizontal")
+						.foregroundStyle(.tertiary)
+				}
+			}
+			.frame(width: 16)
 			Text(workspace.name)
 				.lineLimit(1)
 				.truncationMode(.tail)
@@ -618,16 +630,6 @@ private struct WorkspaceIsland: View {
 		)
 	}
 
-	private var footer: some View {
-		HStack {
-			Spacer()
-			Button("Remove Workspace…", role: .destructive) { model.workspacePendingRemoval = workspace.name }
-				.buttonStyle(.borderless)
-				.foregroundStyle(.secondary)
-		}
-		.padding(.vertical, 10)
-	}
-
 	/// Apps with a Dock icon, the ones whose windows kumiko arranges, that the workspace does not name yet.
 	static func running(excluding listed: [String]) -> [String] {
 		let names = NSWorkspace.shared.runningApplications
@@ -674,7 +676,7 @@ private struct AppTable: View {
 			AddAppButton(model: model, workspace: workspace)
 		}
 		.padding(.top, 12)
-		.padding(.bottom, apps.isEmpty ? 12 : 0)
+		.padding(.bottom, apps.isEmpty ? 8 : 0)
 		if !apps.isEmpty {
 			HStack(spacing: AppColumn.spacing) {
 				Text("App")
