@@ -101,7 +101,7 @@ final class IslandDrag: ObservableObject {
 		guard let geometry else { return }
 		translation = min(max(pointer + scrolled, reach.lowerBound), reach.upperBound)
 		let lifted = geometry.lifted
-		let drop = geometry.drop(at: (lifted.lowerBound + lifted.upperBound) / 2 + translation)
+		let drop = geometry.drop(at: (lifted.lowerBound + lifted.upperBound) / 2 + translation, current: target)
 		guard drop != target else { return }
 		opening = geometry.opening(for: drop)
 		target = drop

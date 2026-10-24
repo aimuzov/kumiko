@@ -55,22 +55,25 @@ public struct ListDrag: Sendable {
 	}
 
 	/// How far the row can be carried from where it was: over every area, an empty one too;
-	/// without areas, from the first row to the last. Its middle goes as far as the edges, half
-	/// of it hanging over: passing a row takes passing its middle, and a row taller than the
-	/// first or the last one would not get past theirs if it stopped flush with the edge.
+	/// without areas, from the first row to the last. Flush with the edges, unless that leaves
+	/// it short of the first or the last row's middle, which passing a row takes: a row taller
+	/// than those hangs over the edge by as much as it needs and no more.
 	public var reach: ClosedRange<Double> {
 		let edges = spans.isEmpty ? sections.flatMap(\.names).compactMap { rows[$0] } : Array(spans.values)
 		let middle = Self.middle(lifted)
-		let top = edges.map(\.lowerBound).min() ?? middle
-		let bottom = edges.map(\.upperBound).max() ?? middle
+		let half = middle - lifted.lowerBound
+		let middles = sections.flatMap(\.names).filter { $0 != name }.compactMap { rows[$0].map(Self.middle) }
+		let top = min((edges.map(\.lowerBound).min() ?? middle) + half, middles.min() ?? middle)
+		let bottom = max((edges.map(\.upperBound).max() ?? middle) - half, (middles.max() ?? middle) + 1)
 		return min(top - middle, 0)...max(bottom - middle, 0)
 	}
 
 	/// The place for the lifted row's middle at `centre`. In its own area the row is compared
 	/// with the others where they stand. In another one they stand where the area moved to once
 	/// the row left: a row is passed when the lifted one's middle passes the middle it is seen at.
-	public func drop(at centre: Double) -> Drop {
-		let section = section(at: centre)
+	/// `current` is where it would land until now, which the edge between two areas depends on.
+	public func drop(at centre: Double, current: Drop? = nil) -> Drop {
+		let section = section(at: centre, inOrigin: (current?.section ?? origin.section) == origin.section)
 		let own = section.id == origin.section
 		let slot = others(in: section).count { other in
 			let middle = rows[other].map(Self.middle) ?? .infinity
@@ -93,14 +96,16 @@ public struct ListDrag: Sendable {
 	/// Where something laid out at `y` stands with the lifted row taken out.
 	public func closed(_ y: Double) -> Double { y > lifted.lowerBound ? y - gap : y }
 
-	/// The area the middle of the row is over, the gaps between areas split halfway. The row's
-	/// own area keeps its height while the row is in it, so its edge below stays where it was
+	/// The area the middle of the row is over, the gaps between areas split halfway. While the
+	/// row is in its own area, the area keeps its height, so its edge below stays where it was
 	/// laid out: closed, it would come up a gap and take the row away before it passed the
-	/// area's last one. Other areas stand as they do with the row taken out.
-	private func section(at centre: Double) -> Section {
+	/// area's last one. Once it is in another area, its own one has closed up, and it comes
+	/// back only over the closed edge: between the two the row stays where it is, and does not
+	/// flicker between the areas. Other areas stand as they do with the row taken out.
+	private func section(at centre: Double, inOrigin: Bool) -> Section {
 		for (section, next) in zip(sections, sections.dropFirst()) {
 			guard let span = spans[section.id], let below = spans[next.id] else { continue }
-			let own = section.id == origin.section
+			let own = inOrigin && section.id == origin.section
 			let edge = own ? span.upperBound : closed(span.upperBound)
 			let start = own ? below.lowerBound : closed(below.lowerBound)
 			if centre < (edge + start) / 2 { return section }

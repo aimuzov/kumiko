@@ -44,7 +44,28 @@ struct ListDragTests {
 		))
 		// Just past b's middle, which is still above the edge of the area the row is in.
 		#expect(drag.drop(at: 67) == Drop(section: "main", slot: 1))
+		#expect(drag.drop(at: 75) == Drop(section: "main", slot: 1))
 		#expect(drag.drop(at: 90) == Drop(section: "external", slot: 0))
+	}
+
+	@Test func comesBackFromTheOtherAreaOverItsClosedEdge() throws {
+		let drag = try #require(ListDrag(
+			lifting: "a", sections: sections, rows: twoAreas, spans: spans, spacing: Self.spacing
+		))
+		let below = Drop(section: "external", slot: 0)
+		// Between the closed edge, about 53, and the laid out one, 83: it stays where it is.
+		#expect(drag.drop(at: 75, current: below) == below)
+		#expect(drag.drop(at: 75, current: Drop(section: "main", slot: 1)) == Drop(section: "main", slot: 1))
+		#expect(drag.drop(at: 50, current: below) == Drop(section: "main", slot: 0))
+	}
+
+	@Test func hangsOverTheEndOnlyAsFarAsPassingTheLastRowTakes() throws {
+		let drag = try #require(ListDrag(
+			lifting: "a", sections: [Section(id: "", names: ["a", "b", "c"])],
+			rows: rows(["a", "b", "c"], from: 0), spans: [:], spacing: Self.spacing
+		))
+		// Flush with the end would leave its middle on the last one's, which is not past it.
+		#expect(drag.reach.upperBound == 61)
 	}
 
 	@Test func reachesTheEndOfTheBottomArea() throws {
