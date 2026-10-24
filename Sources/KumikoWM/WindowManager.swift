@@ -1112,8 +1112,20 @@ public final class WindowManager {
 		current.seen.remove(id)
 		if current.lastFocused == id { current.lastFocused = nil }
 		assignment[id] = destination
-		if let info = tracker.windows[id], isTiled(id, in: destination) {
+		// Coming back to the workspace finds it in front, a stack's newcomer included.
+		if tracker.focusedWindowID == id { destination.lastFocused = id }
+		guard let info = tracker.windows[id] else { return }
+		if isTiled(id, in: destination) {
 			add(info, to: destination, near: near)
+		} else if destination.display != current.display {
+			// A window the layout leaves alone would stay over the old display, and a hidden
+			// workspace would bring it back there: it goes to the middle of the new one.
+			let frame = Self.centered(info.frame.size, in: destination.display.visibleFrame)
+			if visible[destination.display.id] === destination {
+				tracker.setFrame(id, frame)
+			} else {
+				hidden[id] = frame
+			}
 		}
 	}
 
