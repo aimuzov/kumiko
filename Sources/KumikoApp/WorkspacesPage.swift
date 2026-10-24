@@ -21,16 +21,21 @@ struct DisplayChoice: Hashable {
 	let value: String
 	let title: String
 
-	/// The keywords and the screens attached now. A value none of them is, part of a name, is
-	/// kept as written, so opening the menu changes nothing.
+	/// The keywords, and the names of the external screens when there are several of them: with
+	/// one, its name says no more than External, and the built-in one is Built-in. A value none of
+	/// them is, part of a name, is kept as written, so opening the menu changes nothing.
 	@MainActor
 	static func all(current: String) -> [DisplayChoice] {
 		var choices = [
 			DisplayChoice(value: "main", title: "Main"), DisplayChoice(value: "builtin", title: "Built-in"),
 			DisplayChoice(value: "external", title: "External"),
 		]
+		let externals = NSScreen.screens.filter { screen in
+			let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+			return number.map { CGDisplayIsBuiltin($0.uint32Value) == 0 } ?? true
+		}
 		// Two screens of one model share a name, and the menu takes each value once.
-		for name in NSScreen.screens.map(\.localizedName) + [current]
+		for name in (externals.count > 1 ? externals.map(\.localizedName) : []) + [current]
 		where !choices.contains(where: { $0.value == name }) {
 			choices.append(DisplayChoice(value: name, title: name))
 		}
