@@ -355,8 +355,8 @@ private struct IslandStack: View {
 				case let .label(area, first):
 					label(area)
 						.padding(.top, first ? 0 : Self.areaGap)
-				case let .island(_, index, workspace):
-					island(workspace, number: index + 1, area: areas ? workspace.area : nil)
+				case let .island(_, _, workspace):
+					island(workspace, area: areas ? workspace.area : nil)
 						.padding(.horizontal, areas ? Self.inset : 0)
 				case let .empty(area):
 					AreaDropZone(drag: drag, area: area.rawValue)
@@ -392,11 +392,9 @@ private struct IslandStack: View {
 		.zIndex(1)
 	}
 
-	private func island(_ workspace: Config.Workspace, number: Int, area: Config.Workspace.Area?) -> some View {
+	private func island(_ workspace: Config.Workspace, area: Config.Workspace.Area?) -> some View {
 		let lifted = drag.dragged == workspace.name
-		return WorkspaceIsland(
-				model: model, workspace: workspace, number: number, area: area, dragging: drag.dragged != nil
-			)
+		return WorkspaceIsland(model: model, workspace: workspace, area: area, dragging: drag.dragged != nil)
 			.scaleEffect(lifted ? 1.02 : 1)
 			.shadow(color: .black.opacity(lifted ? 0.18 : 0), radius: lifted ? 12 : 0, y: lifted ? 4 : 0)
 			.offset(y: lifted ? 0 : drag.shift(of: workspace.name))
@@ -492,7 +490,6 @@ private struct AreaDropZone: View {
 private struct WorkspaceIsland: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
-	let number: Int
 	/// The area it is shown in, nil while there are none.
 	let area: Config.Workspace.Area?
 	/// Some island is lifted: none lights up then, the lifted one keeps its lifted look.
@@ -527,12 +524,15 @@ private struct WorkspaceIsland: View {
 	}
 
 	/// One gesture for the click and the drag, so the two never both happen: a press let go
-	/// before the pointer moved opens or closes the island, one that moved lifts it.
+	/// before the pointer moved opens or closes the island, one that moved lifts it. An open
+	/// island stays where it is: carried open, it would sweep its whole height over the others.
 	private var press: some Gesture {
 		DragGesture(minimumDistance: 0, coordinateSpace: .named(IslandStack.space))
 			.onChanged { value in
 				if pointer.clicked != workspace.name { pointer.clicked = workspace.name }
-				model.islandDrag.move(workspace.name, by: value.translation, sections: model.islandSections)
+				model.islandDrag.move(
+					workspace.name, by: value.translation, canLift: !expanded, sections: model.islandSections
+				)
 			}
 			.onEnded { _ in
 				let click = model.islandDrag.end(workspace.name) { model.dropWorkspace(workspace.name, at: $0) }
@@ -542,12 +542,10 @@ private struct WorkspaceIsland: View {
 
 	private var header: some View {
 		HStack(spacing: 8) {
+			// Only a closed island moves; an open one shows no handle to promise it.
 			Image(systemName: "line.3.horizontal")
 				.foregroundStyle(.tertiary)
-			// Past nine there is no key to name.
-			Text(number <= 9 ? "alt-\(number)" : "\(number)")
-				.font(.system(.body, design: .monospaced))
-				.foregroundStyle(.secondary)
+				.opacity(expanded ? 0 : 1)
 			Text(workspace.name)
 				.lineLimit(1)
 				.truncationMode(.tail)

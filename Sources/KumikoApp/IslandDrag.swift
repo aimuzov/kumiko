@@ -87,12 +87,16 @@ final class IslandDrag: ObservableObject {
 	}
 
 	/// The sections are read once, when the island lifts. A lift left over from a press
-	/// whose end never came, the view gone under it, gives way to the new one.
-	func move(_ name: String, by translation: CGSize, sections: @autoclosure () -> [Section]) {
+	/// whose end never came, the view gone under it, gives way to the new one. An island
+	/// that can't lift, an open one, still counts the move, so letting go is no click.
+	func move(
+		_ name: String, by translation: CGSize, canLift: Bool = true, sections: @autoclosure () -> [Section]
+	) {
 		guard !cancelled else { return }
 		if dragged != name {
 			guard hypot(translation.width, translation.height) >= Self.threshold else { return }
 			moved = true
+			guard canLift else { return }
 			// The island still settling moves the frames once more: the lift waits for them.
 			guard settling == nil else { return }
 			lift(name, in: sections())
