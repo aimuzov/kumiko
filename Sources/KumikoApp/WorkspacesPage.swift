@@ -106,6 +106,7 @@ extension SettingsModel {
 			changes.append(shareEdit(index, shares))
 		}
 		change(changes)
+		if writeError == nil { workspacesPointer.forget(WorkspaceApp(workspace: name, app: app)) }
 	}
 
 	func addWorkspace() {
@@ -118,7 +119,10 @@ extension SettingsModel {
 	func removeWorkspace(_ name: String) {
 		guard let index = index(of: name) else { return }
 		change([EntryEdit.remove("workspace", index)])
-		if writeError == nil { expandedWorkspaces.remove(name) }
+		if writeError == nil {
+			expandedWorkspaces.remove(name)
+			workspacesPointer.forget(name)
+		}
 	}
 
 	/// The workspace takes the place of the target, which moves aside towards where it came from.
@@ -188,6 +192,34 @@ struct WorkspaceApp: Hashable {
 	let app: String
 }
 
+/// What the pointer is over on the Workspaces page. Rows and islands write here without watching
+/// it, so a hover draws one button again and not the whole page.
+@MainActor
+final class WorkspacesPointer: ObservableObject {
+	/// The app row whose remove button shows.
+	@Published var hoveredApp: WorkspaceApp?
+	/// The island a dragged one is over, which shows where the drop lands.
+	@Published var dropTarget: String?
+
+	func forget(_ app: WorkspaceApp) {
+		if hoveredApp == app { hoveredApp = nil }
+	}
+
+	func forget(_ workspace: String) {
+		keep { $0 != workspace }
+	}
+
+	func keep(_ workspaces: Set<String>) {
+		keep(workspaces.contains)
+	}
+
+	/// Set only when it changes: every set draws the buttons again, nil over nil too.
+	private func keep(_ kept: (String) -> Bool) {
+		if let app = hoveredApp, !kept(app.workspace) { hoveredApp = nil }
+		if let target = dropTarget, !kept(target) { dropTarget = nil }
+	}
+}
+
 struct WorkspacesPage: View {
 	@ObservedObject var model: SettingsModel
 
@@ -245,7 +277,7 @@ private struct WorkspaceIsland: View {
 	let number: Int
 
 	private var expanded: Bool { model.expandedWorkspaces.contains(workspace.name) }
-	private var targeted: Bool { model.workspaceDropTarget == workspace.name }
+	private var pointer: WorkspacesPointer { model.workspacesPointer }
 
 	var body: some View {
 		VStack(spacing: 0) {
@@ -261,21 +293,17 @@ private struct WorkspaceIsland: View {
 		}
 		.padding(.horizontal, 12)
 		.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.035)))
-		.overlay(
-			RoundedRectangle(cornerRadius: 10, style: .continuous)
-				.strokeBorder(SwiftUI.Color.accentColor, lineWidth: 2)
-				.opacity(targeted ? 1 : 0)
-		)
+		.overlay(IslandOutline(pointer: pointer, name: workspace.name))
 		.dropDestination(for: DraggedWorkspace.self) { dragged, _ in
-			model.workspaceDropTarget = nil
+			pointer.dropTarget = nil
 			guard let name = dragged.first?.name else { return false }
 			return model.moveWorkspace(name, to: workspace.name)
 		} isTargeted: { inside in
 			// Leaving one island and entering the next come in either order.
 			if inside {
-				model.workspaceDropTarget = workspace.name
-			} else if targeted {
-				model.workspaceDropTarget = nil
+				pointer.dropTarget = workspace.name
+			} else if pointer.dropTarget == workspace.name {
+				pointer.dropTarget = nil
 			}
 		}
 	}
@@ -446,6 +474,7 @@ private struct AppRow: View {
 		"A pattern only chooses where windows open: the other settings match exact app names."
 
 	private var id: WorkspaceApp { WorkspaceApp(workspace: workspace.name, app: app) }
+	private var pointer: WorkspacesPointer { model.workspacesPointer }
 
 	var body: some View {
 		HStack(spacing: AppColumn.spacing) {
@@ -489,21 +518,15 @@ private struct AppRow: View {
 			checkbox(.last, exact: true)
 			checkbox(.apps)
 
-			Button { model.removeApp(app, from: workspace.name) } label: { Image(systemName: "minus.circle") }
-				.buttonStyle(.borderless)
-				.foregroundStyle(.secondary)
-				.help("Take \(app) out of this workspace")
-				.frame(width: AppColumn.remove)
-				// Kept in the layout while hidden, so the columns stay where they are.
-				.opacity(model.hoveredWorkspaceApp == id ? 1 : 0)
+			RemoveAppButton(pointer: pointer, id: id) { model.removeApp(app, from: workspace.name) }
 		}
 		.padding(.vertical, 8)
 		.contentShape(Rectangle())
 		.onHover { inside in
 			if inside {
-				model.hoveredWorkspaceApp = id
-			} else if model.hoveredWorkspaceApp == id {
-				model.hoveredWorkspaceApp = nil
+				pointer.hoveredApp = id
+			} else {
+				pointer.forget(id)
 			}
 		}
 		.contextMenu {
@@ -534,12 +557,43 @@ private struct AppRow: View {
 	}
 }
 
+/// The drop border of an island, the one view a drag over it draws again.
+private struct IslandOutline: View {
+	@ObservedObject var pointer: WorkspacesPointer
+	let name: String
+
+	var body: some View {
+		RoundedRectangle(cornerRadius: 10, style: .continuous)
+			.strokeBorder(SwiftUI.Color.accentColor, lineWidth: 2)
+			.opacity(pointer.dropTarget == name ? 1 : 0)
+	}
+}
+
+/// Shown on the row under the pointer only, the one view a hover draws again.
+private struct RemoveAppButton: View {
+	@ObservedObject var pointer: WorkspacesPointer
+	let id: WorkspaceApp
+	let remove: () -> Void
+
+	var body: some View {
+		Button(action: remove) { Image(systemName: "minus.circle") }
+			.buttonStyle(.borderless)
+			.foregroundStyle(.secondary)
+			.help("Take \(id.app) out of this workspace")
+			.frame(width: AppColumn.remove)
+			// Kept in the layout while hidden, so the columns stay where they are.
+			.opacity(pointer.hoveredApp == id ? 1 : 0)
+	}
+}
+
 /// An app's icon by the name kumiko knows it by: a running app's, else one installed in the usual
 /// folders. A pattern like `Arc|Dia` has none.
 @MainActor
 enum AppIcon {
 	/// Found icons only: an app launched or installed later gets its icon on the next look.
 	private static var cache: [String: NSImage] = [:]
+	/// The menu's copies, made once: the menu is drawn with every draw of an open island.
+	private static var sized: [String: NSImage] = [:]
 	private static let folders = [
 		"/Applications", "/System/Applications", "/System/Applications/Utilities", NSHomeDirectory() + "/Applications",
 	]
@@ -560,8 +614,11 @@ enum AppIcon {
 
 	/// A menu draws an image at its own size, which for an app icon is twice a menu line.
 	static func image(for name: String, size: Double) -> NSImage? {
+		let key = "\(name)@\(size)"
+		if let cached = sized[key] { return cached }
 		guard let image = image(for: name)?.copy() as? NSImage else { return nil }
 		image.size = NSSize(width: size, height: size)
+		sized[key] = image
 		return image
 	}
 }

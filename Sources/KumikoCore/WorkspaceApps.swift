@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// `apps` holds patterns while `stack`, `last` and `share` hold exact app names, so the same app
 /// is written two ways. These helpers carry a name between the two.
@@ -30,8 +31,15 @@ extension Config.Workspace {
 	/// Whether an `apps` pattern matches the whole app name, like `[[wm.rule]]` patterns do: "Code" is
 	/// not "Xcode".
 	public static func matcher(for pattern: String) -> NSRegularExpression? {
-		try? NSRegularExpression(pattern: "^(?:\(pattern))$")
+		if let cached = matchers.withLock({ $0[pattern] }) { return cached }
+		let matcher = try? NSRegularExpression(pattern: "^(?:\(pattern))$")
+		matchers.withLock { $0[pattern] = matcher }
+		return matcher
 	}
+
+	/// The settings window asks for every row on every draw. A pattern that does not compile is
+	/// kept too, as nil, so it is not tried again.
+	private static let matchers = OSAllocatedUnfairLock<[String: NSRegularExpression?]>(initialState: [:])
 
 	public func opens(_ app: String) -> Bool {
 		let range = NSRange(app.startIndex..., in: app)
