@@ -18,39 +18,54 @@ extension Config.Workspace {
 /// entries together, so the `workspace focus <n>` numbers run down the page without a
 /// gap.
 public enum WorkspaceAreas {
+	public typealias Area = Config.Workspace.Area
+
 	public struct Group: Equatable, Sendable {
-		public let area: Config.Workspace.Area
+		public let area: Area
 		/// Indices into the workspaces, in file order.
 		public let entries: [Int]
 	}
 
-	/// Both areas, in the order the file first names them; one it does not name comes last,
-	/// empty, so there is somewhere to drop a workspace into it.
-	public static func groups(of workspaces: [Config.Workspace]) -> [Group] {
-		var order: [Config.Workspace.Area] = []
-		for workspace in workspaces where !order.contains(workspace.area) {
-			order.append(workspace.area)
+	/// The order the areas are shown in. Decided once, from the order the file first names
+	/// them, an area it does not name last. After that `previous` is kept, so emptying the
+	/// top area or carrying an island there and back does not swap the areas under the
+	/// pointer; only a file that has both areas, each in one run, the other way round,
+	/// says otherwise, the way a hand edit would.
+	public static func order(of workspaces: [Config.Workspace], keeping previous: [Area]? = nil) -> [Area] {
+		var named: [Area] = []
+		for workspace in workspaces where !named.contains(workspace.area) {
+			named.append(workspace.area)
 		}
-		order += Config.Workspace.Area.allCases.filter { !order.contains($0) }
-		return order.map { area in
+		let fresh = named + Area.allCases.filter { !named.contains($0) }
+		guard let previous, Set(previous) == Set(Area.allCases), previous.count == Area.allCases.count else {
+			return fresh
+		}
+		let runs = zip(workspaces, workspaces.dropFirst()).count { $0.area != $1.area } + 1
+		return named.count == Area.allCases.count && runs == named.count ? fresh : previous
+	}
+
+	/// Both areas in `order`, an empty one too, so there is somewhere to drop a workspace
+	/// into it.
+	public static func groups(of workspaces: [Config.Workspace], order: [Area]? = nil) -> [Group] {
+		(order ?? self.order(of: workspaces)).map { area in
 			Group(area: area, entries: workspaces.indices.filter { workspaces[$0].area == area })
 		}
 	}
 
 	/// Carries `entry` into `area`, before the area's `slot`-th other entry, or after its
-	/// last one when `slot` is past them all. Into an empty area it goes to the end of the
-	/// file, the way that area is shown last. `display` changes only when the area does: a
-	/// `builtin` or a screen's name moved within Main keeps what it says. Nothing when the
-	/// entry is where it was asked to go.
+	/// last one when `slot` is past them all. Into an empty area it goes to the start or the
+	/// end of the file, wherever that area is shown in `order`. `display` changes only when
+	/// the area does: a `builtin` or a screen's name moved within Main keeps what it says.
+	/// Nothing when the entry is where it was asked to go.
 	public static func move(
-		_ entry: Int, to area: Config.Workspace.Area, slot: Int, in workspaces: [Config.Workspace]
+		_ entry: Int, to area: Area, slot: Int, in workspaces: [Config.Workspace], order: [Area]? = nil
 	) -> [any ConfigChange] {
 		guard workspaces.indices.contains(entry) else { return [] }
 		let others = workspaces.indices.filter { $0 != entry && workspaces[$0].area == area }
 		// Indices once the entry is out of the list, which is what `EntryEdit.move` takes.
 		func without(_ index: Int) -> Int { index > entry ? index - 1 : index }
 		let to = if others.isEmpty {
-			workspaces.count - 1
+			(order ?? self.order(of: workspaces)).first == area ? 0 : workspaces.count - 1
 		} else if slot < others.count {
 			without(others[max(slot, 0)])
 		} else {
@@ -69,10 +84,13 @@ public enum WorkspaceAreas {
 
 	/// A new entry, written at the end of its area: an insert lands after the file's last
 	/// entry, and a move then brings it back to the area's last.
-	public static func add(_ workspace: Config.Workspace, to workspaces: [Config.Workspace]) -> [any ConfigChange] {
+	public static func add(
+		_ workspace: Config.Workspace, to workspaces: [Config.Workspace], order: [Area]? = nil
+	) -> [any ConfigChange] {
+		let order = order ?? self.order(of: workspaces)
 		let insert = EntryEdit.insert("workspace", fields: workspace.tomlFields)
 		var appended = workspaces
 		appended.append(workspace)
-		return [insert] + move(appended.count - 1, to: workspace.area, slot: .max, in: appended)
+		return [insert] + move(appended.count - 1, to: workspace.area, slot: .max, in: appended, order: order)
 	}
 }

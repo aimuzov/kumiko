@@ -120,7 +120,7 @@ extension SettingsModel {
 		let workspace = Config.Workspace(name: name, display: area?.display ?? "main")
 		change(area == nil
 			? [EntryEdit.insert("workspace", fields: workspace.tomlFields)]
-			: WorkspaceAreas.add(workspace, to: workspaces))
+			: WorkspaceAreas.add(workspace, to: workspaces, order: areaOrder()))
 		if writeError == nil { expandedWorkspaces.insert(name) }
 	}
 
@@ -133,10 +133,18 @@ extension SettingsModel {
 		}
 	}
 
+	/// The areas top to bottom: the order they were shown in, unless the file now clearly
+	/// says the other one. See `WorkspaceAreas.order`.
+	func areaOrder() -> [Config.Workspace.Area] {
+		let order = WorkspaceAreas.order(of: workspaces, keeping: shownAreaOrder)
+		if order != shownAreaOrder { shownAreaOrder = order }
+		return order
+	}
+
 	/// The islands as the stack lays them out: all in one list, or each area's in its own.
 	var islandSections: [IslandDrag.Section] {
 		guard screens.showsAreas else { return [IslandDrag.Section(id: "", names: workspaces.map(\.name))] }
-		return WorkspaceAreas.groups(of: workspaces).map { group in
+		return WorkspaceAreas.groups(of: workspaces, order: areaOrder()).map { group in
 			IslandDrag.Section(id: group.area.rawValue, names: group.entries.map { workspaces[$0].name })
 		}
 	}
@@ -147,7 +155,7 @@ extension SettingsModel {
 	func dropWorkspace(_ name: String, at drop: IslandDrag.Drop) {
 		guard let from = index(of: name) else { return }
 		if let area = Config.Workspace.Area(rawValue: drop.section) {
-			change(WorkspaceAreas.move(from, to: area, slot: drop.slot, in: workspaces))
+			change(WorkspaceAreas.move(from, to: area, slot: drop.slot, in: workspaces, order: areaOrder()))
 		} else if workspaces.indices.contains(drop.slot), drop.slot != from {
 			change([EntryEdit.move("workspace", from: from, to: drop.slot)])
 		}
@@ -171,7 +179,7 @@ extension SettingsModel {
 	/// To the end of the other area.
 	func moveWorkspace(_ name: String, to area: Config.Workspace.Area) {
 		guard let from = index(of: name) else { return }
-		change(WorkspaceAreas.move(from, to: area, slot: .max, in: workspaces))
+		change(WorkspaceAreas.move(from, to: area, slot: .max, in: workspaces, order: areaOrder()))
 	}
 
 	/// The built-in nine, written out so they can be changed.
@@ -259,7 +267,8 @@ final class IslandDrag: ObservableObject {
 	private var gap = 0.0
 	private var reach = 0.0...0.0
 	/// Where the place the island would land in opens, in the layout: whatever is laid out
-	/// from here down moves down by the gap. Nil for an empty area, which only lights up.
+	/// from here down moves down by the gap. Nil for an empty other area, which only lights
+	/// up; the island's own area, emptied by the lift, keeps its place open.
 	private var opening: Double?
 	/// The pointer's own part of the translation, and what the page scrolled since it last
 	/// moved: held at the edge, the island goes along with the page under a still pointer.
@@ -328,7 +337,7 @@ final class IslandDrag: ObservableObject {
 		let drop = Drop(section: section.id, slot: slot)
 		guard drop != target else { return }
 		opening = if others.isEmpty {
-			nil
+			section.id == origin.section ? lifted.minY : nil
 		} else if slot < others.count {
 			laidOut[others[slot]].map { Double($0.minY) }
 		} else {
@@ -383,10 +392,13 @@ final class IslandDrag: ObservableObject {
 			? sections.flatMap(\.names).compactMap { frames[$0] }.map { $0.minY...$0.maxY }
 			: Array(spans.values)
 		let top = edges.map(\.lowerBound).min() ?? frame.minY
-		let bottom = edges.map(\.upperBound).max() ?? frame.maxY
-		reach = min(top - frame.minY, 0)...max(bottom - frame.maxY, 0)
+		var bottom = edges.map(\.upperBound).max() ?? frame.maxY
 		// Its own place: what comes after it moves up by the gap and back down by as much.
 		opening = frame.minY
+		// The last area ends a gap higher once the island has left it, and that is the end
+		// the island can be carried to.
+		if !spans.isEmpty { bottom = closed(bottom) }
+		reach = min(top - frame.minY, 0)...max(bottom - frame.maxY, 0)
 		watchEscape()
 		autoScroll.start { [weak self] distance in
 			self?.scrolled += distance
@@ -740,7 +752,7 @@ private struct IslandStack: View {
 			.island(model.islandID(for: workspaces[index].name), index: index, workspaces[index])
 		}
 		guard model.screens.showsAreas else { return workspaces.indices.map(island) }
-		return WorkspaceAreas.groups(of: workspaces).enumerated().flatMap { place, group in
+		return WorkspaceAreas.groups(of: workspaces, order: model.areaOrder()).enumerated().flatMap { place, group in
 			[.label(group.area, first: place == 0)]
 				+ (group.entries.isEmpty ? [.empty(group.area)] : group.entries.map(island))
 				+ [.add(group.area)]
@@ -778,6 +790,7 @@ private struct IslandStack: View {
 		.onDisappear {
 			drag.reset()
 			drag.areas.forget()
+			model.shownAreaOrder = nil
 			// A window closed under the pointer sends no exit, and the island would stay lit.
 			if model.workspacesPointer.hoveredIsland != nil { model.workspacesPointer.hoveredIsland = nil }
 			if model.workspacesPointer.hoveredApp != nil { model.workspacesPointer.hoveredApp = nil }

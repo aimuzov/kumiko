@@ -136,6 +136,9 @@ final class SettingsModel: ObservableObject {
 	/// and the page says nothing about displays.
 	@Published private(set) var screens = AreaScreens.current()
 	private var screensObserver: (any NSObjectProtocol)?
+	/// The order the areas were last shown in, kept while the page is open so a drop never
+	/// swaps them under the pointer. Not published: the stack sets it while it draws.
+	var shownAreaOrder: [Config.Workspace.Area]?
 	/// The workspace the Remove dialog asks about, named when it opened.
 	@Published var workspacePendingRemoval: String?
 	/// Tells the window manager a rename is coming, before the file has it.
@@ -165,7 +168,9 @@ final class SettingsModel: ObservableObject {
 			MainActor.assumeIsolated {
 				guard let self else { return }
 				let screens = AreaScreens.current()
-				if screens != self.screens { self.screens = screens }
+				guard screens != self.screens else { return }
+				self.screens = screens
+				self.shownAreaOrder = nil
 			}
 		}
 	}

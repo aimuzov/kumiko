@@ -110,4 +110,28 @@ struct WorkspaceAreasTests {
 		#expect(main.count == 1)
 		#expect(try written(main, to: grouped).last == "new@main")
 	}
+
+	@Test func keepsTheAreasOrderOnceShown() {
+		let mains = (1...3).map { Workspace(name: "m\($0)") }
+		// The top area emptied: it stays on top rather than swapping under the pointer.
+		#expect(WorkspaceAreas.order(of: mains, keeping: [.external, .main]) == [.external, .main])
+		// Carried back, it lands at the top of the file, where the area is shown.
+		let back = [Workspace(name: "e1", display: "external")] + mains
+		#expect(WorkspaceAreas.order(of: back, keeping: [.external, .main]) == [.external, .main])
+		#expect(WorkspaceAreas.order(of: interleaved, keeping: [.external, .main]) == [.external, .main])
+	}
+
+	@Test func takesTheOrderOfAFileGroupedTheOtherWay() {
+		#expect(WorkspaceAreas.order(of: grouped, keeping: [.main, .external]) == [.external, .main])
+		#expect(WorkspaceAreas.order(of: grouped, keeping: nil) == [.external, .main])
+	}
+
+	@Test func dropsIntoAnEmptyAreaShownOnTop() throws {
+		let workspaces = [Workspace(name: "1"), Workspace(name: "2"), Workspace(name: "3")]
+		let order: [Workspace.Area] = [.external, .main]
+		let moved = WorkspaceAreas.move(2, to: .external, slot: 0, in: workspaces, order: order)
+		#expect(try written(moved, to: workspaces) == ["3@external", "1@main", "2@main"])
+		let added = WorkspaceAreas.add(Workspace(name: "new", display: "external"), to: workspaces, order: order)
+		#expect(try written(added, to: workspaces).first == "new@external")
+	}
 }
