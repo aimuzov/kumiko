@@ -72,6 +72,10 @@ public final class Bar {
 	public func apply(_ config: Config.Bar) {
 		self.config = config
 		model.config = config
+		// Only with its item on screen, where it can be turned off again.
+		if config.enabled && (config.left + config.right).contains("caffeinate") {
+			caffeine.restore()
+		}
 		layoutWindows()
 		scheduleTimers()
 		tick()

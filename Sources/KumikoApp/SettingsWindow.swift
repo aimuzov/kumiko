@@ -28,7 +28,14 @@ final class SettingsWindow {
 		app.bus.subscribe { [weak self, unowned app] event in
 			guard case .configReloaded = event else { return }
 			self?.model.update(app.config, error: app.configError?.description)
+			self?.matchShadows()
 		}
+	}
+
+	/// Without a shadow like every other window while shadows are off. kumiko may take its own away
+	/// without the payload, but then no other window has lost one and this would be the odd one out.
+	private func matchShadows() {
+		window?.hasShadow = model.config.wm.shadows || model.payloadVersion == nil
 	}
 
 	/// Shows the window, on the page named (its id, like `borders`) when one is.
@@ -69,11 +76,15 @@ final class SettingsWindow {
 			keyObserver = NotificationCenter.default.addObserver(
 				forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
 			) { [weak self] _ in
-				MainActor.assumeIsolated { self?.model.refresh() }
+				MainActor.assumeIsolated {
+					self?.model.refresh()
+					self?.matchShadows()
+				}
 			}
 		}
 
 		model.refresh()
+		matchShadows()
 
 		// kumiko has no Dock icon, and an app without one gets no menu bar and no place in cmd-tab;
 		// it has one while the window is open.
