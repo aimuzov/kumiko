@@ -474,7 +474,8 @@ private struct SettingsView: View {
 					.padding(.horizontal, 24)
 					.padding(.top, PageBar.height + 8)
 					.padding(.bottom, 24)
-					.frame(maxWidth: 600)
+					// The workspaces' list and the settings beside it need the room of two columns.
+					.frame(maxWidth: model.pane == .workspaces ? 880 : 600)
 					.frame(maxWidth: .infinity)
 			}
 			.overlay(alignment: .top) { PageBar(model: model) }
