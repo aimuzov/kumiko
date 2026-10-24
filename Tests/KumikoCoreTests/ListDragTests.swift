@@ -61,6 +61,14 @@ struct ListDragTests {
 		#expect(bottom(drag) == Drop(section: "external", slot: 2))
 	}
 
+	@Test func carriesATallRowPastAShortLastOne() throws {
+		let rows: [String: ClosedRange<Double>] = ["a": 0...44, "b": 44...72]
+		let drag = try #require(ListDrag(
+			lifting: "a", sections: [Section(id: "", names: ["a", "b"])], rows: rows, spans: [:], spacing: 0
+		))
+		#expect(bottom(drag) == Drop(section: "", slot: 1))
+	}
+
 	@Test func opensAfterTheLastRowForTheEnd() throws {
 		let drag = try #require(ListDrag(
 			lifting: "a", sections: [Section(id: "", names: ["a", "b", "c"])],

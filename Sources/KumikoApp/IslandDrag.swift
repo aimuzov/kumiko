@@ -12,8 +12,8 @@ final class IslandDrag: ObservableObject {
 	typealias Section = ListDrag.Section
 	typealias Drop = ListDrag.Drop
 
-	/// Between two rows, close as a sidebar keeps them, and counted into how far the others
-	/// make way.
+	/// Between two workspace rows, close as a sidebar keeps them, and counted into how far
+	/// the others make way.
 	static let spacing = 2.0
 	/// The pointer moves this far before a press stops being a click.
 	static let threshold = 4.0
@@ -35,6 +35,9 @@ final class IslandDrag: ObservableObject {
 
 	/// What the lift saw, so a move only compares numbers.
 	private var geometry: ListDrag?
+	/// The space between the rows this drag carries: the app table's rows touch, a divider
+	/// being part of each.
+	private let rowSpacing: Double
 	private var reach = 0.0...0.0
 	/// Where the place the row would land in opens. See `ListDrag.opening(for:)`.
 	private var opening: Double?
@@ -46,6 +49,10 @@ final class IslandDrag: ObservableObject {
 	/// The press went past the threshold, lifted or not, and is no click when let go.
 	private var moved = false
 	private var escape: Any?
+
+	init(spacing: Double = IslandDrag.spacing) {
+		rowSpacing = spacing
+	}
 
 	/// How far a row other than the lifted one is moved aside.
 	func shift(of name: String) -> Double {
@@ -122,7 +129,7 @@ final class IslandDrag: ObservableObject {
 	private func lift(_ name: String, in sections: [Section]) {
 		guard let geometry = ListDrag(
 			lifting: name, sections: sections, rows: frames.mapValues { Double($0.minY)...Double($0.maxY) },
-			spans: areas.spans, spacing: Self.spacing
+			spans: areas.spans, spacing: rowSpacing
 		) else { return }
 		self.geometry = geometry
 		reach = geometry.reach

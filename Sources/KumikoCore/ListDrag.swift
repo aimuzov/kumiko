@@ -55,13 +55,15 @@ public struct ListDrag: Sendable {
 	}
 
 	/// How far the row can be carried from where it was: over every area, an empty one too;
-	/// without areas, from the first row to the last. A spacing past the bottom, so the row's
-	/// middle gets past the last one's, which is what passing it takes.
+	/// without areas, from the first row to the last. Its middle goes as far as the edges, half
+	/// of it hanging over: passing a row takes passing its middle, and a row taller than the
+	/// first or the last one would not get past theirs if it stopped flush with the edge.
 	public var reach: ClosedRange<Double> {
 		let edges = spans.isEmpty ? sections.flatMap(\.names).compactMap { rows[$0] } : Array(spans.values)
-		let top = edges.map(\.lowerBound).min() ?? lifted.lowerBound
-		let bottom = (edges.map(\.upperBound).max() ?? lifted.upperBound) + spacing
-		return min(top - lifted.lowerBound, 0)...max(bottom - lifted.upperBound, 0)
+		let middle = Self.middle(lifted)
+		let top = edges.map(\.lowerBound).min() ?? middle
+		let bottom = edges.map(\.upperBound).max() ?? middle
+		return min(top - middle, 0)...max(bottom - middle, 0)
 	}
 
 	/// The place for the lifted row's middle at `centre`. In its own area the row is compared
