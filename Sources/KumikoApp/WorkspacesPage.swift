@@ -614,30 +614,12 @@ private struct WorkspaceIsland: View {
 		SwitchRow(
 			title: "Default",
 			detail: "Every other app opens here.",
-			on: Binding(get: { workspace.isDefault }, set: { model.setDefault(workspace.name, $0) }),
-			last: model.apps(of: workspace).isEmpty
+			on: Binding(get: { workspace.isDefault }, set: { model.setDefault(workspace.name, $0) })
 		)
 	}
 
 	private var footer: some View {
 		HStack {
-			Menu("Add App…") {
-				ForEach(Self.running(excluding: model.apps(of: workspace)), id: \.self) { app in
-					Button { model.setApp(app, .apps, true, in: workspace.name) } label: {
-						if let icon = AppIcon.image(for: app, size: 16) {
-							Label { Text(app) } icon: { Image(nsImage: icon) }
-						} else {
-							Text(app)
-						}
-					}
-				}
-				Divider()
-				Button("Choose…") {
-					if let app = Self.chooseApp() { model.setApp(app, .apps, true, in: workspace.name) }
-				}
-			}
-			.menuStyle(.borderlessButton)
-			.fixedSize()
 			Spacer()
 			Button("Remove Workspace…", role: .destructive) { model.workspacePendingRemoval = workspace.name }
 				.buttonStyle(.borderless)
@@ -647,7 +629,7 @@ private struct WorkspaceIsland: View {
 	}
 
 	/// Apps with a Dock icon, the ones whose windows kumiko arranges, that the workspace does not name yet.
-	private static func running(excluding listed: [String]) -> [String] {
+	static func running(excluding listed: [String]) -> [String] {
 		let names = NSWorkspace.shared.runningApplications
 			.filter { $0.activationPolicy == .regular }
 			.compactMap(\.localizedName)
@@ -655,7 +637,7 @@ private struct WorkspaceIsland: View {
 	}
 
 	/// An app picked in /Applications, by the name its windows carry.
-	private static func chooseApp() -> String? {
+	static func chooseApp() -> String? {
 		let panel = NSOpenPanel()
 		panel.allowedContentTypes = [.application]
 		panel.directoryURL = URL(filePath: "/Applications")
@@ -681,6 +663,18 @@ private struct AppTable: View {
 
 	var body: some View {
 		let apps = model.apps(of: workspace)
+		HStack(alignment: .center) {
+			VStack(alignment: .leading, spacing: 2) {
+				Text("Apps")
+				Text("Windows of these apps open on this workspace.")
+					.font(.system(size: 11))
+					.foregroundStyle(.secondary)
+			}
+			Spacer(minLength: 16)
+			AddAppButton(model: model, workspace: workspace)
+		}
+		.padding(.top, 12)
+		.padding(.bottom, apps.isEmpty ? 12 : 0)
 		if !apps.isEmpty {
 			HStack(spacing: AppColumn.spacing) {
 				Text("App")
@@ -706,6 +700,41 @@ private struct AppTable: View {
 				AppRow(model: model, workspace: workspace, app: app)
 			}
 		}
+	}
+}
+
+/// Raycast's plus in the corner of a list: a grey square that opens the running apps, and a way to
+/// pick one in /Applications.
+private struct AddAppButton: View {
+	@ObservedObject var model: SettingsModel
+	let workspace: Config.Workspace
+
+	var body: some View {
+		Menu {
+			ForEach(WorkspaceIsland.running(excluding: model.apps(of: workspace)), id: \.self) { app in
+				Button { model.setApp(app, .apps, true, in: workspace.name) } label: {
+					if let icon = AppIcon.image(for: app, size: 16) {
+						Label { Text(app) } icon: { Image(nsImage: icon) }
+					} else {
+						Text(app)
+					}
+				}
+			}
+			Divider()
+			Button("Choose…") {
+				if let app = WorkspaceIsland.chooseApp() { model.setApp(app, .apps, true, in: workspace.name) }
+			}
+		} label: {
+			Image(systemName: "plus")
+				.font(.system(size: 13, weight: .medium))
+				.frame(width: 26, height: 26)
+				.background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.primary.opacity(0.07)))
+				.contentShape(Rectangle())
+		}
+		.menuStyle(.borderlessButton)
+		.menuIndicator(.hidden)
+		.fixedSize()
+		.help("Add App")
 	}
 }
 
