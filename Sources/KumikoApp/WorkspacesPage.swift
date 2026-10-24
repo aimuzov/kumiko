@@ -938,7 +938,7 @@ private struct IslandBackground: View {
 	var body: some View {
 		let lit = !dragging && pointer.hoveredIsland == name
 		RoundedRectangle(cornerRadius: 10, style: .continuous)
-			.fill(.primary.opacity(lit ? 0.06 : 0.035))
+			.fill(.primary.opacity(lit ? 0.045 : 0.02))
 			.animation(.easeOut(duration: 0.15), value: lit)
 	}
 }
