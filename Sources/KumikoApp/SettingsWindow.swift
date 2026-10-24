@@ -55,7 +55,7 @@ final class SettingsWindow {
 			// A window with a toolbar gets the larger corner radius Raycast's has, and its traffic
 			// lights come down into the sidebar's corner. The toolbar itself stays empty, and it is
 			// what moves the window: moved by its background, the window would take every drag on
-			// the page, a workspace island's among them.
+			// the page, a workspace row's among them.
 			window.toolbar = NSToolbar(identifier: "kumiko.settings")
 			window.toolbarStyle = .unified
 			window.isReleasedWhenClosed = false
@@ -135,23 +135,21 @@ final class SettingsModel: ObservableObject {
 	@Published var search = ""
 	/// The padding's sides are set one by one even while they are all the same.
 	@Published var paddingPerSide = false
-	/// The workspaces shown open, by name: a rename takes its name along, a removal drops it.
-	@Published var expandedWorkspaces: Set<String> = []
-	/// An identity per workspace island that outlives its name, so a rename does not rebuild the island
-	/// and take the keyboard from the field it was typed in. Not published: the stack adds ids while
-	/// it draws, which sends no change.
-	private var islandIDs: [String: UUID] = [:]
-	/// Not published from here: the pointer moves often, and only what it lights up is drawn again.
-	let workspacesPointer = WorkspacesPointer()
-	/// Not published either: a dragged island moves with the pointer, and only the islands
-	/// follow it.
+	/// The workspace the Workspaces page shows the settings of, by name: a rename takes its name
+	/// along, a removal hands it to a neighbour. Nil, or a name the file no longer has, is the first.
+	@Published var selectedWorkspace: String?
+	/// An identity per workspace that outlives its name, so a rename does not rebuild its row and
+	/// detail and take the keyboard from the field it was typed in. Not published: the list adds
+	/// ids while it draws, which sends no change.
+	private var workspaceIDs: [String: UUID] = [:]
+	/// Not published: a dragged row moves with the pointer, and only the list follows it.
 	let islandDrag = IslandDrag()
 	/// The screens behind the Workspaces page's areas. Without a monitor there are no areas,
 	/// and the page says nothing about displays.
 	@Published private(set) var screens = AreaScreens.current()
 	private var screensObserver: (any NSObjectProtocol)?
 	/// The order the areas were last shown in, kept while the page is open so a drop never
-	/// swaps them under the pointer. Not published: the stack sets it while it draws.
+	/// swaps them under the pointer. Not published: the list sets it while it draws.
 	var shownAreaOrder: [Config.Workspace.Area]?
 	/// The workspace the Remove dialog asks about, named when it opened.
 	@Published var workspacePendingRemoval: String?
@@ -189,35 +187,36 @@ final class SettingsModel: ObservableObject {
 		}
 	}
 
-	/// Called from the stack's `body`, so a name seen for the first time gets its id there.
-	func islandID(for name: String) -> UUID {
-		if let id = islandIDs[name] { return id }
+	/// Called from the list's `body`, so a name seen for the first time gets its id there.
+	func workspaceID(for name: String) -> UUID {
+		if let id = workspaceIDs[name] { return id }
 		let id = UUID()
-		islandIDs[name] = id
+		workspaceIDs[name] = id
 		return id
 	}
 
 	/// Moves the identity and what is kept by name to the new name, once the file has it.
-	func carryIsland(from name: String, to new: String, id: UUID) {
-		islandIDs[name] = nil
-		islandIDs[new] = id
-		workspacesPointer.rename(name, to: new)
+	func carryWorkspace(from name: String, to new: String, id: UUID) {
+		workspaceIDs[name] = nil
+		workspaceIDs[new] = id
+		if selectedWorkspace == name { selectedWorkspace = new }
 		if let frame = islandDrag.frames.removeValue(forKey: name) { islandDrag.frames[new] = frame }
 	}
 
-	private func forgetGoneIslands() {
+	private func forgetGoneWorkspaces() {
 		let names = Set(config.workspaces.map(\.name))
-		islandIDs = islandIDs.filter { names.contains($0.key) }
+		workspaceIDs = workspaceIDs.filter { names.contains($0.key) }
 	}
 
 	func update(_ config: Config, error: String?) {
 		self.config = config
 		self.error = error
 		writeError = nil
-		// A broken file may come back with none of its workspaces, and they would all close.
-		if error == nil { expandedWorkspaces.formIntersection(config.workspaces.map(\.name)) }
-		workspacesPointer.keep(Set(config.workspaces.map(\.name)))
-		forgetGoneIslands()
+		// A broken file may come back with none of its workspaces: the selection waits for a good one.
+		if error == nil, let selected = selectedWorkspace, !config.workspaces.contains(where: { $0.name == selected }) {
+			selectedWorkspace = nil
+		}
+		forgetGoneWorkspaces()
 
 		// A colour changed in the file by hand is no longer the panel's pick.
 		if let picked = pickedBorderColor, pendingBorderColor == nil,
@@ -239,7 +238,7 @@ final class SettingsModel: ObservableObject {
 		do throws(ConfigError) {
 			config = try ConfigWriter.write(changes, to: configFile)
 			writeError = nil
-			forgetGoneIslands()
+			forgetGoneWorkspaces()
 		} catch {
 			writeError = error.description
 		}

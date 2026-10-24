@@ -1,61 +1,61 @@
 import AppKit
 import SwiftUI
 
-/// An island lifted by its header and carried up or down the page, the others making
-/// way. With a monitor attached it can be carried into the other area too: the area it
-/// leaves closes up, the one it is over opens a place. Only the stack watches it: the
-/// rest of the window does not draw again with every move.
+/// A workspace row lifted and carried up or down the list, the others making way. With a
+/// monitor attached it can be carried into the other area too: the area it leaves closes
+/// up, the one it is over opens a place. Only the list watches it: the rest of the window
+/// does not draw again with every move.
 @MainActor
 final class IslandDrag: ObservableObject {
-	/// The islands of one area, top to bottom. Without areas there is one, with no id.
+	/// The rows of one area, top to bottom. Without areas there is one, with no id.
 	struct Section: Equatable {
 		let id: String
 		let names: [String]
 	}
 
-	/// A place to land in: a section and a slot in it, counted with the lifted island out.
+	/// A place to land in: a section and a slot in it, counted with the lifted row out.
 	struct Drop: Equatable {
 		let section: String
 		let slot: Int
 	}
 
-	/// Between two islands, close as Raycast keeps them, and counted into how far the
-	/// others make way.
-	static let spacing = 8.0
+	/// Between two rows, close as a sidebar keeps them, and counted into how far the others
+	/// make way.
+	static let spacing = 2.0
 	/// The pointer moves this far before a press stops being a click.
 	static let threshold = 4.0
 	static let spring = Animation.spring(duration: 0.3, bounce: 0.15)
 
 	@Published private(set) var dragged: String?
 	@Published private(set) var translation = 0.0
-	/// The place the island lands in if let go now.
+	/// The place the row lands in if let go now.
 	@Published private(set) var target: Drop?
-	/// The island gliding into its place, kept above the ones it passes over until it is
+	/// The row gliding into its place, kept above the ones it passes over until it is
 	/// there.
 	@Published private(set) var settling: String?
-	/// Where each island is laid out, in the space of the whole stack, both areas in it.
-	/// Written when the layout changes, not observed: the islands make way with offsets,
+	/// Where each row is laid out, in the space of the whole stack, both areas in it.
+	/// Written when the layout changes, not observed: the rows make way with offsets,
 	/// which leave the layout as it is.
 	var frames: [String: CGRect] = [:]
 	let areas = AreaLayout()
 	let autoScroll = IslandAutoScroll()
 
-	/// What the lift saw, so a move only compares numbers: the sections, the islands and
+	/// What the lift saw, so a move only compares numbers: the sections, the rows and
 	/// areas as they were laid out, and how far the lifted one can go.
 	private var sections: [Section] = []
 	private var laidOut: [String: CGRect] = [:]
 	private var spans: [String: ClosedRange<Double>] = [:]
 	private var origin = Drop(section: "", slot: 0)
 	private var lifted = CGRect.zero
-	/// How far the others move aside: the lifted island's height and the space after it.
+	/// How far the others move aside: the lifted row's height and the space after it.
 	private var gap = 0.0
 	private var reach = 0.0...0.0
-	/// Where the place the island would land in opens, in the layout: whatever is laid out
+	/// Where the place the row would land in opens, in the layout: whatever is laid out
 	/// from here down moves down by the gap. Nil for an empty other area, which only lights
-	/// up; the island's own area, emptied by the lift, keeps its place open.
+	/// up; the row's own area, emptied by the lift, keeps its place open.
 	private var opening: Double?
 	/// The pointer's own part of the translation, and what the page scrolled since it last
-	/// moved: held at the edge, the island goes along with the page under a still pointer.
+	/// moved: held at the edge, the row goes along with the page under a still pointer.
 	private var pointer = 0.0
 	private var scrolled = 0.0
 	private var cancelled = false
@@ -63,21 +63,21 @@ final class IslandDrag: ObservableObject {
 	private var moved = false
 	private var escape: Any?
 
-	/// How far an island other than the lifted one is moved aside.
+	/// How far a row other than the lifted one is moved aside.
 	func shift(of name: String) -> Double {
 		guard name != dragged, let frame = laidOut[name] else { return 0 }
 		return shift(at: frame.minY)
 	}
 
-	/// How far an area's top and bottom are moved: the area the island leaves gets shorter,
+	/// How far an area's top and bottom are moved: the area the row leaves gets shorter,
 	/// the one it is over taller, and the areas under them move with their edges.
 	func shift(ofArea id: String) -> (top: Double, bottom: Double) {
 		guard let span = spans[id] else { return (0, 0) }
 		return (shift(at: span.lowerBound), shift(at: span.upperBound))
 	}
 
-	/// Up by the gap past the place the island was taken from, down by as much from the
-	/// place it would land in: for one area that is the old island-by-island rule, and it
+	/// Up by the gap past the place the row was taken from, down by as much from the
+	/// place it would land in: for one area that is the old row-by-row rule, and it
 	/// holds for the area labels and edges in between as well.
 	private func shift(at y: Double) -> Double {
 		guard dragged != nil, target != nil else { return 0 }
@@ -86,18 +86,15 @@ final class IslandDrag: ObservableObject {
 		return shift
 	}
 
-	/// The sections are read once, when the island lifts. A lift left over from a press
-	/// whose end never came, the view gone under it, gives way to the new one. An island
-	/// that can't lift, an open one, still counts the move, so letting go is no click.
-	func move(
-		_ name: String, by translation: CGSize, canLift: Bool = true, sections: @autoclosure () -> [Section]
-	) {
+	/// The sections are read once, when the row lifts. A lift left over from a press whose
+	/// end never came, the view gone under it, gives way to the new one. A press that moved
+	/// and could not lift still counts the move, so letting go is no click.
+	func move(_ name: String, by translation: CGSize, sections: @autoclosure () -> [Section]) {
 		guard !cancelled else { return }
 		if dragged != name {
 			guard hypot(translation.width, translation.height) >= Self.threshold else { return }
 			moved = true
-			guard canLift else { return }
-			// The island still settling moves the frames once more: the lift waits for them.
+			// The row still settling moves the frames once more: the lift waits for them.
 			guard settling == nil else { return }
 			lift(name, in: sections())
 		}
@@ -114,8 +111,8 @@ final class IslandDrag: ObservableObject {
 		let centre = lifted.midY + translation
 		let section = section(at: centre)
 		let others = section.names.filter { $0 != dragged }
-		// In its own area the island is compared with the others where they stand. In another
-		// one they stand where the area moved to once the island left: an island is passed
+		// In its own area the row is compared with the others where they stand. In another
+		// one they stand where the area moved to once the row left: a row is passed
 		// when the lifted one's middle passes the middle it is seen at.
 		let own = section.id == origin.section
 		let slot = others.count { name in
@@ -134,11 +131,11 @@ final class IslandDrag: ObservableObject {
 		target = drop
 	}
 
-	/// Where something laid out at `y` stands with the lifted island taken out.
+	/// Where something laid out at `y` stands with the lifted row taken out.
 	private func closed(_ y: Double) -> Double { y > lifted.minY ? y - gap : y }
 
-	/// The area the middle of the island is over, the gaps between areas split halfway, as
-	/// the areas stand with the island taken out.
+	/// The area the middle of the row is over, the gaps between areas split halfway, as
+	/// the areas stand with the row taken out.
 	private func section(at centre: Double) -> Section {
 		for (section, next) in zip(sections, sections.dropFirst()) {
 			guard let span = spans[section.id], let below = spans[next.id] else { continue }
@@ -147,9 +144,9 @@ final class IslandDrag: ObservableObject {
 		return sections.last { spans[$0.id] != nil } ?? sections.first { $0.id == origin.section } ?? sections[0]
 	}
 
-	/// Lets go of the island, writing its new place with `write` in the same animation that
-	/// brings it there: the file reorders the islands at once, and the offset going back to
-	/// zero then carries the island from where it was let go into its place. True when the
+	/// Lets go of the row, writing its new place with `write` in the same animation that
+	/// brings it there: the file reorders the rows at once, and the offset going back to
+	/// zero then carries the row from where it was let go into its place. True when the
 	/// pointer never went past the threshold: a press that did is no click, even one that
 	/// could not lift.
 	func end(_ name: String, write: (Drop) -> Void) -> Bool {
@@ -175,7 +172,7 @@ final class IslandDrag: ObservableObject {
 		origin = Drop(section: section.id, slot: index)
 		lifted = frame
 		gap = frame.height + IslandDrag.spacing
-		// Over every area, an empty one too; without areas, from the first island to the last.
+		// Over every area, an empty one too; without areas, from the first row to the last.
 		let edges = spans.isEmpty
 			? sections.flatMap(\.names).compactMap { frames[$0] }.map { $0.minY...$0.maxY }
 			: Array(spans.values)
@@ -183,8 +180,8 @@ final class IslandDrag: ObservableObject {
 		var bottom = edges.map(\.upperBound).max() ?? frame.maxY
 		// Its own place: what comes after it moves up by the gap and back down by as much.
 		opening = frame.minY
-		// The last area ends a gap higher once the island has left it, and that is the end
-		// the island can be carried to.
+		// The last area ends a gap higher once the row has left it, and that is the end
+		// the row can be carried to.
 		if !spans.isEmpty { bottom = closed(bottom) }
 		reach = min(top - frame.minY, 0)...max(bottom - frame.maxY, 0)
 		watchEscape()
@@ -200,15 +197,15 @@ final class IslandDrag: ObservableObject {
 		}
 	}
 
-	/// Puts the island back where it was lifted from, and the rest of the press moves nothing:
-	/// for Escape, and for a reload that changes the islands under the lift.
+	/// Puts the row back where it was lifted from, and the rest of the press moves nothing:
+	/// for Escape, and for a reload that changes the rows under the lift.
 	func cancel() {
 		guard let name = dragged else { return }
 		cancelled = true
 		settle(name) {}
 	}
 
-	/// Puts the island back for a press that will never end, whose gesture is gone: no end
+	/// Puts the row back for a press that will never end, whose gesture is gone: no end
 	/// comes to clear the press, and the next one elsewhere would be taken for its rest.
 	func abandon() {
 		cancel()
@@ -261,9 +258,9 @@ final class IslandDrag: ObservableObject {
 	}
 }
 
-/// Where each area runs, from the top of its label to the bottom of its Add Workspace row.
-/// The areas' backgrounds are drawn from these behind the one stack all islands are in, so
-/// an island carried into the other area glides there and keeps its view, and its focus.
+/// Where each area runs, from the top of its label to the bottom of its last row. All rows
+/// are in one stack, so a row carried into the other area glides there and keeps its view;
+/// these spans tell the drag which area it is over.
 @MainActor
 final class AreaLayout: ObservableObject {
 	@Published private(set) var spans: [String: ClosedRange<Double>] = [:]
@@ -293,8 +290,8 @@ final class AreaLayout: ObservableObject {
 	}
 }
 
-/// Scrolls the page while a lifted island is held at its top or bottom, so a place out of
-/// sight can be reached: twelve workspaces do not fit the window.
+/// Scrolls the page while a lifted row is held at its top or bottom, so a place out of
+/// sight can be reached: a long list does not fit a short window.
 @MainActor
 final class IslandAutoScroll {
 	/// How near the edge the pointer starts the scrolling, and the most a tick scrolls, right
@@ -388,7 +385,7 @@ struct ScrollViewProbe: NSViewRepresentable {
 			found(enclosingScrollView)
 		}
 
-		// Behind the islands, and never what a click lands on.
+		// Behind the rows, and never what a click lands on.
 		override func hitTest(_ point: NSPoint) -> NSView? { nil }
 	}
 }

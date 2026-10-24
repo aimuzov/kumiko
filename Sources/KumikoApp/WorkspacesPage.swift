@@ -19,10 +19,6 @@ enum AppList: String, CaseIterable {
 extension SettingsModel {
 	var workspaces: [Config.Workspace] { config.workspaces }
 
-	func toggleExpanded(_ name: String) {
-		if expandedWorkspaces.remove(name) == nil { expandedWorkspaces.insert(name) }
-	}
-
 	func setWorkspace(_ name: String, _ key: String, _ value: TOMLValue?) {
 		guard let index = index(of: name) else { return }
 		change([ConfigEdit(target: .entry("workspace", index), key: key, value: value)])
@@ -33,11 +29,10 @@ extension SettingsModel {
 		let new = new.trimmingCharacters(in: .whitespaces)
 		guard new != name, index(of: name) != nil else { return }
 		onRenameWorkspace(name, new)
-		let id = islandID(for: name)
+		let id = workspaceID(for: name)
 		setWorkspace(name, "name", .string(new))
 		guard writeError == nil else { return }
-		if expandedWorkspaces.remove(name) != nil { expandedWorkspaces.insert(new) }
-		carryIsland(from: name, to: new, id: id)
+		carryWorkspace(from: name, to: new, id: id)
 	}
 
 	/// Only the first default counts, so turning one on turns the others off.
@@ -82,7 +77,6 @@ extension SettingsModel {
 			changes.append(shareEdit(index, shares))
 		}
 		change(changes)
-		if writeError == nil { workspacesPointer.forget(WorkspaceApp(workspace: name, app: app)) }
 	}
 
 	/// Into an area, at its end; without areas, at the end of the file.
@@ -93,16 +87,35 @@ extension SettingsModel {
 		change(area == nil
 			? [EntryEdit.insert("workspace", fields: workspace.tomlFields)]
 			: WorkspaceAreas.add(workspace, to: workspaces, order: areaOrder()))
-		if writeError == nil { expandedWorkspaces.insert(name) }
+		if writeError == nil { selectedWorkspace = name }
 	}
 
+	/// The one shown goes to the row under it, or above it for the last: the list keeps its
+	/// place, as System Settings' lists do.
 	func removeWorkspace(_ name: String) {
 		guard let index = index(of: name) else { return }
-		change([EntryEdit.remove("workspace", index)])
-		if writeError == nil {
-			expandedWorkspaces.remove(name)
-			workspacesPointer.forget(name)
+		let order = workspaceSections.flatMap(\.names)
+		let neighbour = order.firstIndex(of: name).flatMap { place in
+			order.indices.contains(place + 1) ? order[place + 1] : place > 0 ? order[place - 1] : nil
 		}
+		let shown = shownWorkspace?.name == name
+		change([EntryEdit.remove("workspace", index)])
+		if writeError == nil, shown { selectedWorkspace = neighbour }
+	}
+
+	/// The workspace whose settings show: the one picked, else the first in the list.
+	var shownWorkspace: Config.Workspace? {
+		if let picked = workspaces.first(where: { $0.name == selectedWorkspace }) { return picked }
+		let first = workspaceSections.lazy.compactMap(\.names.first).first
+		return workspaces.first { $0.name == first }
+	}
+
+	/// For the arrow keys: the row above or below the shown one, across the areas.
+	func selectWorkspace(by offset: Int) {
+		let order = workspaceSections.flatMap(\.names)
+		guard let shown = shownWorkspace?.name, let place = order.firstIndex(of: shown),
+		      order.indices.contains(place + offset) else { return }
+		selectedWorkspace = order[place + offset]
 	}
 
 	/// The areas top to bottom: the order they were shown in, unless the file now clearly
@@ -113,8 +126,8 @@ extension SettingsModel {
 		return order
 	}
 
-	/// The islands as the stack lays them out: all in one list, or each area's in its own.
-	var islandSections: [IslandDrag.Section] {
+	/// The rows as the list lays them out: all in one section, or each area's in its own.
+	var workspaceSections: [IslandDrag.Section] {
 		guard screens.showsAreas else { return [IslandDrag.Section(id: "", names: workspaces.map(\.name))] }
 		return WorkspaceAreas.groups(of: workspaces, order: areaOrder()).map { group in
 			IslandDrag.Section(id: group.area.rawValue, names: group.entries.map { workspaces[$0].name })
@@ -142,7 +155,7 @@ extension SettingsModel {
 	func canStep(_ name: String, by offset: Int) -> Bool { step(name, by: offset) != nil }
 
 	private func step(_ name: String, by offset: Int) -> IslandDrag.Drop? {
-		guard let section = islandSections.first(where: { $0.names.contains(name) }),
+		guard let section = workspaceSections.first(where: { $0.names.contains(name) }),
 		      let place = section.names.firstIndex(of: name) else { return nil }
 		let slot = place + offset
 		return section.names.indices.contains(slot) ? IslandDrag.Drop(section: section.id, slot: slot) : nil
@@ -192,53 +205,6 @@ extension SettingsModel {
 	}
 }
 
-/// An app row of one workspace, for the row under the pointer.
-struct WorkspaceApp: Hashable {
-	let workspace: String
-	let app: String
-}
-
-/// What the pointer is over on the Workspaces page. Rows and islands write here without watching
-/// it, so a hover draws one button again and not the whole page.
-@MainActor
-final class WorkspacesPointer: ObservableObject {
-	/// The app row whose remove button shows.
-	@Published var hoveredApp: WorkspaceApp?
-	/// The island last pressed with the mouse, which takes the focus without showing its
-	/// ring: the ring is for finding the focus from the keyboard.
-	@Published var clicked: String?
-	/// The island under the pointer, which lights up. Only its background watches this.
-	@Published var hoveredIsland: String?
-
-	/// The island keeps its view through a rename, which sends no hover to set these again.
-	func rename(_ workspace: String, to new: String) {
-		if let app = hoveredApp, app.workspace == workspace {
-			hoveredApp = WorkspaceApp(workspace: new, app: app.app)
-		}
-		if clicked == workspace { clicked = new }
-		if hoveredIsland == workspace { hoveredIsland = new }
-	}
-
-	func forget(_ app: WorkspaceApp) {
-		if hoveredApp == app { hoveredApp = nil }
-	}
-
-	func forget(_ workspace: String) {
-		keep { $0 != workspace }
-	}
-
-	func keep(_ workspaces: Set<String>) {
-		keep(workspaces.contains)
-	}
-
-	/// Set only when it changes: every set draws the watching views again, nil over nil too.
-	private func keep(_ kept: (String) -> Bool) {
-		if let app = hoveredApp, !kept(app.workspace) { hoveredApp = nil }
-		if let island = clicked, !kept(island) { clicked = nil }
-		if let island = hoveredIsland, !kept(island) { hoveredIsland = nil }
-	}
-}
-
 struct WorkspacesPage: View {
 	@ObservedObject var model: SettingsModel
 
@@ -254,16 +220,20 @@ struct WorkspacesPage: View {
 				}
 			}
 		} else {
-			// One block, so the button sits as near the last island as the islands sit to each other.
-			VStack(spacing: IslandStack.spacing) {
-				IslandStack(model: model, drag: model.islandDrag)
+			// System Settings' list and detail: the workspaces on the left, the picked one's settings
+			// on the right.
+			HStack(alignment: .top, spacing: 16) {
+				WorkspaceList(model: model, drag: model.islandDrag)
+					.frame(width: WorkspaceList.width)
 
-				// With areas, each has its own.
-				if !model.screens.showsAreas {
-					AddWorkspaceButton { model.addWorkspace() }
+				if let workspace = model.shownWorkspace {
+					// By an identity that outlives the name, so the name field keeps the keyboard
+					// through a rename.
+					WorkspaceDetail(model: model, workspace: workspace)
+						.id(model.workspaceID(for: workspace.name))
 				}
 			}
-			// One dialog for the page, on what stays when the island it asks about is gone.
+			// One dialog for the page, on what stays when the workspace it asks about is gone.
 			.confirmationDialog(
 				"Remove \(model.workspacePendingRemoval ?? "")?",
 				isPresented: Binding(
@@ -280,126 +250,110 @@ struct WorkspacesPage: View {
 	}
 }
 
-/// A ghost row under the islands.
-private struct AddWorkspaceButton: View {
-	let add: () -> Void
-
-	var body: some View {
-		Button(action: add) {
-			Label("Add Workspace", systemImage: "plus")
-				.padding(.horizontal, 12)
-				.frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-				.contentShape(Rectangle())
-		}
-		.buttonStyle(.plain)
-		.foregroundStyle(.secondary)
-		.overlay(
-			RoundedRectangle(cornerRadius: 10, style: .continuous)
-				.strokeBorder(.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-		)
-	}
-}
-
-/// One line of the stack. With areas, each area is its label, its islands, and its Add
-/// Workspace row, or a place to drop into while it has no islands.
-private enum StackRow {
+/// One line of the list. With areas, each area is its label, its workspaces, or a place to
+/// drop into while it has none, and its end, which tells the drag where the area stops.
+private enum ListRow {
 	case label(Config.Workspace.Area, first: Bool)
-	case island(UUID, index: Int, Config.Workspace)
+	case workspace(UUID, Config.Workspace)
 	case empty(Config.Workspace.Area)
-	case add(Config.Workspace.Area)
+	case end(Config.Workspace.Area)
 
 	var id: String {
 		switch self {
 		case let .label(area, _): "label-\(area.rawValue)"
-		case let .island(id, _, _): id.uuidString
+		case let .workspace(id, _): id.uuidString
 		case let .empty(area): "empty-\(area.rawValue)"
-		case let .add(area): "add-\(area.rawValue)"
+		case let .end(area): "end-\(area.rawValue)"
 		}
 	}
 }
 
-/// The islands in their own stack, the one view that watches a drag: the lifted island
-/// follows the pointer above the others, which slide aside to open the place it would
-/// land in. The areas are rows of the same stack, not stacks of their own: an island
-/// carried from one to the other stays the same view and glides into its place.
-private struct IslandStack: View {
-	static let spacing = IslandDrag.spacing
-	/// How far an area's islands sit in from its edges, and the space between two areas.
-	static let inset = 8.0
-	static let areaGap = 12.0
-	nonisolated static let space = "islands"
+/// The workspaces in file order, the order `workspace focus <n>` counts them in, and the one
+/// view that watches a drag: the lifted row follows the pointer above the others, which slide
+/// aside to open the place it would land in. The areas are rows of the same stack, not stacks
+/// of their own: a row carried from one to the other stays the same view and glides there.
+private struct WorkspaceList: View {
+	static let width = 210.0
+	nonisolated static let space = "workspaces"
 
 	@ObservedObject var model: SettingsModel
 	@ObservedObject var drag: IslandDrag
 
-	private var rows: [StackRow] {
+	private var rows: [ListRow] {
 		let workspaces = model.workspaces
-		func island(_ index: Int) -> StackRow {
-			.island(model.islandID(for: workspaces[index].name), index: index, workspaces[index])
+		func row(_ index: Int) -> ListRow {
+			.workspace(model.workspaceID(for: workspaces[index].name), workspaces[index])
 		}
-		guard model.screens.showsAreas else { return workspaces.indices.map(island) }
+		guard model.screens.showsAreas else { return workspaces.indices.map(row) }
 		return WorkspaceAreas.groups(of: workspaces, order: model.areaOrder()).enumerated().flatMap { place, group in
 			[.label(group.area, first: place == 0)]
-				+ (group.entries.isEmpty ? [.empty(group.area)] : group.entries.map(island))
-				+ [.add(group.area)]
+				+ (group.entries.isEmpty ? [.empty(group.area)] : group.entries.map(row))
+				+ [.end(group.area)]
 		}
 	}
 
 	var body: some View {
 		let areas = model.screens.showsAreas
-		VStack(spacing: Self.spacing) {
-			// By an identity that outlives the name: a field being typed in stays with its workspace when
-			// the order changes, and when the name does.
-			ForEach(rows, id: \.id) { row in
-				switch row {
-				case let .label(area, first):
-					label(area)
-						.padding(.top, first ? 0 : Self.areaGap)
-				case let .island(_, _, workspace):
-					island(workspace, area: areas ? workspace.area : nil)
-						.padding(.horizontal, areas ? Self.inset : 0)
-				case let .empty(area):
-					AreaDropZone(drag: drag, area: area.rawValue)
-						.padding(.horizontal, Self.inset)
-						.offset(y: drag.shift(ofArea: area.rawValue).top)
-						.animation(IslandDrag.spring, value: drag.target)
-				case let .add(area):
-					addRow(area)
+		let shown = model.shownWorkspace?.name
+		VStack(spacing: 0) {
+			VStack(spacing: IslandDrag.spacing) {
+				ForEach(rows, id: \.id) { row in
+					switch row {
+					case let .label(area, first):
+						label(area, first: first)
+					case let .workspace(_, workspace):
+						self.row(workspace, area: areas ? workspace.area : nil, selected: workspace.name == shown)
+					case let .empty(area):
+						AreaDropZone(drag: drag, area: area.rawValue)
+							.offset(y: drag.shift(ofArea: area.rawValue).top)
+							.animation(IslandDrag.spring, value: drag.target)
+					case let .end(area):
+						end(area)
+					}
 				}
 			}
+			.coordinateSpace(.named(Self.space))
+			.background(ScrollViewProbe { [weak drag] in drag?.autoScroll.scrollView = $0 })
+			.padding(6)
+			// Over the buttons too, which a row dragged to the bottom passes.
+			.zIndex(1)
+
+			Divider()
+			ListButtons(
+				add: { model.addWorkspace(to: areas ? model.shownWorkspace?.area ?? model.areaOrder().first : nil) },
+				remove: shown.map { name in { model.workspacePendingRemoval = name } }
+			)
 		}
-		.background(alignment: .top) {
-			if areas { AreaBackdrop(drag: drag, layout: drag.areas) }
+		.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.02)))
+		// Takes the keyboard when clicked, for the arrow keys; the selection shows where it is.
+		.focusable(interactions: .edit)
+		.focusEffectDisabled()
+		.onKeyPress(keys: [.upArrow, .downArrow]) { press in
+			if drag.dragged == nil { model.selectWorkspace(by: press.key == .upArrow ? -1 : 1) }
+			return .handled
 		}
-		.coordinateSpace(.named(Self.space))
-		.background(ScrollViewProbe { [weak drag] in drag?.autoScroll.scrollView = $0 })
 		.onDisappear {
 			drag.reset()
 			drag.areas.forget()
 			model.shownAreaOrder = nil
-			// A window closed under the pointer sends no exit, and the island would stay lit.
-			if model.workspacesPointer.hoveredIsland != nil { model.workspacesPointer.hoveredIsland = nil }
-			if model.workspacesPointer.hoveredApp != nil { model.workspacesPointer.hoveredApp = nil }
 		}
 		// The snapshot counts places by section and index, which a reload with other names or
 		// displays would shift, and so would a monitor coming or going.
-		.onChange(of: model.islandSections) { _, sections in
+		.onChange(of: model.workspaceSections) { _, sections in
 			guard let lifted = drag.dragged else { return }
 			if sections.contains(where: { $0.names.contains(lifted) }) { drag.cancel() } else { drag.abandon() }
 		}
 		.onChange(of: areas) { if !areas { drag.areas.forget() } }
-		// Over Add Workspace too, which a dragged island passes on its way to the bottom.
-		.zIndex(1)
 	}
 
-	private func island(_ workspace: Config.Workspace, area: Config.Workspace.Area?) -> some View {
+	/// A light lift for a row: no growing, only a shadow, as a row picked up in Finder.
+	private func row(_ workspace: Config.Workspace, area: Config.Workspace.Area?, selected: Bool) -> some View {
 		let lifted = drag.dragged == workspace.name
-		return WorkspaceIsland(model: model, workspace: workspace, area: area, dragging: drag.dragged != nil)
-			.scaleEffect(lifted ? 1.02 : 1)
-			.shadow(color: .black.opacity(lifted ? 0.18 : 0), radius: lifted ? 12 : 0, y: lifted ? 4 : 0)
+		return WorkspaceRow(model: model, workspace: workspace, area: area, selected: selected, lifted: lifted)
+			.shadow(color: .black.opacity(lifted ? 0.15 : 0), radius: lifted ? 6 : 0, y: lifted ? 2 : 0)
 			.offset(y: lifted ? 0 : drag.shift(of: workspace.name))
 			.animation(IslandDrag.spring, value: drag.target)
-			// Outside the spring: the lifted island keeps up with the pointer.
+			// Outside the spring: the lifted row keeps up with the pointer.
 			.offset(y: lifted ? drag.translation : 0)
 			.zIndex(lifted || drag.settling == workspace.name ? 1 : 0)
 			// After the offsets, so they measure the place in the layout and not the one shown.
@@ -409,15 +363,16 @@ private struct IslandStack: View {
 	}
 
 	/// The area's top edge, with the room above the label inside the area.
-	private func label(_ area: Config.Workspace.Area) -> some View {
+	private func label(_ area: Config.Workspace.Area, first: Bool) -> some View {
 		Text(model.screens.label(of: area))
 			.font(.system(size: 11, weight: .medium))
 			.foregroundStyle(.secondary)
 			.lineLimit(1)
 			.truncationMode(.tail)
 			.frame(maxWidth: .infinity, alignment: .leading)
-			.padding(.horizontal, Self.inset + 4)
-			.padding(.top, Self.inset + 2)
+			.padding(.horizontal, 8)
+			.padding(.top, first ? 4 : 12)
+			.padding(.bottom, 2)
 			.offset(y: drag.shift(ofArea: area.rawValue).top)
 			.animation(IslandDrag.spring, value: drag.target)
 			.onGeometryChange(for: Double.self) { $0.frame(in: .named(Self.space)).minY } action: { top in
@@ -425,165 +380,45 @@ private struct IslandStack: View {
 			}
 	}
 
-	/// The area's bottom edge, with the room under the button inside the area.
-	private func addRow(_ area: Config.Workspace.Area) -> some View {
-		AddWorkspaceButton { model.addWorkspace(to: area) }
-			.padding(.horizontal, Self.inset)
-			.padding(.bottom, Self.inset)
-			.offset(y: drag.shift(ofArea: area.rawValue).bottom)
-			.animation(IslandDrag.spring, value: drag.target)
+	/// The area's bottom edge: nothing to see, only where the area stops.
+	private func end(_ area: Config.Workspace.Area) -> some View {
+		SwiftUI.Color.clear
+			.frame(height: 0)
 			.onGeometryChange(for: Double.self) { $0.frame(in: .named(Self.space)).maxY } action: { bottom in
 				drag.areas.bottom(of: area.rawValue, at: bottom)
 			}
 	}
 }
 
-/// The areas' fills, a level under the islands: a touch darker than the page, with a
-/// hairline edge. They stretch and shrink with a drag the way the islands in them move.
-private struct AreaBackdrop: View {
-	static let radius = 14.0
-
-	@ObservedObject var drag: IslandDrag
-	@ObservedObject var layout: AreaLayout
-
-	var body: some View {
-		ZStack(alignment: .top) {
-			ForEach(layout.spans.keys.sorted(), id: \.self) { area in
-				if let span = layout.spans[area] {
-					let shift = drag.shift(ofArea: area)
-					let shape = RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
-					shape
-						.fill(.black.opacity(0.035))
-						.overlay(shape.strokeBorder(.primary.opacity(0.07), lineWidth: 1))
-						.frame(height: max(span.upperBound - span.lowerBound + shift.bottom - shift.top, 0))
-						.offset(y: span.lowerBound + shift.top)
-						.animation(IslandDrag.spring, value: drag.target)
-				}
-			}
-		}
-		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-		.animation(IslandDrag.spring, value: layout.spans)
-		.allowsHitTesting(false)
-	}
-}
-
-/// What an area shows while it has no islands, lit while one is carried over it.
-private struct AreaDropZone: View {
-	@ObservedObject var drag: IslandDrag
-	let area: String
-
-	var body: some View {
-		let lit = drag.dragged != nil && drag.target?.section == area
-		let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-		Text("Drag a workspace here")
-			.foregroundStyle(.tertiary)
-			.frame(maxWidth: .infinity, minHeight: 40)
-			.background(shape.fill(.primary.opacity(lit ? 0.05 : 0)))
-			.overlay(shape.strokeBorder(SwiftUI.Color.accentColor.opacity(lit ? 0.7 : 0), lineWidth: 1.5))
-			.animation(.easeOut(duration: 0.15), value: lit)
-	}
-}
-
-/// A workspace as one of Raycast's collapsible groups: the header alone while closed, its settings
-/// and its apps under it while open. Islands come in file order, which is the order
-/// `workspace focus <n>` counts them in, and the header is what is dragged to change it.
-private struct WorkspaceIsland: View {
-	/// Wide enough for a small bordered button: the header's handle or remove button and the
-	/// Apps row's plus stand in it, one above the other.
-	static let leadingColumn = 26.0
+/// A workspace in the list: its name, and on the right what tells it apart without opening it.
+/// One gesture for the click and the drag, so the two never both happen: the press picks the
+/// row, a press that moved lifts it.
+private struct WorkspaceRow: View {
+	static let height = 28.0
 
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
 	/// The area it is shown in, nil while there are none.
 	let area: Config.Workspace.Area?
-	/// Some island is lifted: none lights up then, the lifted one keeps its lifted look.
-	let dragging: Bool
-
-	private var expanded: Bool { model.expandedWorkspaces.contains(workspace.name) }
-	private var pointer: WorkspacesPointer { model.workspacesPointer }
+	let selected: Bool
+	let lifted: Bool
+	@Environment(\.controlActiveState) private var activeState
 
 	var body: some View {
-		VStack(spacing: 0) {
-			header
-
-			if expanded {
-				Divider()
-				settings
-				AppTable(model: model, workspace: workspace)
-				Spacer().frame(height: 4)
-			}
-		}
-		.padding(.horizontal, 12)
-		.background(IslandBackground(pointer: pointer, name: workspace.name, dragging: dragging))
-		// The whole island, the gaps between its rows too.
-		.contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-		.onHover { inside in
-			if inside {
-				if pointer.hoveredIsland != workspace.name { pointer.hoveredIsland = workspace.name }
-			} else if pointer.hoveredIsland == workspace.name {
-				pointer.hoveredIsland = nil
-			}
-		}
-	}
-
-	/// One gesture for the click and the drag, so the two never both happen: a press let go
-	/// before the pointer moved opens or closes the island, one that moved lifts it. An open
-	/// island stays where it is: carried open, it would sweep its whole height over the others.
-	private var press: some Gesture {
-		DragGesture(minimumDistance: 0, coordinateSpace: .named(IslandStack.space))
-			.onChanged { value in
-				if pointer.clicked != workspace.name { pointer.clicked = workspace.name }
-				model.islandDrag.move(
-					workspace.name, by: value.translation, canLift: !expanded, sections: model.islandSections
-				)
-			}
-			.onEnded { _ in
-				let click = model.islandDrag.end(workspace.name) { model.dropWorkspace(workspace.name, at: $0) }
-				if click { model.toggleExpanded(workspace.name) }
-			}
-	}
-
-	private var header: some View {
-		HStack(spacing: 8) {
-			// Only a closed island moves, so an open one puts its remove button where the handle was.
-			// The button takes its own click: the header's press gesture gives way to it.
-			ZStack {
-				if expanded {
-					Button { model.workspacePendingRemoval = workspace.name } label: {
-						Image(systemName: "trash").foregroundStyle(.red)
-					}
-					.buttonStyle(.bordered)
-					.controlSize(.small)
-					.help("Remove Workspace")
-					.accessibilityLabel("Remove Workspace")
-				} else {
-					Image(systemName: "line.3.horizontal")
-						.foregroundStyle(.tertiary)
-				}
-			}
-			.frame(width: Self.leadingColumn)
+		HStack(spacing: 6) {
 			Text(workspace.name)
 				.lineLimit(1)
 				.truncationMode(.tail)
 				// The summary gives way first.
 				.layoutPriority(1)
-			Image(systemName: expanded ? "chevron.down" : "chevron.right")
-				.font(.system(size: 10, weight: .semibold))
-				.foregroundStyle(.secondary)
-			Spacer(minLength: 16)
-			HeaderApps(title: displayTitle, apps: workspace.apps, isDefault: workspace.isDefault)
+			Spacer(minLength: 4)
+			RowSummary(apps: workspace.apps, isDefault: workspace.isDefault)
 		}
-		.padding(.vertical, 10)
+		.padding(.horizontal, 8)
+		.frame(height: Self.height)
+		.background(background)
 		.contentShape(Rectangle())
 		.gesture(press)
-		.overlay(FocusRing(pointer: pointer, name: workspace.name))
-		.focusable(interactions: .activate)
-		.focusEffectDisabled()
-		.onKeyPress(keys: [.space, .return]) { _ in
-			// The lift measured the island as it is: opened under it, it would land by old sizes.
-			if model.islandDrag.dragged == nil { model.toggleExpanded(workspace.name) }
-			return .handled
-		}
 		.contextMenu {
 			Button("Move Up") { model.stepWorkspace(workspace.name, by: -1) }
 				.disabled(!model.canStep(workspace.name, by: -1))
@@ -595,43 +430,277 @@ private struct WorkspaceIsland: View {
 					model.moveWorkspace(workspace.name, to: other)
 				}
 			}
+			Divider()
+			Button("Remove…") { model.workspacePendingRemoval = workspace.name }
 		}
 		.accessibilityElement(children: .combine)
-		.accessibilityAddTraits(.isButton)
-		.accessibilityValue(expanded ? "Expanded" : "Collapsed")
-		.accessibilityAction { model.toggleExpanded(workspace.name) }
+		.accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+		.accessibilityAction { model.selectedWorkspace = workspace.name }
 		.accessibilityAction(named: "Move Up") { model.stepWorkspace(workspace.name, by: -1) }
 		.accessibilityAction(named: "Move Down") { model.stepWorkspace(workspace.name, by: 1) }
 	}
 
+	/// The sidebar's grey for the picked row. Lifted, the row gets the page under it, or the
+	/// rows it passes would show through.
+	private var background: some View {
+		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+		let tint = selected ? (activeState == .inactive ? 0.03 : 0.085) : 0
+		return shape
+			.fill(SwiftUI.Color(nsColor: .textBackgroundColor).opacity(lifted ? 1 : 0))
+			.overlay(shape.fill(SwiftUI.Color.primary.opacity(tint)))
+	}
+
+	private var press: some Gesture {
+		DragGesture(minimumDistance: 0, coordinateSpace: .named(WorkspaceList.space))
+			.onChanged { value in
+				// On the press, as a list picks a row, and once: every pick draws the detail again.
+				if !selected, model.islandDrag.dragged == nil { model.selectedWorkspace = workspace.name }
+				model.islandDrag.move(workspace.name, by: value.translation, sections: model.workspaceSections)
+			}
+			.onEnded { _ in
+				_ = model.islandDrag.end(workspace.name) { model.dropWorkspace(workspace.name, at: $0) }
+			}
+	}
+
 	private var other: Config.Workspace.Area? {
 		area.map { $0 == .main ? .external : .main }
+	}
+}
+
+/// What a row says on its right: "default", then as many app icons as fit beside it, so the
+/// list tells the workspaces apart without opening them.
+private struct RowSummary: View {
+	static let size = 14.0
+
+	let apps: [String]
+	let isDefault: Bool
+
+	var body: some View {
+		HStack(spacing: 4) {
+			if isDefault { Text("default").font(.system(size: 11)) }
+			ForEach(Array(apps.prefix(isDefault ? 2 : 3).enumerated()), id: \.offset) { _, entry in
+				icon(entry)
+			}
+		}
+		.foregroundStyle(.secondary)
+		.lineLimit(1)
+		.fixedSize()
+		.accessibilityElement(children: .ignore)
+		.accessibilityLabel(label)
+	}
+
+	/// The icons say nothing to VoiceOver: the names come from the entries.
+	private var label: String {
+		let names = apps.map { Config.Workspace.name(of: $0) ?? $0 }
+		return ((isDefault ? ["default"] : []) + names).joined(separator: ", ")
+	}
+
+	/// A pattern has no icon to show, and an app not found has none yet: both get a stand-in.
+	@ViewBuilder
+	private func icon(_ entry: String) -> some View {
+		if let name = Config.Workspace.name(of: entry) {
+			if let image = AppIcon.image(for: name, size: Self.size) {
+				Image(nsImage: image).help(name)
+			} else {
+				glyph("app.dashed").help(name)
+			}
+		} else {
+			glyph("square.dashed").help(entry)
+		}
+	}
+
+	private func glyph(_ symbol: String) -> some View {
+		Image(systemName: symbol)
+			.font(.system(size: 11))
+			.frame(width: Self.size, height: Self.size)
+	}
+}
+
+/// What an area shows while it has no workspaces, lit while one is carried over it.
+private struct AreaDropZone: View {
+	@ObservedObject var drag: IslandDrag
+	let area: String
+
+	var body: some View {
+		let lit = drag.dragged != nil && drag.target?.section == area
+		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+		Text("Drag a workspace here")
+			.font(.system(size: 11))
+			.foregroundStyle(.tertiary)
+			.frame(maxWidth: .infinity, minHeight: WorkspaceRow.height)
+			.background(shape.fill(.primary.opacity(lit ? 0.05 : 0)))
+			.overlay(shape.strokeBorder(SwiftUI.Color.accentColor.opacity(lit ? 0.7 : 0), lineWidth: 1.5))
+			.animation(.easeOut(duration: 0.15), value: lit)
+	}
+}
+
+/// The plus and minus System Settings puts under a list, joined into one control so they read
+/// as buttons and not as two loose symbols.
+private struct ListButtons: View {
+	let add: () -> Void
+	/// Nil while nothing is picked, which leaves minus disabled.
+	let remove: (() -> Void)?
+
+	var body: some View {
+		HStack {
+			ControlGroup {
+				Button(action: add) {
+					Image(systemName: "plus").accessibilityLabel("Add Workspace")
+				}
+				.help("Add Workspace")
+				Button { remove?() } label: {
+					Image(systemName: "minus").accessibilityLabel("Remove Workspace")
+				}
+				.disabled(remove == nil)
+				.help("Remove Workspace")
+			}
+			.controlSize(.small)
+			.fixedSize()
+			Spacer(minLength: 0)
+		}
+		.padding(6)
+	}
+}
+
+/// The picked workspace's settings, and its apps under them.
+private struct WorkspaceDetail: View {
+	@ObservedObject var model: SettingsModel
+	let workspace: Config.Workspace
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 20) {
+			Card {
+				Row(title: "Name") {
+					TextField(
+						"",
+						value: Binding(get: { workspace.name }, set: { model.renameWorkspace(workspace.name, to: $0) }),
+						format: Verbatim()
+					)
+					.textFieldStyle(.roundedBorder)
+					.frame(maxWidth: 200)
+				}
+				if let displayTitle {
+					Row(title: "Display") {
+						Text(displayTitle).foregroundStyle(.secondary)
+					}
+				}
+				SwitchRow(
+					title: "Default",
+					detail: "Every other app opens here.",
+					on: Binding(get: { workspace.isDefault }, set: { model.setDefault(workspace.name, $0) }),
+					last: true
+				)
+			}
+
+			AppsCard(model: model, workspace: workspace)
+		}
+		.frame(maxWidth: .infinity, alignment: .leading)
 	}
 
 	/// Only with areas, and only what the area does not say already: `builtin`, or part of a
 	/// screen's name. Grouped under Main, it would not show anywhere else on the page.
 	private var displayTitle: String? {
 		let said = Config.Workspace.Area.allCases.map(\.display)
-		guard area != nil, !said.contains(workspace.display) else { return nil }
+		guard model.screens.showsAreas, !said.contains(workspace.display) else { return nil }
 		return workspace.display == "builtin" ? "Built-in" : workspace.display
 	}
+}
 
-	@ViewBuilder
-	private var settings: some View {
-		Row(title: "Name") {
-			TextField(
-				"",
-				value: Binding(get: { workspace.name }, set: { model.renameWorkspace(workspace.name, to: $0) }),
-				format: Verbatim()
-			)
-			.textFieldStyle(.roundedBorder)
-			.frame(width: 200)
+/// Widths the header and every row of the app table share, so the columns line up.
+private enum AppColumn {
+	static let icon = 18.0
+	static let share = 44.0
+	static let check = 64.0
+	static let remove = 24.0
+	static let spacing = 8.0
+}
+
+/// The apps as Raycast lays out its extensions: column titles, then a row per app, under a
+/// title that carries the button to add one.
+private struct AppsCard: View {
+	@ObservedObject var model: SettingsModel
+	let workspace: Config.Workspace
+
+	var body: some View {
+		let apps = model.apps(of: workspace)
+		// Laid out as `Card`'s own title, with the button beside it.
+		VStack(alignment: .leading, spacing: 6) {
+			HStack(alignment: .center, spacing: 8) {
+				VStack(alignment: .leading, spacing: 2) {
+					Text("Apps")
+						.font(.system(size: 13, weight: .medium))
+					Text("Windows of these apps open on this workspace.")
+						.font(.system(size: 11))
+						.foregroundStyle(.secondary)
+				}
+				Spacer(minLength: 8)
+				AddAppButton(model: model, workspace: workspace)
+			}
+			.padding(.horizontal, 12)
+			.padding(.bottom, 4)
+
+			Card {
+				if apps.isEmpty {
+					Text("No apps yet")
+						.foregroundStyle(.secondary)
+						.frame(maxWidth: .infinity, alignment: .leading)
+						.padding(.vertical, 10)
+				} else {
+					HStack(spacing: AppColumn.spacing) {
+						Text("App")
+							.frame(maxWidth: .infinity, alignment: .leading)
+						Text("Share")
+							.frame(width: AppColumn.share, alignment: .leading)
+						Text("One stack")
+							.frame(width: AppColumn.check)
+						Text("Always last")
+							.frame(width: AppColumn.check)
+						Spacer().frame(width: AppColumn.remove)
+					}
+					.font(.system(size: 11))
+					.foregroundStyle(.secondary)
+					.lineLimit(1)
+					.padding(.top, 10)
+					.padding(.bottom, 6)
+
+					ForEach(apps, id: \.self) { app in
+						Divider()
+						AppRow(model: model, workspace: workspace, app: app)
+					}
+				}
+			}
 		}
-		SwitchRow(
-			title: "Default",
-			detail: "Every other app opens here.",
-			on: Binding(get: { workspace.isDefault }, set: { model.setDefault(workspace.name, $0) })
-		)
+	}
+}
+
+/// A bordered pull-down with its own words, so it reads as the button it is: the running apps,
+/// and a way to pick one in /Applications.
+private struct AddAppButton: View {
+	@ObservedObject var model: SettingsModel
+	let workspace: Config.Workspace
+
+	var body: some View {
+		Menu {
+			ForEach(Self.running(excluding: model.apps(of: workspace)), id: \.self) { app in
+				Button { model.setApp(app, .apps, true, in: workspace.name) } label: {
+					if let icon = AppIcon.image(for: app, size: 16) {
+						Label { Text(app) } icon: { Image(nsImage: icon) }
+					} else {
+						Text(app)
+					}
+				}
+			}
+			Divider()
+			Button("Choose…") {
+				if let app = Self.chooseApp() { model.setApp(app, .apps, true, in: workspace.name) }
+			}
+		} label: {
+			Label("Add App", systemImage: "plus")
+		}
+		.menuStyle(.button)
+		.buttonStyle(.bordered)
+		.controlSize(.small)
+		.fixedSize()
 	}
 
 	/// Apps with a Dock icon, the ones whose windows kumiko arranges, that the workspace does not name yet.
@@ -653,98 +722,6 @@ private struct WorkspaceIsland: View {
 	}
 }
 
-/// Widths the header and every row of the app table share, so the columns line up.
-private enum AppColumn {
-	static let icon = 18.0
-	static let share = 52.0
-	static let check = 72.0
-	static let remove = 16.0
-	static let spacing = 8.0
-}
-
-/// The apps as Raycast lays out its extensions: column titles, then a row per app.
-private struct AppTable: View {
-	@ObservedObject var model: SettingsModel
-	let workspace: Config.Workspace
-
-	var body: some View {
-		let apps = model.apps(of: workspace)
-		// The same leading column and spacing as the island's header, so the plus stands under
-		// the remove button and the title under the workspace's name.
-		HStack(alignment: .center, spacing: 8) {
-			AddAppButton(model: model, workspace: workspace)
-				.frame(width: WorkspaceIsland.leadingColumn)
-			VStack(alignment: .leading, spacing: 2) {
-				Text("Apps")
-				Text("Windows of these apps open on this workspace.")
-					.font(.system(size: 11))
-					.foregroundStyle(.secondary)
-			}
-			Spacer(minLength: 0)
-		}
-		.padding(.top, 12)
-		.padding(.bottom, apps.isEmpty ? 8 : 0)
-		if !apps.isEmpty {
-			HStack(spacing: AppColumn.spacing) {
-				Text("App")
-					.frame(maxWidth: .infinity, alignment: .leading)
-				Text("Share")
-					.frame(width: AppColumn.share, alignment: .leading)
-				Text("One stack")
-					.frame(width: AppColumn.check)
-				Text("Always last")
-					.frame(width: AppColumn.check)
-				Spacer().frame(width: AppColumn.remove)
-			}
-			.font(.system(size: 11))
-			.foregroundStyle(.secondary)
-			.lineLimit(1)
-			.padding(.top, 10)
-			.padding(.bottom, 6)
-
-			ForEach(apps, id: \.self) { app in
-				Divider()
-				AppRow(model: model, workspace: workspace, app: app)
-			}
-		}
-	}
-}
-
-/// Raycast's plus: a grey square that opens the running apps, and a way to pick one in
-/// /Applications.
-private struct AddAppButton: View {
-	@ObservedObject var model: SettingsModel
-	let workspace: Config.Workspace
-
-	var body: some View {
-		Menu {
-			ForEach(WorkspaceIsland.running(excluding: model.apps(of: workspace)), id: \.self) { app in
-				Button { model.setApp(app, .apps, true, in: workspace.name) } label: {
-					if let icon = AppIcon.image(for: app, size: 16) {
-						Label { Text(app) } icon: { Image(nsImage: icon) }
-					} else {
-						Text(app)
-					}
-				}
-			}
-			Divider()
-			Button("Choose…") {
-				if let app = WorkspaceIsland.chooseApp() { model.setApp(app, .apps, true, in: workspace.name) }
-			}
-		} label: {
-			Image(systemName: "plus")
-		}
-		// A system button, bordered like the remove button above it: a bare symbol reads as
-		// decoration, not as something to press.
-		.menuStyle(.button)
-		.buttonStyle(.bordered)
-		.controlSize(.small)
-		.menuIndicator(.hidden)
-		.fixedSize()
-		.help("Add App")
-	}
-}
-
 private struct AppRow: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
@@ -752,9 +729,6 @@ private struct AppRow: View {
 
 	private static let patternHelp =
 		"A pattern only chooses where windows open: the other settings match exact app names."
-
-	private var id: WorkspaceApp { WorkspaceApp(workspace: workspace.name, app: app) }
-	private var pointer: WorkspacesPointer { model.workspacesPointer }
 
 	var body: some View {
 		HStack(spacing: AppColumn.spacing) {
@@ -797,17 +771,17 @@ private struct AppRow: View {
 			checkbox(.stack, exact: true)
 			checkbox(.last, exact: true)
 
-			RemoveAppButton(pointer: pointer, id: id) { model.removeApp(app, from: workspace.name) }
+			// Always there and bordered: one shown on hover only was found by chance.
+			Button { model.removeApp(app, from: workspace.name) } label: {
+				Image(systemName: "minus").accessibilityLabel("Remove \(app)")
+			}
+			.buttonStyle(.bordered)
+			.controlSize(.small)
+			.help("Take \(app) out of this workspace")
+			.frame(width: AppColumn.remove)
 		}
 		.padding(.vertical, 8)
 		.contentShape(Rectangle())
-		.onHover { inside in
-			if inside {
-				pointer.hoveredApp = id
-			} else {
-				pointer.forget(id)
-			}
-		}
 		.contextMenu {
 			if !workspace.listsInApps(app) {
 				Button("Open Here") { model.setApp(app, .apps, true, in: workspace.name) }
@@ -846,121 +820,13 @@ private struct AppRow: View {
 	}
 }
 
-/// The island's fill, slightly stronger under the pointer. The one view of the island that watches
-/// the pointer, so a hover does not draw its content again.
-private struct IslandBackground: View {
-	@ObservedObject var pointer: WorkspacesPointer
-	let name: String
-	let dragging: Bool
-
-	var body: some View {
-		let lit = !dragging && pointer.hoveredIsland == name
-		RoundedRectangle(cornerRadius: 10, style: .continuous)
-			.fill(.primary.opacity(lit ? 0.045 : 0.02))
-			.animation(.easeOut(duration: 0.15), value: lit)
-	}
-}
-
-/// What the header says on its right: a display its area does not say, then the apps that
-/// open here as icons, so the island tells what is in it without being opened.
-private struct HeaderApps: View {
-	static let size = 16.0
-	static let limit = 7
-
-	let title: String?
-	let apps: [String]
-	let isDefault: Bool
-
-	var body: some View {
-		HStack(spacing: 8) {
-			if let title { Text(title) }
-			if isDefault { Text("default").font(.caption) }
-			if !apps.isEmpty {
-				HStack(spacing: 4) {
-					ForEach(Array(apps.prefix(Self.limit).enumerated()), id: \.offset) { _, entry in
-						icon(entry)
-					}
-					if apps.count > Self.limit {
-						Text("+\(apps.count - Self.limit)").font(.caption)
-					}
-				}
-			}
-		}
-		.foregroundStyle(.secondary)
-		.lineLimit(1)
-		.accessibilityElement(children: .ignore)
-		.accessibilityLabel(label)
-	}
-
-	/// The icons say nothing to VoiceOver: the names come from the entries.
-	private var label: String {
-		let names = apps.map { Config.Workspace.name(of: $0) ?? $0 }
-		return ([title].compactMap(\.self) + (isDefault ? ["default"] : []) + names).joined(separator: ", ")
-	}
-
-	/// A pattern has no icon to show, and an app not found has none yet: both get a stand-in.
-	@ViewBuilder
-	private func icon(_ entry: String) -> some View {
-		if let name = Config.Workspace.name(of: entry) {
-			if let image = AppIcon.image(for: name, size: Self.size) {
-				Image(nsImage: image).help(name)
-			} else {
-				glyph("app.dashed").help(name)
-			}
-		} else {
-			glyph("square.dashed").help(entry)
-		}
-	}
-
-	private func glyph(_ symbol: String) -> some View {
-		Image(systemName: symbol).frame(width: Self.size, height: Self.size)
-	}
-}
-
-/// The header's own focus ring, in place of the system's, which shows on a mouse click
-/// too. Left with the focus, the island shows it again when the keyboard comes back to
-/// it.
-private struct FocusRing: View {
-	@ObservedObject var pointer: WorkspacesPointer
-	@Environment(\.isFocused) private var focused
-	let name: String
-
-	var body: some View {
-		RoundedRectangle(cornerRadius: 6, style: .continuous)
-			.strokeBorder(SwiftUI.Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 3)
-			.padding(.horizontal, -6)
-			.opacity(focused && pointer.clicked != name ? 1 : 0)
-			.allowsHitTesting(false)
-			.onChange(of: focused) {
-				if !focused, pointer.clicked == name { pointer.clicked = nil }
-			}
-	}
-}
-
-/// Shown on the row under the pointer only, the one view a hover draws again.
-private struct RemoveAppButton: View {
-	@ObservedObject var pointer: WorkspacesPointer
-	let id: WorkspaceApp
-	let remove: () -> Void
-
-	var body: some View {
-		Button(action: remove) { Image(systemName: "minus.circle") }
-			.buttonStyle(.borderless)
-			.foregroundStyle(.secondary)
-			.help("Take \(id.app) out of this workspace")
-			.frame(width: AppColumn.remove)
-			// Kept in the layout while hidden, so the columns stay where they are.
-			.opacity(pointer.hoveredApp == id ? 1 : 0)
-	}
-}
-
 /// An app's icon by the name kumiko knows it by: a running app's, else one installed in the usual
 /// folders. A pattern like `Arc|Dia` has none.
 @MainActor
 enum AppIcon {
 	/// Found icons only: an app launched or installed later gets its icon on the next look.
 	private static var cache: [String: NSImage] = [:]
-	/// The menu's copies, made once: the menu is drawn with every draw of an open island.
+	/// The menu's copies, made once: the menu is drawn with every draw of the detail.
 	private static var sized: [String: NSImage] = [:]
 	private static let folders = [
 		"/Applications", "/System/Applications", "/System/Applications/Utilities", NSHomeDirectory() + "/Applications",
