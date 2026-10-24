@@ -32,6 +32,8 @@ let usage = """
 	  workspace balance
 	  workspace rotate 90|180|270
 	  workspace mirror horizontal|vertical
+	  workspace layout bsp|stack|float [<name>]
+	             written to kumiko.toml; without a name, the focused workspace's
 
 	  menubar show|hide|toggle
 	             show or hide the status items left of the divider
