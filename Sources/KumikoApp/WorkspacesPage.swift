@@ -461,6 +461,8 @@ final class WorkspacesPointer: ObservableObject {
 	/// The island last pressed with the mouse, which takes the focus without showing its
 	/// ring: the ring is for finding the focus from the keyboard.
 	@Published var clicked: String?
+	/// The island under the pointer, which lights up. Only its background watches this.
+	@Published var hoveredIsland: String?
 
 	func forget(_ app: WorkspaceApp) {
 		if hoveredApp == app { hoveredApp = nil }
@@ -474,10 +476,11 @@ final class WorkspacesPointer: ObservableObject {
 		keep(workspaces.contains)
 	}
 
-	/// Set only when it changes: every set draws the buttons again, nil over nil too.
+	/// Set only when it changes: every set draws the watching views again, nil over nil too.
 	private func keep(_ kept: (String) -> Bool) {
 		if let app = hoveredApp, !kept(app.workspace) { hoveredApp = nil }
 		if let island = clicked, !kept(island) { clicked = nil }
+		if let island = hoveredIsland, !kept(island) { hoveredIsland = nil }
 	}
 }
 
@@ -496,32 +499,35 @@ struct WorkspacesPage: View {
 				}
 			}
 		} else {
-			IslandStack(model: model, drag: model.islandDrag)
+			// One block, so the button sits as near the last island as the islands sit to each other.
+			VStack(spacing: IslandStack.spacing) {
+				IslandStack(model: model, drag: model.islandDrag)
 
-			Button { model.addWorkspace() } label: {
-				Label("Add Workspace", systemImage: "plus")
-					.padding(.horizontal, 12)
-					.frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-					.contentShape(Rectangle())
-			}
-			.buttonStyle(.plain)
-			.foregroundStyle(.secondary)
-			.overlay(
-				RoundedRectangle(cornerRadius: 10, style: .continuous)
-					.strokeBorder(.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-			)
-			// One dialog for the page, on what stays when the island it asks about is gone.
-			.confirmationDialog(
-				"Remove \(model.workspacePendingRemoval ?? "")?",
-				isPresented: Binding(
-					get: { model.workspacePendingRemoval != nil },
-					set: { if !$0 { model.workspacePendingRemoval = nil } }
-				),
-				presenting: model.workspacePendingRemoval
-			) { name in
-				Button("Remove", role: .destructive) { model.removeWorkspace(name) }
-			} message: { _ in
-				Text("Its windows are placed on the other workspaces again.")
+				Button { model.addWorkspace() } label: {
+					Label("Add Workspace", systemImage: "plus")
+						.padding(.horizontal, 12)
+						.frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+						.contentShape(Rectangle())
+				}
+				.buttonStyle(.plain)
+				.foregroundStyle(.secondary)
+				.overlay(
+					RoundedRectangle(cornerRadius: 10, style: .continuous)
+						.strokeBorder(.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+				)
+				// One dialog for the page, on what stays when the island it asks about is gone.
+				.confirmationDialog(
+					"Remove \(model.workspacePendingRemoval ?? "")?",
+					isPresented: Binding(
+						get: { model.workspacePendingRemoval != nil },
+						set: { if !$0 { model.workspacePendingRemoval = nil } }
+					),
+					presenting: model.workspacePendingRemoval
+				) { name in
+					Button("Remove", role: .destructive) { model.removeWorkspace(name) }
+				} message: { _ in
+					Text("Its windows are placed on the other workspaces again.")
+				}
 			}
 		}
 	}
@@ -531,8 +537,8 @@ struct WorkspacesPage: View {
 /// follows the pointer above the others, which slide aside to open the place it would
 /// land in.
 private struct IslandStack: View {
-	/// The page's spacing, which the islands keep between them while they make way too.
-	static let spacing = 20.0
+	/// Close, as Raycast keeps its islands. The drag counts it into how far the others make way.
+	static let spacing = 8.0
 	nonisolated static let space = "islands"
 
 	@ObservedObject var model: SettingsModel
@@ -543,7 +549,9 @@ private struct IslandStack: View {
 			// By name: a field being typed in stays with its workspace when the order changes.
 			ForEach(Array(model.workspaces.enumerated()), id: \.element.name) { index, workspace in
 				let lifted = drag.dragged == workspace.name
-				WorkspaceIsland(model: model, workspace: workspace, number: index + 1)
+				WorkspaceIsland(
+						model: model, workspace: workspace, number: index + 1, dragging: drag.dragged != nil
+					)
 					.scaleEffect(lifted ? 1.02 : 1)
 					.shadow(color: .black.opacity(lifted ? 0.18 : 0), radius: lifted ? 12 : 0, y: lifted ? 4 : 0)
 					.offset(y: drag.shift(of: index, spacing: Self.spacing))
@@ -577,6 +585,8 @@ private struct WorkspaceIsland: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
 	let number: Int
+	/// Some island is lifted: none lights up then, the lifted one keeps its lifted look.
+	let dragging: Bool
 
 	private var expanded: Bool { model.expandedWorkspaces.contains(workspace.name) }
 	private var pointer: WorkspacesPointer { model.workspacesPointer }
@@ -594,7 +604,16 @@ private struct WorkspaceIsland: View {
 			}
 		}
 		.padding(.horizontal, 12)
-		.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.035)))
+		.background(IslandBackground(pointer: pointer, name: workspace.name, dragging: dragging))
+		// The whole island, the gaps between its rows too.
+		.contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+		.onHover { inside in
+			if inside {
+				if pointer.hoveredIsland != workspace.name { pointer.hoveredIsland = workspace.name }
+			} else if pointer.hoveredIsland == workspace.name {
+				pointer.hoveredIsland = nil
+			}
+		}
 	}
 
 	/// One gesture for the click and the drag, so the two never both happen: a press let go
@@ -626,9 +645,9 @@ private struct WorkspaceIsland: View {
 				.font(.system(size: 10, weight: .semibold))
 				.foregroundStyle(.secondary)
 			Spacer(minLength: 16)
-			Text(summary)
-				.foregroundStyle(.secondary)
-				.lineLimit(1)
+			HeaderApps(
+				title: DisplayChoice.title(of: workspace.display), apps: workspace.apps, isDefault: workspace.isDefault
+			)
 		}
 		.padding(.vertical, 10)
 		.contentShape(Rectangle())
@@ -663,14 +682,6 @@ private struct WorkspaceIsland: View {
 	private func neighbour(_ offset: Int) -> String? {
 		let index = number - 1 + offset
 		return model.workspaces.indices.contains(index) ? model.workspaces[index].name : nil
-	}
-
-	/// The rows ticked Opens here, not every row of the table: one only in One stack or Always
-	/// last opens on whichever workspace names it in `apps`.
-	private var summary: String {
-		let count = model.apps(of: workspace).filter(workspace.listsInApps).count
-		let apps = workspace.isDefault ? "default" : count == 1 ? "1 app" : "\(count) apps"
-		return "\(DisplayChoice.title(of: workspace.display)) · \(apps)"
 	}
 
 	@ViewBuilder
@@ -883,6 +894,69 @@ private struct AppRow: View {
 		.frame(width: AppColumn.check)
 		.disabled(exact && workspace.isPattern(app))
 		.help(exact && workspace.isPattern(app) ? Self.patternHelp : "")
+	}
+}
+
+/// The island's fill, slightly stronger under the pointer. The one view of the island that watches
+/// the pointer, so a hover does not draw its content again.
+private struct IslandBackground: View {
+	@ObservedObject var pointer: WorkspacesPointer
+	let name: String
+	let dragging: Bool
+
+	var body: some View {
+		let lit = !dragging && pointer.hoveredIsland == name
+		RoundedRectangle(cornerRadius: 10, style: .continuous)
+			.fill(.primary.opacity(lit ? 0.06 : 0.035))
+			.animation(.easeOut(duration: 0.15), value: lit)
+	}
+}
+
+/// What the header says on its right: the display, then the apps that open here as icons, so the
+/// island tells what is in it without being opened.
+private struct HeaderApps: View {
+	static let size = 16.0
+	static let limit = 7
+
+	let title: String
+	let apps: [String]
+	let isDefault: Bool
+
+	var body: some View {
+		HStack(spacing: 8) {
+			Text(title)
+			if !apps.isEmpty {
+				HStack(spacing: 4) {
+					ForEach(Array(apps.prefix(Self.limit).enumerated()), id: \.offset) { _, entry in
+						icon(entry)
+					}
+					if apps.count > Self.limit {
+						Text("+\(apps.count - Self.limit)").font(.caption)
+					}
+				}
+			}
+			if isDefault { Text("default").font(.caption) }
+		}
+		.foregroundStyle(.secondary)
+		.lineLimit(1)
+	}
+
+	/// A pattern has no icon to show, and an app not found has none yet: both get a stand-in.
+	@ViewBuilder
+	private func icon(_ entry: String) -> some View {
+		if let name = Config.Workspace.name(of: entry) {
+			if let image = AppIcon.image(for: name, size: Self.size) {
+				Image(nsImage: image).help(name)
+			} else {
+				glyph("app.dashed").help(name)
+			}
+		} else {
+			glyph("square.dashed").help(entry)
+		}
+	}
+
+	private func glyph(_ symbol: String) -> some View {
+		Image(systemName: symbol).frame(width: Self.size, height: Self.size)
 	}
 }
 
