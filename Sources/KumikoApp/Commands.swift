@@ -51,7 +51,18 @@ struct Commands {
 		guard (1...2).contains(args.count), let layout = Config.Workspace.Layout(rawValue: args[0]) else {
 			return .failure("usage: kumiko workspace layout bsp|stack|float [<name>]")
 		}
-		let workspaces = app.config.workspaces
+		// The file as it is now, not as last loaded: an entry added or moved by hand since would
+		// put the index on another workspace.
+		let config: Config
+		do throws(ConfigError) {
+			config = try Config.load(from: app.paths.configFile)
+		} catch {
+			return .failure(error.description)
+		}
+		guard config.wm.useWorkspaces else {
+			return .failure("workspaces are off: [wm] workspaces = false in kumiko.toml")
+		}
+		let workspaces = config.workspaces
 		guard !workspaces.isEmpty else {
 			return .failure("the workspaces are the built-in ones: customize them in Settings first")
 		}
