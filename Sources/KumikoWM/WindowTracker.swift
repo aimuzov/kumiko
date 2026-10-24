@@ -162,6 +162,7 @@ public final class WindowTracker {
 		let pid = app.processIdentifier
 		guard
 			app.activationPolicy == .regular,
+			!Self.isAgent(app),
 			pid != ProcessInfo.processInfo.processIdentifier,
 			apps[pid] == nil
 		else { return }
@@ -169,6 +170,14 @@ public final class WindowTracker {
 		let observer = AppObserver(app: app, tracker: self)
 		apps[pid] = observer
 		observer.start()
+	}
+
+	/// Built as an agent, like Raycast: a Dock icon only while its settings are open.
+	/// Its panels open over any workspace, and hiding the app with one closes them.
+	private static func isAgent(_ app: NSRunningApplication) -> Bool {
+		guard let url = app.bundleURL, let value = Bundle(url: url)?.object(forInfoDictionaryKey: "LSUIElement")
+		else { return false }
+		return (value as? Bool) ?? ((value as? String).map { $0 == "1" || $0.lowercased() == "true" } ?? false)
 	}
 
 	private func remove(_ pid: pid_t) {
