@@ -448,9 +448,14 @@ private struct SettingsView: View {
 }
 
 /// Raycast's sidebar: a panel inset from the window's edges, with the traffic lights in its
-/// corner, a search field and the pages.
+/// corner, a search field and the pages. While the window is in front the panel stands over the
+/// page, lighter than the cards and with a shadow; behind other windows it lies flat and grey.
 private struct Sidebar: View {
 	@ObservedObject var model: SettingsModel
+	@Environment(\.controlActiveState) private var activeState
+	@Environment(\.colorScheme) private var colorScheme
+
+	private var isRaised: Bool { activeState != .inactive }
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 1) {
@@ -462,9 +467,9 @@ private struct Sidebar: View {
 				TextField("Search settings…", text: $model.search)
 					.textFieldStyle(.plain)
 			}
-			.padding(.horizontal, 8)
-			.padding(.vertical, 6)
-			.background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.primary.opacity(0.05)))
+			.padding(.horizontal, 10)
+			.frame(height: 32)
+			.background(Capsule().fill(.primary.opacity(isRaised ? 0.08 : 0.02)))
 			.padding(.bottom, 12)
 
 			ForEach(model.matching(Pane.app)) { SidebarRow(pane: $0, model: model) }
@@ -479,16 +484,26 @@ private struct Sidebar: View {
 		}
 		.padding(.horizontal, 10)
 		.frame(maxHeight: .infinity)
-		.background(
+		.background {
 			// Concentric with the window's corners, 8 pt inside them.
-			RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.primary.opacity(0.035))
-		)
+			let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+			if isRaised {
+				// Opaque underneath, or the shadow would show through the tint.
+				shape.fill(SwiftUI.Color(nsColor: .textBackgroundColor))
+					.overlay(shape.fill(.primary.opacity(0.016)))
+					.overlay(shape.strokeBorder(.white.opacity(colorScheme == .dark ? 0.08 : 0.9), lineWidth: 1))
+					.shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.08), radius: 8)
+			} else {
+				shape.fill(.primary.opacity(0.043))
+			}
+		}
 	}
 }
 
 private struct SidebarRow: View {
 	let pane: Pane
 	@ObservedObject var model: SettingsModel
+	@Environment(\.controlActiveState) private var activeState
 
 	var body: some View {
 		Button {
@@ -509,7 +524,7 @@ private struct SidebarRow: View {
 			.contentShape(Rectangle())
 			.background(
 				RoundedRectangle(cornerRadius: 8, style: .continuous)
-					.fill(SwiftUI.Color.primary.opacity(model.pane == pane ? 0.07 : 0))
+					.fill(SwiftUI.Color.primary.opacity(model.pane != pane ? 0 : activeState == .inactive ? 0.03 : 0.085))
 			)
 		}
 		.buttonStyle(.plain)
@@ -699,7 +714,7 @@ struct Card<Content: View>: View {
 				content
 			}
 			.padding(.horizontal, 12)
-			.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.035)))
+			.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.02)))
 		}
 	}
 }
