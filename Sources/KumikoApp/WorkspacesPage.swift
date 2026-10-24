@@ -593,6 +593,17 @@ private struct WorkspaceDetail: View {
 			}
 
 			AppsCard(model: model, workspace: workspace)
+
+			// Spelled out under the settings, not only as the list's minus: that one says nothing
+			// about what it takes away.
+			HStack {
+				Spacer()
+				Button("Remove Workspace…", role: .destructive) {
+					model.workspacePendingRemoval = workspace.name
+				}
+				.buttonStyle(.bordered)
+				.foregroundStyle(.red)
+			}
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
 	}
@@ -771,12 +782,16 @@ private struct AppRow: View {
 			checkbox(.stack, exact: true)
 			checkbox(.last, exact: true)
 
-			// Always there and bordered: one shown on hover only was found by chance.
+			// Always there: one shown on hover only was found by chance. The red circle is how macOS
+			// marks taking a row out of a list; a bordered button this small flattens into a pill.
 			Button { model.removeApp(app, from: workspace.name) } label: {
-				Image(systemName: "minus").accessibilityLabel("Remove \(app)")
+				Image(systemName: "minus.circle.fill")
+					.symbolRenderingMode(.palette)
+					.foregroundStyle(.white, .red)
+					.font(.system(size: 14))
+					.accessibilityLabel("Remove \(app)")
 			}
-			.buttonStyle(.bordered)
-			.controlSize(.small)
+			.buttonStyle(.borderless)
 			.help("Take \(app) out of this workspace")
 			.frame(width: AppColumn.remove)
 		}
