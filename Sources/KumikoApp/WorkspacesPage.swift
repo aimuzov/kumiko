@@ -252,6 +252,7 @@ struct WorkspacesPage: View {
 				RoundedRectangle(cornerRadius: 10, style: .continuous)
 					.strokeBorder(.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
 			)
+			// One dialog for the page, on what stays when the island it asks about is gone.
 			.confirmationDialog(
 				"Remove \(model.workspacePendingRemoval ?? "")?",
 				isPresented: Binding(
@@ -333,13 +334,39 @@ private struct WorkspaceIsland: View {
 		.contentShape(Rectangle())
 		.onTapGesture { model.toggleExpanded(workspace.name) }
 		.draggable(DraggedWorkspace(name: workspace.name))
+		.focusable(interactions: .activate)
+		.onKeyPress(keys: [.space, .return]) { _ in
+			model.toggleExpanded(workspace.name)
+			return .handled
+		}
+		.contextMenu {
+			Button("Move Up") { move(by: -1) }
+				.disabled(neighbour(-1) == nil)
+			Button("Move Down") { move(by: 1) }
+				.disabled(neighbour(1) == nil)
+		}
 		.accessibilityElement(children: .combine)
 		.accessibilityAddTraits(.isButton)
+		.accessibilityValue(expanded ? "Expanded" : "Collapsed")
 		.accessibilityAction { model.toggleExpanded(workspace.name) }
+		.accessibilityAction(named: "Move Up") { move(by: -1) }
+		.accessibilityAction(named: "Move Down") { move(by: 1) }
 	}
 
+	/// What a drag does, for the keyboard and VoiceOver: a step towards the top or the bottom.
+	private func move(by offset: Int) {
+		if let target = neighbour(offset) { model.moveWorkspace(workspace.name, to: target) }
+	}
+
+	private func neighbour(_ offset: Int) -> String? {
+		let index = number - 1 + offset
+		return model.workspaces.indices.contains(index) ? model.workspaces[index].name : nil
+	}
+
+	/// The rows ticked Opens here, not every row of the table: one only in One stack or Always
+	/// last opens on whichever workspace names it in `apps`.
 	private var summary: String {
-		let count = workspace.apps.count
+		let count = model.apps(of: workspace).filter(workspace.listsInApps).count
 		let apps = workspace.isDefault ? "default" : count == 1 ? "1 app" : "\(count) apps"
 		return "\(DisplayChoice.title(of: workspace.display)) · \(apps)"
 	}
