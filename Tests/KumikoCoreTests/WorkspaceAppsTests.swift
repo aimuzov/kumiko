@@ -71,6 +71,13 @@ struct WorkspaceAppsTests {
 		#expect(workspace.layoutOrder(of: [["A"], ["B"], ["Finder"]]) == [1, 2, 0])
 	}
 
+	@Test("every place of a last app goes to the end")
+	func lastPlaces() {
+		let workspace = Workspace(name: "w", apps: ["A"], last: ["Slack"])
+		#expect(workspace.layoutOrder(of: [["Slack"], ["C"], ["Slack"]]) == [1, 0, 2])
+		#expect(workspace.layoutOrder(of: [["Slack"], ["A"], ["F"], ["Slack"], ["G"]]) == [1, 4, 2, 0, 3])
+	}
+
 	@Test("places already in order stay as they are")
 	func stableOrder() {
 		let workspace = Workspace(name: "w", apps: ["A", "B"])

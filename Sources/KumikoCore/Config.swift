@@ -42,8 +42,8 @@ public struct Config: Equatable, Sendable {
 		public var isDefault: Bool
 		/// Apps whose windows on this workspace are always kept in one stack.
 		public var stack: [String]
-		/// Apps whose windows go after the listed apps' windows and take the very last place of
-		/// the layout. Still read from older files. Reordering the apps in the settings window
+		/// Apps whose windows go after the listed apps' windows and take the very last places of
+		/// the layout, as many as they have. Still read from older files. Reordering the apps in the settings window
 		/// moves such an app to the end of `apps` and out of here: from then on it takes the last
 		/// of the listed apps' places, which need not be the last place.
 		public var last: [String]

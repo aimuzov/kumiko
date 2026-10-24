@@ -65,16 +65,16 @@ extension Config.Workspace {
 	/// The layout's places put in order, each place given by the apps of its windows (a stack
 	/// has several): `result[i]` is the place whose windows go to place `i`. A place ranks by its
 	/// best window. Only places a listed app holds move, among the places they hold, so a window
-	/// no entry names stays where it is when another one opens. `last` apps take the very last
-	/// place too, as they always did, and what was there moves up into the order.
+	/// no entry names stays where it is when another one opens. The places of `last` apps take
+	/// the very last places, as many as there are, as they always did, and what was there moves
+	/// up into the order.
 	public func layoutOrder(of places: [[String]]) -> [Int] {
 		let unranked = apps.count
 		let pinned = apps.count + 1
 		let ranks = places.map { $0.map(layoutRank).min() ?? unranked }
-		var moving = ranks.indices.filter { ranks[$0] != unranked }
-		if ranks.contains(pinned), let end = ranks.indices.last, !moving.contains(end) {
-			moving.append(end)
-		}
+		let ranked = ranks.indices.filter { ranks[$0] != unranked }
+		let ends = ranks.indices.suffix(ranks.count { $0 == pinned })
+		let moving = Array(Set(ranked).union(ends)).sorted()
 		var order = Array(places.indices)
 		for (place, source) in zip(moving, moving.sorted { (ranks[$0], $0) < (ranks[$1], $1) }) {
 			order[place] = source
