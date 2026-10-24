@@ -64,6 +64,37 @@ extension SettingsModel {
 		change([shareEdit(index, shares)])
 	}
 
+	/// The rows a drag reorders: the `apps` entries, by the names their rows carry, in layout
+	/// order. Rows named only by `stack`, `last` or `share` come after them and stay put.
+	func orderedAppRows(of workspace: Config.Workspace) -> [String] {
+		workspace.orderedApps.map { Config.Workspace.name(of: $0) ?? $0 }
+	}
+
+	/// The app goes to `drop.slot` of the ordered rows, in one write with the `last` entries the
+	/// order now covers: kept, they would go on pulling their apps to the end whatever the order
+	/// says. A `last` app that `apps` does not name stays in `last`, so nothing it does is lost.
+	func dropApp(_ app: String, at drop: IslandDrag.Drop, in name: String) {
+		guard let index = index(of: name) else { return }
+		let workspace = workspaces[index]
+		var order = workspace.orderedApps
+		guard let from = order.firstIndex(where: { (Config.Workspace.name(of: $0) ?? $0) == app }) else { return }
+		order.insert(order.remove(at: from), at: min(drop.slot, order.count))
+		let last = workspace.last.filter { !workspace.listsInApps($0) }
+		var changes: [any ConfigChange] = []
+		if order != workspace.apps {
+			changes.append(ConfigEdit(
+				target: .entry("workspace", index), key: "apps", value: .array(order.map(TOMLValue.string))
+			))
+		}
+		if last != workspace.last {
+			changes.append(ConfigEdit(
+				target: .entry("workspace", index), key: "last",
+				value: last.isEmpty ? nil : .array(last.map(TOMLValue.string))
+			))
+		}
+		change(changes)
+	}
+
 	/// Out of all four, in one write.
 	func removeApp(_ app: String, from name: String) {
 		guard let index = index(of: name) else { return }
@@ -220,6 +251,13 @@ extension SettingsModel {
 				shares, order: workspaces[index].apps.map { Config.Workspace.name(of: $0) ?? $0 })
 		)
 	}
+}
+
+/// An app's share while its slider is dragged.
+struct DraggedShare: Equatable {
+	let workspace: String
+	let app: String
+	let value: Double
 }
 
 struct WorkspacesPage: View {
@@ -635,12 +673,14 @@ private struct WorkspaceDetail: View {
 	}
 }
 
-/// Widths the header and every row of the app table share, so the columns line up.
+/// Widths the header and every row of the app table share, so the columns line up. Narrow
+/// enough for the detail beside the list: the name keeps about 130 points of the 380.
 private enum AppColumn {
+	static let handle = 14.0
 	static let icon = 18.0
-	static let share = 44.0
-	static let check = 64.0
-	static let remove = 24.0
+	static let share = 96.0
+	static let check = 60.0
+	static let remove = 20.0
 	static let spacing = 8.0
 }
 
@@ -651,14 +691,13 @@ private struct AppsCard: View {
 	let workspace: Config.Workspace
 
 	var body: some View {
-		let apps = model.apps(of: workspace)
 		// Laid out as `Card`'s own title, with the button beside it.
 		VStack(alignment: .leading, spacing: 6) {
 			HStack(alignment: .center, spacing: 8) {
 				VStack(alignment: .leading, spacing: 2) {
 					Text("Apps")
 						.font(.system(size: 13, weight: .medium))
-					Text("Windows of these apps open on this workspace.")
+					Text("Windows of these apps open on this workspace, laid out in this order.")
 						.font(.system(size: 11))
 						.foregroundStyle(.secondary)
 				}
@@ -669,35 +708,81 @@ private struct AppsCard: View {
 			.padding(.bottom, 4)
 
 			Card {
-				if apps.isEmpty {
+				if model.apps(of: workspace).isEmpty {
 					Text("No apps yet")
 						.foregroundStyle(.secondary)
 						.frame(maxWidth: .infinity, alignment: .leading)
 						.padding(.vertical, 10)
 				} else {
-					HStack(spacing: AppColumn.spacing) {
-						Text("App")
-							.frame(maxWidth: .infinity, alignment: .leading)
-						Text("Share")
-							.frame(width: AppColumn.share, alignment: .leading)
-						Text("One stack")
-							.frame(width: AppColumn.check)
-						Text("Always last")
-							.frame(width: AppColumn.check)
-						Spacer().frame(width: AppColumn.remove)
-					}
-					.font(.system(size: 11))
-					.foregroundStyle(.secondary)
-					.lineLimit(1)
-					.padding(.top, 10)
-					.padding(.bottom, 6)
-
-					ForEach(apps, id: \.self) { app in
-						Divider()
-						AppRow(model: model, workspace: workspace, app: app)
-					}
+					AppTable(model: model, drag: model.appDrag, workspace: workspace)
 				}
 			}
+		}
+	}
+}
+
+/// The column titles and the rows, the one view that watches a row being dragged: the lifted
+/// row follows the pointer, the others slide aside, and letting go writes the new order.
+private struct AppTable: View {
+	nonisolated static let space = "apps"
+
+	@ObservedObject var model: SettingsModel
+	@ObservedObject var drag: IslandDrag
+	let workspace: Config.Workspace
+
+	var body: some View {
+		let ordered = model.orderedAppRows(of: workspace)
+		VStack(spacing: 0) {
+			HStack(spacing: AppColumn.spacing) {
+				Spacer().frame(width: AppColumn.handle)
+				Text("App")
+					.frame(maxWidth: .infinity, alignment: .leading)
+				Text("Share")
+					.frame(width: AppColumn.share)
+				Text("One stack")
+					.frame(width: AppColumn.check)
+				Spacer().frame(width: AppColumn.remove)
+			}
+			.font(.system(size: 11))
+			.foregroundStyle(.secondary)
+			.lineLimit(1)
+			.padding(.top, 10)
+			.padding(.bottom, 6)
+
+			ForEach(model.apps(of: workspace), id: \.self) { app in
+				row(app, movable: ordered.contains(app))
+			}
+		}
+		.coordinateSpace(.named(Self.space))
+		.background(ScrollViewProbe { [weak drag] in drag?.autoScroll.scrollView = $0 })
+		// The frames stay: the next workspace's rows may be laid out already, and each row writes
+		// its own frame when it is.
+		.onDisappear { drag.reset() }
+		.onChange(of: ordered) { _, ordered in
+			guard let lifted = drag.dragged else { return }
+			if ordered.contains(lifted) { drag.cancel() } else { drag.abandon() }
+		}
+	}
+
+	/// Its divider goes with it, so the rows touch and a gap is a row's height.
+	private func row(_ app: String, movable: Bool) -> some View {
+		let lifted = drag.dragged == app
+		let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+		return VStack(spacing: 0) {
+			Divider().opacity(lifted ? 0 : 1)
+			AppRow(model: model, workspace: workspace, app: app, movable: movable)
+		}
+		// The page under the lifted row, or the rows it passes would show through.
+		.background(shape.fill(SwiftUI.Color(nsColor: .textBackgroundColor)).opacity(lifted ? 1 : 0))
+		.shadow(color: .black.opacity(lifted ? 0.15 : 0), radius: lifted ? 6 : 0, y: lifted ? 2 : 0)
+		.offset(y: lifted ? 0 : drag.shift(of: app))
+		.animation(IslandDrag.spring, value: drag.target)
+		// Outside the spring: the lifted row keeps up with the pointer.
+		.offset(y: lifted ? drag.translation : 0)
+		.zIndex(lifted || drag.settling == app ? 1 : 0)
+		// After the offsets, so they measure the place in the layout and not the one shown.
+		.onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frame in
+			drag.frames[app] = frame
 		}
 	}
 }
@@ -755,12 +840,20 @@ private struct AppRow: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
 	let app: String
+	/// One of `apps`, which a drag reorders; a row named only by `stack` or `share` has no order.
+	let movable: Bool
 
 	private static let patternHelp =
-		"A pattern only chooses where windows open: the other settings match exact app names."
+		"A pattern only chooses where windows open and their order: the other settings match exact app names."
 
 	var body: some View {
 		HStack(spacing: AppColumn.spacing) {
+			if movable {
+				handle
+			} else {
+				Spacer().frame(width: AppColumn.handle)
+			}
+
 			HStack(spacing: 10) {
 				if let icon = AppIcon.image(for: app) {
 					Image(nsImage: icon).resizable().frame(width: AppColumn.icon, height: AppColumn.icon)
@@ -782,23 +875,23 @@ private struct AppRow: View {
 			}
 			.frame(maxWidth: .infinity, alignment: .leading)
 
-			TextField(
-				"Share",
-				value: Binding(
-					get: { workspace.share[app] },
-					set: { model.setShare(app, $0.map { min(max($0, 0.1), 0.9) }, in: workspace.name) }
-				),
-				format: FloatingPointFormatStyle<Double>.number.precision(.fractionLength(0...2))
-			)
-			.textFieldStyle(.plain)
-			.frame(width: AppColumn.share)
-			.disabled(workspace.isPattern(app))
-			.help(
-				workspace.isPattern(app) ? Self.patternHelp : "The share of its split the app's window gets, 0.1 to 0.9"
-			)
+			ShareSlider(model: model, workspace: workspace, app: app)
+				.frame(width: AppColumn.share)
+				.disabled(workspace.isPattern(app))
+				.help(workspace.isPattern(app) ? Self.patternHelp : ShareSlider.help)
 
-			checkbox(.stack, exact: true)
-			checkbox(.last, exact: true)
+			Toggle(
+				"",
+				isOn: Binding(
+					get: { workspace.stack.contains(app) },
+					set: { model.setApp(app, .stack, $0, in: workspace.name) }
+				)
+			)
+			.toggleStyle(.checkbox)
+			.labelsHidden()
+			.frame(width: AppColumn.check)
+			.disabled(workspace.isPattern(app))
+			.help(workspace.isPattern(app) ? Self.patternHelp : "")
 
 			// Always there: one shown on hover only was found by chance. The red circle is how macOS
 			// marks taking a row out of a list; a bordered button this small flattens into a pill.
@@ -816,11 +909,53 @@ private struct AppRow: View {
 		.padding(.vertical, 8)
 		.contentShape(Rectangle())
 		.contextMenu {
+			if movable {
+				Button("Move Up") { step(by: -1) }
+					.disabled(!canStep(by: -1))
+				Button("Move Down") { step(by: 1) }
+					.disabled(!canStep(by: 1))
+				Divider()
+			}
 			if !workspace.listsInApps(app) {
 				Button("Open Here") { model.setApp(app, .apps, true, in: workspace.name) }
 			}
 			Button("Remove from Workspace") { model.removeApp(app, from: workspace.name) }
 		}
+	}
+
+	/// What is dragged, and only it: the controls of the row take their own clicks, and a press
+	/// that never moves is no drag.
+	private var handle: some View {
+		Image(systemName: "line.3.horizontal")
+			.foregroundStyle(.tertiary)
+			.frame(width: AppColumn.handle, height: 24)
+			.contentShape(Rectangle())
+			.gesture(
+				DragGesture(minimumDistance: 0, coordinateSpace: .named(AppTable.space))
+					.onChanged { value in
+						model.appDrag.move(app, by: value.translation, sections: [
+							IslandDrag.Section(id: "", names: model.orderedAppRows(of: workspace)),
+						])
+					}
+					.onEnded { _ in
+						_ = model.appDrag.end(app) { model.dropApp(app, at: $0, in: workspace.name) }
+					}
+			)
+			.help("Drag to change where its windows go in the layout")
+			.accessibilityLabel("Reorder \(app)")
+			.accessibilityAction(named: "Move Up") { step(by: -1) }
+			.accessibilityAction(named: "Move Down") { step(by: 1) }
+	}
+
+	/// What a drag does, for the menu and VoiceOver: a step up or down the ordered rows.
+	private func step(by offset: Int) {
+		guard canStep(by: offset), let place = model.orderedAppRows(of: workspace).firstIndex(of: app) else { return }
+		model.dropApp(app, at: IslandDrag.Drop(section: "", slot: place + offset), in: workspace.name)
+	}
+
+	private func canStep(by offset: Int) -> Bool {
+		let ordered = model.orderedAppRows(of: workspace)
+		return ordered.firstIndex(of: app).map { ordered.indices.contains($0 + offset) } ?? false
 	}
 
 	/// A row is an app that opens here. One named only by `stack`, `last` or `share`, written in
@@ -835,21 +970,65 @@ private struct AppRow: View {
 		guard workspace.listsInApps(app), !workspace.isPattern(app) else { return nil }
 		return model.workspaces.prefix { $0.name != workspace.name }.first { $0.opens(app) }?.name
 	}
+}
 
-	/// `exact` lists compare app names as they are, which a pattern row never is.
-	private func checkbox(_ list: AppList, exact: Bool = false) -> some View {
-		Toggle(
-			"",
-			isOn: Binding(
-				get: { workspace[keyPath: list.keyPath].contains(app) },
-				set: { model.setApp(app, list, $0, in: workspace.name) }
-			)
-		)
-		.toggleStyle(.checkbox)
-		.labelsHidden()
-		.frame(width: AppColumn.check)
-		.disabled(exact && workspace.isPattern(app))
-		.help(exact && workspace.isPattern(app) ? Self.patternHelp : "")
+/// An app's share of its split as a slider, its middle the even split the app gets with no
+/// share at all. It snaps to the middle near it, so evenly is easy to find again, and is
+/// written once on release: every step of a drag would rewrite the file and lay out the windows.
+private struct ShareSlider: View {
+	static let help = "The share of its split this app's window gets; the middle splits evenly"
+
+	@ObservedObject var model: SettingsModel
+	let workspace: Config.Workspace
+	let app: String
+
+	var body: some View {
+		let dragged = model.draggedShare.flatMap { $0.workspace == workspace.name && $0.app == app ? $0.value : nil }
+		let value = dragged ?? workspace.share[app] ?? 0.5
+
+		HStack(spacing: 4) {
+			Slider(
+				value: Binding(
+					get: { value },
+					set: { new in
+						let snapped = Self.snap(new)
+						// Arrow keys move it without a drag, and write at once.
+						if dragged != nil {
+							model.draggedShare = DraggedShare(workspace: workspace.name, app: app, value: snapped)
+						} else {
+							write(snapped)
+						}
+					}
+				),
+				in: 0.1...0.9
+			) { dragging in
+				if dragging {
+					model.draggedShare = DraggedShare(workspace: workspace.name, app: app, value: value)
+				} else if let share = model.draggedShare, share.workspace == workspace.name, share.app == app {
+					model.draggedShare = nil
+					write(share.value)
+				}
+			}
+			.controlSize(.mini)
+
+			// Nothing for the middle: an even split is what an app has without a share.
+			Text(value == 0.5 ? "" : "\(Int((value * 100).rounded()))%")
+				.font(.system(size: 10))
+				.foregroundStyle(.secondary)
+				.monospacedDigit()
+				.frame(width: 28, alignment: .trailing)
+		}
+	}
+
+	/// The middle is no share, so the key leaves the file.
+	private func write(_ value: Double) {
+		let share = value == 0.5 ? nil : value
+		if share != workspace.share[app] { model.setShare(app, share, in: workspace.name) }
+	}
+
+	/// To twentieths, and to the middle within a few hundredths of it.
+	static func snap(_ value: Double) -> Double {
+		abs(value - 0.5) < 0.04 ? 0.5 : (value * 20).rounded() / 20
 	}
 }
 

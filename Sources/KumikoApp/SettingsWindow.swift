@@ -166,6 +166,10 @@ final class SettingsModel: ObservableObject {
 	private var workspaceIDs: [String: UUID] = [:]
 	/// Not published: a dragged row moves with the pointer, and only the list follows it.
 	let islandDrag = IslandDrag()
+	/// The same for the shown workspace's app rows, which touch: a divider is part of each.
+	let appDrag = IslandDrag(spacing: 0)
+	/// An app's share while its slider is dragged; written to the file when it is let go.
+	@Published var draggedShare: DraggedShare?
 	/// The screens behind the Workspaces page's areas. Without a monitor there are no areas,
 	/// and the page says nothing about displays.
 	@Published private(set) var screens = AreaScreens.current()
