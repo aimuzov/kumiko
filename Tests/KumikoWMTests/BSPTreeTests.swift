@@ -304,3 +304,40 @@ struct BSPTreeStackTests {
 		#expect(tree.visibleWindows == [1])
 	}
 }
+
+struct BSPTreePermuteTests {
+	@Test func movesAStackWhole() {
+		// Two Slack windows stacked on the left, Code on the right; Code goes first.
+		let tree = tree(1, 3)
+		tree.insert(2, near: nil, in: area, gap: 0)
+		tree.stack(2, onto: 1)
+		#expect(tree.leaves.map(\.windows) == [[1, 2], [3]])
+
+		tree.permuteLeaves([1, 0])
+		#expect(tree.leaves.map(\.windows) == [[3], [1, 2]])
+		#expect(tree.visibleWindows == [3, 2])
+		#expect(tree.stackIndex(of: 1) == 1)
+		let frames = tree.frames(in: area, gap: 0)
+		#expect(frames[3] == rect(0, 0, 500, 600))
+		#expect(frames[2] == rect(500, 0, 500, 600))
+	}
+
+	@Test func takesAnyOrderAndKeepsTheSplits() {
+		let tree = tree(1, 2, 3, 4)
+		let before = tree.frames(in: area, gap: 0)
+		tree.permuteLeaves([2, 3, 0, 1])
+		#expect(tree.visibleWindows == [3, 4, 1, 2])
+		let after = tree.frames(in: area, gap: 0)
+		#expect(after[3] == before[1])
+		#expect(after[1] == before[3])
+		tree.remove(1)
+		#expect(!tree.contains(1))
+		#expect(tree.visibleWindows == [3, 4, 2])
+	}
+
+	@Test func ignoresAnOrderThatIsNotAPermutation() {
+		let tree = tree(1, 2)
+		tree.permuteLeaves([0, 0])
+		#expect(tree.visibleWindows == [1, 2])
+	}
+}

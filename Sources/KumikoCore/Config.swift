@@ -23,18 +23,22 @@ public struct Config: Equatable, Sendable {
 		public var display: String
 		/// Patterns for app names (whole name, like `[[wm.rule]]`) whose windows open here. When
 		/// several workspaces match an app, the first one in the file wins. Their order is the
-		/// order of the windows in the layout, put back whenever a window joins it.
+		/// order of their windows in the layout, among the places those windows hold: windows of
+		/// apps not listed keep theirs. It is put back when a window new to the workspace joins it
+		/// and when the list changes, not when a window comes back from being minimized or hidden.
 		public var apps: [String]
 		/// Windows of apps no workspace names open here. Without a default workspace they open on
 		/// the workspace shown where they appear.
 		public var isDefault: Bool
 		/// Apps whose windows on this workspace are always kept in one stack.
 		public var stack: [String]
-		/// Apps whose windows go after all others in the layout. Still read from older files; the
-		/// settings window folds it into the order of `apps` the first time the apps are reordered.
+		/// Apps whose windows go after the listed apps' windows and take the very last place of
+		/// the layout. Still read from older files. Reordering the apps in the settings window
+		/// moves such an app to the end of `apps` and out of here: from then on it takes the last
+		/// of the listed apps' places, which need not be the last place.
 		public var last: [String]
-		/// The share of its split a window of the app gets when it joins the layout. An app without
-		/// one splits evenly.
+		/// The share of its split a window of the app gets when it joins the layout, or when this
+		/// changes. An app without one splits evenly.
 		public var share: [String: Double]
 
 		/// What a file with no `[[workspace]]` gets: "1"…"9" on the main display.

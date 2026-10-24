@@ -253,6 +253,22 @@ final class BSPTree {
 		leafByWindow[b] = leafA
 	}
 
+	/// Moves whole leaves, a stack with all its windows and the one in front: leaf `i` gets
+	/// what leaf `order[i]` held. The splits and their ratios stay where they are. Anything but
+	/// a reordering of every leaf is ignored.
+	func permuteLeaves(_ order: [Int]) {
+		let leaves = leaves
+		guard order.count == leaves.count, Set(order) == Set(leaves.indices) else { return }
+		let held = leaves.map { (windows: $0.windows, active: $0.active) }
+		for (leaf, source) in zip(leaves, order) {
+			leaf.windows = held[source].windows
+			leaf.active = held[source].active
+			for id in leaf.windows {
+				leafByWindow[id] = leaf
+			}
+		}
+	}
+
 	// MARK: - Sizes
 
 	/// Moves one edge of a window by `delta` points (positive is right or down). Fails when that

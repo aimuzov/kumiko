@@ -62,13 +62,24 @@ extension Config.Workspace {
 		return orderedApps.firstIndex { Self.matcher(for: $0)?.firstMatch(in: app, range: range) != nil } ?? apps.count
 	}
 
-	/// The windows in layout order. Stable: windows of one app, and windows no entry ranks,
-	/// keep the order they had, so a reorder moves only what the ranks say must move.
-	public func layoutOrder<ID>(_ windows: [(id: ID, app: String)]) -> [ID] {
-		windows.enumerated()
-			.map { (rank: layoutRank(of: $0.element.app), place: $0.offset, id: $0.element.id) }
-			.sorted { ($0.rank, $0.place) < ($1.rank, $1.place) }
-			.map(\.id)
+	/// The layout's places put in order, each place given by the apps of its windows (a stack
+	/// has several): `result[i]` is the place whose windows go to place `i`. A place ranks by its
+	/// best window. Only places a listed app holds move, among the places they hold, so a window
+	/// no entry names stays where it is when another one opens. `last` apps take the very last
+	/// place too, as they always did, and what was there moves up into the order.
+	public func layoutOrder(of places: [[String]]) -> [Int] {
+		let unranked = apps.count
+		let pinned = apps.count + 1
+		let ranks = places.map { $0.map(layoutRank).min() ?? unranked }
+		var moving = ranks.indices.filter { ranks[$0] != unranked }
+		if ranks.contains(pinned), let end = ranks.indices.last, !moving.contains(end) {
+			moving.append(end)
+		}
+		var order = Array(places.indices)
+		for (place, source) in zip(moving, moving.sorted { (ranks[$0], $0) < (ranks[$1], $1) }) {
+			order[place] = source
+		}
+		return order
 	}
 
 	/// What a settings row calls an `apps` entry: the name it spells, else the pattern as written.

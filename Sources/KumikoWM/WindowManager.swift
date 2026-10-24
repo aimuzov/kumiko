@@ -321,10 +321,22 @@ public final class WindowManager {
 			}
 		}
 
+		for workspace in workspaces {
+			workspace.seen = workspace.seen.filter { assignment[$0] === workspace }
+		}
+
 		for info in tracker.sortedWindows {
 			guard let workspace = assignment[info.id], isTiled(info.id, in: workspace), !workspace.tree.contains(info.id)
 			else { continue }
 			add(info, to: workspace)
+		}
+
+		// A reload that changed a workspace's apps or shares applies them to the windows it has
+		// already, once they are all in: the order and sizes change in front of the user.
+		for workspace in workspaces {
+			guard let previous = workspace.changedRules else { continue }
+			workspace.changedRules = nil
+			applyLayoutRules(workspace, reorder: true, previous: previous)
 		}
 
 		arrange(displays)
@@ -357,6 +369,10 @@ public final class WindowManager {
 
 			if let workspace = old[config.name] ?? renamed {
 				if renamed != nil, previousWorkspace == workspace.name { previousWorkspace = config.name }
+				let previous = workspace.config
+				if previous.apps != config.apps || previous.last != config.last || previous.share != config.share {
+					workspace.changedRules = workspace.changedRules ?? previous
+				}
 				workspace.config = config
 				workspace.display = display
 				return workspace
@@ -430,23 +446,35 @@ public final class WindowManager {
 			tree.stack(info.id, onto: other)
 		}
 
-		// The windows take the order of their apps every time anything joins, not only when they do,
-		// and only then: a window moved by hand stays where it was put until the next one comes.
-		let order = rules.layoutOrder(tree.visibleWindows.map { ($0, tracker.windows[$0]?.app ?? "") })
-		for (place, id) in order.enumerated() {
-			let current = tree.visibleWindows
-			guard current.indices.contains(place), current[place] != id else { continue }
-			tree.swap(current[place], id)
+		// Only a window new to the workspace reorders it. One coming back, unminimized, shown
+		// again or tiled again, leaves the layout as the user made it.
+		applyLayoutRules(workspace, reorder: workspace.seen.insert(info.id).inserted)
+	}
+
+	/// The workspace's apps put its windows in their order, and their shares sized: whole
+	/// leaves move, so a stack stays one. Shares go to every window, not only a newcomer's: the
+	/// window that has a share may have joined first, when it had no split to take a share of.
+	/// `previous` is the config before a reload changed it: an app whose share is gone splits
+	/// evenly again.
+	private func applyLayoutRules(_ workspace: Workspace, reorder: Bool, previous: Config.Workspace? = nil) {
+		let tree = workspace.tree
+		let rules = workspace.config
+
+		if reorder {
+			tree.permuteLeaves(rules.layoutOrder(of: tree.leaves.map { $0.windows.map(app) }))
 		}
 
-		// After the reorder, and for every window with a share, not only the newcomer: the window
-		// that has a share may have joined first, when it had no split to take a share of.
 		for id in tree.visibleWindows {
-			if let app = tracker.windows[id]?.app, let share = rules.share[app] {
+			let app = app(of: id)
+			if let share = rules.share[app] {
 				tree.setShare(id, share)
+			} else if previous?.share[app] != nil {
+				tree.setShare(id, 0.5)
 			}
 		}
 	}
+
+	private func app(of id: UInt32) -> String { tracker.windows[id]?.app ?? "" }
 
 	// MARK: - Arranging
 

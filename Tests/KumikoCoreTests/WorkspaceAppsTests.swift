@@ -55,21 +55,25 @@ struct WorkspaceAppsTests {
 		#expect(!workspace.opens("Xcode"))
 	}
 
-	@Test("windows follow the order of the apps, unranked ones after, pinned last ones at the end")
+	@Test("listed apps take the order of the apps among their places, others stay put")
 	func layoutOrder() {
-		let workspace = Workspace(name: "w", apps: ["Telegram", "Arc|Dia", "Time"], last: ["Telegram"])
-		let windows: [(id: Int, app: String)] = [
-			(1, "Time"), (2, "Finder"), (3, "Telegram"), (4, "Dia"), (5, "Notes"), (6, "Arc"), (7, "Time"),
-		]
-		#expect(workspace.layoutOrder(windows) == [4, 6, 1, 7, 2, 5, 3])
-		#expect(workspace.orderedApps == ["Arc|Dia", "Time", "Telegram"])
-		#expect(workspace.appRows == ["Arc|Dia", "Time", "Telegram"])
+		let workspace = Workspace(name: "w", apps: ["Telegram", "Arc|Dia", "Time"])
+		let places = [["Time"], ["Finder"], ["Telegram"], ["Dia"], ["Notes"], ["Arc", "Time"]]
+		// Telegram, Dia, the Arc stack and Time into the places 0, 2, 3 and 5; Finder and Notes stay.
+		#expect(workspace.layoutOrder(of: places) == [2, 1, 3, 5, 4, 0])
 	}
 
-	@Test("windows already in order stay as they are")
+	@Test("a last app takes the very last place, which moves into the order")
+	func lastPlace() {
+		let workspace = Workspace(name: "w", apps: ["A", "B"], last: ["A"])
+		#expect(workspace.orderedApps == ["B", "A"])
+		#expect(workspace.appRows == ["B", "A"])
+		#expect(workspace.layoutOrder(of: [["A"], ["B"], ["Finder"]]) == [1, 2, 0])
+	}
+
+	@Test("places already in order stay as they are")
 	func stableOrder() {
 		let workspace = Workspace(name: "w", apps: ["A", "B"])
-		let windows: [(id: Int, app: String)] = [(1, "A"), (2, "A"), (3, "B"), (4, "C")]
-		#expect(workspace.layoutOrder(windows) == [1, 2, 3, 4])
+		#expect(workspace.layoutOrder(of: [["A"], ["A"], ["C"], ["B"]]) == [0, 1, 2, 3])
 	}
 }

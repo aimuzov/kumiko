@@ -11,6 +11,11 @@ final class Workspace {
 	let tree = BSPTree()
 	/// The window to focus when the workspace is shown again.
 	var lastFocused: UInt32?
+	/// Windows that have been in the layout since they came to this workspace. Only a window
+	/// not among them puts the layout in the apps' order when it joins.
+	var seen: Set<UInt32> = []
+	/// The config before a reload changed its apps or shares, until the windows it has get them.
+	var changedRules: Config.Workspace?
 
 	var name: String { config.name }
 
