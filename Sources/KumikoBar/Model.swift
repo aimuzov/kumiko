@@ -47,6 +47,14 @@ final class BarModel {
 	var vimMode: String?
 	var vimCommandLine: String?
 	var shell: [String: String] = [:]
+	/// What the macOS menu bar shows already, which the bar then leaves out.
+	var menuBar = SystemMenuBar()
+
+	/// The items of one side, without those the menu bar shows itself while the config follows it.
+	func items(_ names: [String]) -> [String] {
+		config.followMenuBar ? names.filter { !menuBar.shows($0) } : names
+	}
+
 	/// Called when a workspace entry is clicked.
 	var focusWorkspace: (String) -> Void = { _ in }
 	/// The pointer over a workspace's icons. The icon under it shows in colour on a hidden workspace
