@@ -133,20 +133,35 @@ enum InputSource {
 
 /// Keeps the display and the system awake while on, the way `caffeinate -di` does, through power
 /// assertions held by kumiko itself: nothing to clean up if kumiko goes away, and no process to
-/// keep track of.
+/// keep track of. Whether it is on outlives kumiko in the defaults, like the menu bar's positions.
 @MainActor
 final class Caffeine {
+	private static let key = "caffeinated"
+	private let defaults: UserDefaults
 	private var assertions: [IOPMAssertionID] = []
 
 	var isOn: Bool { !assertions.isEmpty }
 
-	func toggle() {
-		if isOn {
-			assertions.forEach { IOPMAssertionRelease($0) }
-			assertions = []
-			return
-		}
+	init(defaults: UserDefaults = .standard) {
+		self.defaults = defaults
+	}
 
+	func toggle() {
+		if isOn { release() } else { hold() }
+		defaults.set(isOn, forKey: Self.key)
+	}
+
+	/// Turns back on what was on when kumiko quit. The assertions went away with the old process.
+	func restore() {
+		if !isOn && defaults.bool(forKey: Self.key) { hold() }
+	}
+
+	private func release() {
+		assertions.forEach { IOPMAssertionRelease($0) }
+		assertions = []
+	}
+
+	private func hold() {
 		for type in [kIOPMAssertionTypePreventUserIdleDisplaySleep, kIOPMAssertionTypePreventUserIdleSystemSleep] {
 			var id = IOPMAssertionID(0)
 			let result = IOPMAssertionCreateWithName(
