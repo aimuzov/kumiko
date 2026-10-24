@@ -690,8 +690,6 @@ private struct AppTable: View {
 					.frame(width: AppColumn.check)
 				Text("Always last")
 					.frame(width: AppColumn.check)
-				Text("Opens here")
-					.frame(width: AppColumn.check)
 				Spacer().frame(width: AppColumn.remove)
 			}
 			.font(.system(size: 11))
@@ -796,8 +794,8 @@ private struct AppRow: View {
 					Text(app)
 						.lineLimit(1)
 						.truncationMode(.tail)
-					if let earlier = earlierWorkspace {
-						Text("Opens in \(earlier), which comes first")
+					if let note {
+						Text(note)
 							.font(.caption)
 							.foregroundStyle(.secondary)
 							.lineLimit(1)
@@ -824,7 +822,6 @@ private struct AppRow: View {
 
 			checkbox(.stack, exact: true)
 			checkbox(.last, exact: true)
-			checkbox(.apps)
 
 			RemoveAppButton(pointer: pointer, id: id) { model.removeApp(app, from: workspace.name) }
 		}
@@ -838,8 +835,18 @@ private struct AppRow: View {
 			}
 		}
 		.contextMenu {
+			if !workspace.listsInApps(app) {
+				Button("Open Here") { model.setApp(app, .apps, true, in: workspace.name) }
+			}
 			Button("Remove from Workspace") { model.removeApp(app, from: workspace.name) }
 		}
+	}
+
+	/// A row is an app that opens here. One named only by `stack`, `last` or `share`, written in
+	/// the file by hand, keeps its row so nothing is lost, and says it doesn't open here.
+	private var note: String? {
+		guard workspace.listsInApps(app) else { return "Doesn't open here" }
+		return earlierWorkspace.map { "Opens in \($0), which comes first" }
 	}
 
 	/// The first workspace before this one whose `apps` also match the app, and so wins it.
@@ -853,7 +860,7 @@ private struct AppRow: View {
 		Toggle(
 			"",
 			isOn: Binding(
-				get: { list == .apps ? workspace.listsInApps(app) : workspace[keyPath: list.keyPath].contains(app) },
+				get: { workspace[keyPath: list.keyPath].contains(app) },
 				set: { model.setApp(app, list, $0, in: workspace.name) }
 			)
 		)
