@@ -200,6 +200,8 @@ final class IslandDrag: ObservableObject {
 	private var lifted = CGRect.zero
 	private var reach = 0.0...0.0
 	private var cancelled = false
+	/// The press went past the threshold, lifted or not, and is no click when let go.
+	private var moved = false
 	private var escape: Any?
 
 	/// How far an island moves aside: the lifted one's height and the space after it.
@@ -216,6 +218,9 @@ final class IslandDrag: ObservableObject {
 		guard !cancelled else { return }
 		if dragged != name {
 			guard hypot(translation.width, translation.height) >= Self.threshold else { return }
+			moved = true
+			// The island still settling moves the frames once more: the lift waits for them.
+			guard settling == nil else { return }
 			lift(name, in: names())
 		}
 		guard dragged == name else { return }
@@ -229,10 +234,14 @@ final class IslandDrag: ObservableObject {
 	/// Lets go of the island, writing its new place with `write` in the same animation that
 	/// brings it there: the file reorders the islands at once, and the offset going back to
 	/// zero then carries the island from where it was let go into its place. True when the
-	/// press was a click.
+	/// pointer never went past the threshold: a press that did is no click, even one that
+	/// could not lift.
 	func end(_ name: String, write: (_ target: String) -> Void) -> Bool {
-		defer { cancelled = false }
-		guard dragged == name else { return !cancelled }
+		defer {
+			cancelled = false
+			moved = false
+		}
+		guard dragged == name else { return !moved }
 		let target = target
 		settle(name) {
 			if let target, target != from { write(order[target]) }
@@ -258,12 +267,23 @@ final class IslandDrag: ObservableObject {
 		}
 	}
 
-	/// Escape puts the island back where it was lifted from, and the rest of the press moves
-	/// nothing.
-	private func cancel() {
+	/// Puts the island back where it was lifted from, and the rest of the press moves nothing:
+	/// for Escape, and for a reload that changes the islands under the lift.
+	func cancel() {
 		guard let name = dragged else { return }
 		cancelled = true
 		settle(name) {}
+	}
+
+	/// Drops everything at once, for a page that is gone: there is nothing left to animate.
+	func reset() {
+		unwatchEscape()
+		dragged = nil
+		target = nil
+		translation = 0
+		settling = nil
+		cancelled = false
+		moved = false
 	}
 
 	private func settle(_ name: String, _ write: () -> Void) {
@@ -410,6 +430,11 @@ private struct IslandStack: View {
 			}
 		}
 		.coordinateSpace(.named(Self.space))
+		.onDisappear { drag.reset() }
+		// The snapshot counts places by index, which a reload with other names would shift.
+		.onChange(of: model.workspaces.map(\.name)) {
+			if drag.dragged != nil { drag.cancel() }
+		}
 		// Over Add Workspace too, which a dragged island passes on its way to the bottom.
 		.zIndex(1)
 	}
@@ -482,7 +507,8 @@ private struct WorkspaceIsland: View {
 		.focusable(interactions: .activate)
 		.focusEffectDisabled()
 		.onKeyPress(keys: [.space, .return]) { _ in
-			model.toggleExpanded(workspace.name)
+			// The lift measured the island as it is: opened under it, it would land by old sizes.
+			if model.islandDrag.dragged == nil { model.toggleExpanded(workspace.name) }
 			return .handled
 		}
 		.contextMenu {
