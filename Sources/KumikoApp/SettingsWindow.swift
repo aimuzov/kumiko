@@ -46,10 +46,11 @@ final class SettingsWindow {
 			window.titleVisibility = .hidden
 			window.titlebarAppearsTransparent = true
 			// A window with a toolbar gets the larger corner radius Raycast's has, and its traffic
-			// lights come down into the sidebar's corner. The toolbar itself stays empty.
+			// lights come down into the sidebar's corner. The toolbar itself stays empty, and it is
+			// what moves the window: moved by its background, the window would take every drag on
+			// the page, a workspace island's among them.
 			window.toolbar = NSToolbar(identifier: "kumiko.settings")
 			window.toolbarStyle = .unified
-			window.isMovableByWindowBackground = true
 			window.isReleasedWhenClosed = false
 			window.setContentSize(NSSize(width: 860, height: 600))
 			window.center()
