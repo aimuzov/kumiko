@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import KumikoCore
 import KumikoMenuBar
 import SwiftUI
@@ -13,6 +14,7 @@ final class SettingsWindow {
 	private var window: NSWindow?
 	private var closeObserver: (any NSObjectProtocol)?
 	private var keyObserver: (any NSObjectProtocol)?
+	private var paneObserver: AnyCancellable?
 	private let bringForward: () -> Void
 	/// From show until the window is closed, minimized and hidden included: all that time kumiko
 	/// keeps its Dock icon, the way back to the window.
@@ -24,12 +26,31 @@ final class SettingsWindow {
 		}
 		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
 		model.onRenameWorkspace = { [weak app] old, new in app?.manager?.rename(old, to: new) }
+		// Sent before the page changes, so the window is wide enough by the time it is drawn.
+		paneObserver = model.$pane.sink { [weak self] pane in self?.fit(pane) }
 
 		app.bus.subscribe { [weak self, unowned app] event in
 			guard case .configReloaded = event else { return }
 			self?.model.update(app.config, error: app.configError?.description)
 			self?.matchShadows()
 		}
+	}
+
+	/// Wider for a page that needs it, once on the way in: the Workspaces page's two columns
+	/// do not fit the window's first size. Grown about its middle and kept on its screen; a
+	/// window that is wide enough already is left as the user made it.
+	private func fit(_ pane: Pane) {
+		guard let window else { return }
+		let width = SettingsView.minWidth(for: pane)
+		let missing = width - window.contentLayoutRect.width
+		guard missing > 0 else { return }
+		var frame = window.frame
+		frame.origin.x -= missing / 2
+		frame.size.width += missing
+		if let screen = window.screen?.visibleFrame {
+			frame.origin.x = min(max(frame.origin.x, screen.minX), max(screen.maxX - frame.width, screen.minX))
+		}
+		window.setFrame(frame, display: true, animate: window.isVisible)
 	}
 
 	/// Without a shadow like every other window while shadows are off. kumiko may take its own away
@@ -63,6 +84,7 @@ final class SettingsWindow {
 			window.center()
 			window.setFrameAutosaveName("kumiko.settings")
 			self.window = window
+			fit(model.pane)
 
 			closeObserver = NotificationCenter.default.addObserver(
 				forName: NSWindow.willCloseNotification, object: window, queue: .main
@@ -463,6 +485,11 @@ enum Pane: String, CaseIterable, Identifiable {
 private struct SettingsView: View {
 	@ObservedObject var model: SettingsModel
 
+	/// The Workspaces page's list and detail side by side, with the apps table's name column
+	/// still readable: 248 of sidebar, 48 of margins, 210 of list, 16 between and about 380 of
+	/// detail.
+	static func minWidth(for pane: Pane) -> Double { pane == .workspaces ? 900 : 780 }
+
 	var body: some View {
 		HStack(spacing: 0) {
 			Sidebar(model: model)
@@ -480,7 +507,7 @@ private struct SettingsView: View {
 			}
 			.overlay(alignment: .top) { PageBar(model: model) }
 		}
-		.frame(minWidth: 780, minHeight: 500)
+		.frame(minWidth: Self.minWidth(for: model.pane), minHeight: 500)
 		.background(SwiftUI.Color(nsColor: .textBackgroundColor))
 		// Up under the transparent title bar, so the traffic lights sit inside the sidebar.
 		.ignoresSafeArea()
