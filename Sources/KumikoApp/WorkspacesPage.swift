@@ -16,36 +16,29 @@ enum AppList: String, CaseIterable {
 	}
 }
 
-/// A value `display` can say, with what the menu calls it.
-struct DisplayChoice: Hashable {
-	let value: String
-	let title: String
+/// The screens the two areas stand for, by the names macOS gives them. Main is the
+/// screen with the menu bar. External is a monitor other than that one, or the monitor
+/// itself when the menu bar was moved onto it. No monitor, no areas.
+struct AreaScreens: Equatable {
+	var main: String?
+	var external: String?
 
-	/// Main and External, and the names of the external screens when there are several of them:
-	/// with one, its name says no more than External. Built-in is left out, since it is Main unless
-	/// the menu bar was moved to a monitor; a workspace that already says `builtin`, or part of a
-	/// name, keeps it, so opening the menu changes nothing.
 	@MainActor
-	static func all(current: String) -> [DisplayChoice] {
-		var choices = [DisplayChoice(value: "main", title: "Main"), DisplayChoice(value: "external", title: "External")]
-		if current == "builtin" {
-			choices.append(DisplayChoice(value: "builtin", title: "Built-in"))
-		}
-		let externals = NSScreen.screens.filter { screen in
+	static func current() -> AreaScreens {
+		let screens = NSScreen.screens
+		let monitors = screens.filter { screen in
 			let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
 			return number.map { CGDisplayIsBuiltin($0.uint32Value) == 0 } ?? true
 		}
-		// Two screens of one model share a name, and the menu takes each value once.
-		for name in (externals.count > 1 ? externals.map(\.localizedName) : []) + [current]
-		where !choices.contains(where: { $0.value == name }) {
-			choices.append(DisplayChoice(value: name, title: name))
-		}
-		return choices
+		let external = monitors.first { $0 != screens.first } ?? monitors.first
+		return AreaScreens(main: screens.first?.localizedName, external: external?.localizedName)
 	}
 
-	@MainActor
-	static func title(of value: String) -> String {
-		all(current: value).first { $0.value == value }?.title ?? value
+	var showsAreas: Bool { external != nil }
+
+	func label(of area: Config.Workspace.Area) -> String {
+		let (title, screen) = area == .main ? ("Main", main) : ("External", external)
+		return screen.map { "\(title) · \($0)" } ?? title
 	}
 }
 
@@ -118,10 +111,14 @@ extension SettingsModel {
 		if writeError == nil { workspacesPointer.forget(WorkspaceApp(workspace: name, app: app)) }
 	}
 
-	func addWorkspace() {
+	/// Into an area, at its end; without areas, at the end of the file.
+	func addWorkspace(to area: Config.Workspace.Area? = nil) {
 		let names = Set(workspaces.map(\.name))
 		let name = ((workspaces.count + 1)...).lazy.map { "Workspace \($0)" }.first { !names.contains($0) }!
-		change([EntryEdit.insert("workspace", fields: Config.Workspace(name: name).tomlFields)])
+		let workspace = Config.Workspace(name: name, display: area?.display ?? "main")
+		change(area == nil
+			? [EntryEdit.insert("workspace", fields: workspace.tomlFields)]
+			: WorkspaceAreas.add(workspace, to: workspaces))
 		if writeError == nil { expandedWorkspaces.insert(name) }
 	}
 
@@ -134,13 +131,45 @@ extension SettingsModel {
 		}
 	}
 
-	/// The workspace takes the place of the target, which moves aside towards where it came from.
-	/// A name the file no longer has, gone in a reload while it was dragged, moves nothing.
-	@discardableResult
-	func moveWorkspace(_ name: String, to target: String) -> Bool {
-		guard let from = index(of: name), let to = index(of: target), from != to else { return false }
-		change([EntryEdit.move("workspace", from: from, to: to)])
-		return writeError == nil
+	/// The islands as the stack lays them out: all in one list, or each area's in its own.
+	var islandSections: [IslandDrag.Section] {
+		guard screens.showsAreas else { return [IslandDrag.Section(id: "", names: workspaces.map(\.name))] }
+		return WorkspaceAreas.groups(of: workspaces).map { group in
+			IslandDrag.Section(id: group.area.rawValue, names: group.entries.map { workspaces[$0].name })
+		}
+	}
+
+	/// The workspace goes to `drop.slot` of its section, counted without it; an area's section
+	/// carries it into that area. A name the file no longer has, gone in a reload while it was
+	/// dragged, moves nothing.
+	func dropWorkspace(_ name: String, at drop: IslandDrag.Drop) {
+		guard let from = index(of: name) else { return }
+		if let area = Config.Workspace.Area(rawValue: drop.section) {
+			change(WorkspaceAreas.move(from, to: area, slot: drop.slot, in: workspaces))
+		} else if workspaces.indices.contains(drop.slot), drop.slot != from {
+			change([EntryEdit.move("workspace", from: from, to: drop.slot)])
+		}
+	}
+
+	/// What a drag does, for the keyboard and VoiceOver: a step up or down its own section.
+	func stepWorkspace(_ name: String, by offset: Int) {
+		guard let drop = step(name, by: offset) else { return }
+		dropWorkspace(name, at: drop)
+	}
+
+	func canStep(_ name: String, by offset: Int) -> Bool { step(name, by: offset) != nil }
+
+	private func step(_ name: String, by offset: Int) -> IslandDrag.Drop? {
+		guard let section = islandSections.first(where: { $0.names.contains(name) }),
+		      let place = section.names.firstIndex(of: name) else { return nil }
+		let slot = place + offset
+		return section.names.indices.contains(slot) ? IslandDrag.Drop(section: section.id, slot: slot) : nil
+	}
+
+	/// To the end of the other area.
+	func moveWorkspace(_ name: String, to area: Config.Workspace.Area) {
+		guard let from = index(of: name) else { return }
+		change(WorkspaceAreas.move(from, to: area, slot: .max, in: workspaces))
 	}
 
 	/// The built-in nine, written out so they can be changed.
@@ -182,33 +211,54 @@ extension SettingsModel {
 }
 
 /// An island lifted by its header and carried up or down the page, the others making
-/// way. Only the stack of islands watches it: the rest of the window does not draw again
-/// with every move.
+/// way. With a monitor attached it can be carried into the other area too: the area it
+/// leaves closes up, the one it is over opens a place. Only the stack watches it: the
+/// rest of the window does not draw again with every move.
 @MainActor
 final class IslandDrag: ObservableObject {
+	/// The islands of one area, top to bottom. Without areas there is one, with no id.
+	struct Section: Equatable {
+		let id: String
+		let names: [String]
+	}
+
+	/// A place to land in: a section and a slot in it, counted with the lifted island out.
+	struct Drop: Equatable {
+		let section: String
+		let slot: Int
+	}
+
 	/// The pointer moves this far before a press stops being a click.
 	static let threshold = 4.0
 	static let spring = Animation.spring(duration: 0.3, bounce: 0.15)
 
 	@Published private(set) var dragged: String?
 	@Published private(set) var translation = 0.0
-	/// The place the island lands in if let go now, counted with it out of the list.
-	@Published private(set) var target: Int?
+	/// The place the island lands in if let go now.
+	@Published private(set) var target: Drop?
 	/// The island gliding into its place, kept above the ones it passes over until it is
 	/// there.
 	@Published private(set) var settling: String?
-	/// Where each island is laid out in the stack. Written when the layout changes, not
-	/// observed: the islands make way with offsets, which leave the layout as it is.
+	/// Where each island is laid out, in the space of the whole stack, both areas in it.
+	/// Written when the layout changes, not observed: the islands make way with offsets,
+	/// which leave the layout as it is.
 	var frames: [String: CGRect] = [:]
+	let areas = AreaLayout()
 	let autoScroll = IslandAutoScroll()
 
-	/// What the lift saw, so a move only compares numbers: the order, the islands' middles
-	/// and how far the lifted one can go before it leaves the first or the last behind.
-	private var order: [String] = []
-	private var middles: [Double] = []
-	private var from = 0
+	/// What the lift saw, so a move only compares numbers: the sections, the islands and
+	/// areas as they were laid out, and how far the lifted one can go.
+	private var sections: [Section] = []
+	private var laidOut: [String: CGRect] = [:]
+	private var spans: [String: ClosedRange<Double>] = [:]
+	private var origin = Drop(section: "", slot: 0)
 	private var lifted = CGRect.zero
+	/// How far the others move aside: the lifted island's height and the space after it.
+	private var gap = 0.0
 	private var reach = 0.0...0.0
+	/// Where the place the island would land in opens, in the layout: whatever is laid out
+	/// from here down moves down by the gap. Nil for an empty area, which only lights up.
+	private var opening: Double?
 	/// The pointer's own part of the translation, and what the page scrolled since it last
 	/// moved: held at the edge, the island goes along with the page under a still pointer.
 	private var pointer = 0.0
@@ -218,24 +268,39 @@ final class IslandDrag: ObservableObject {
 	private var moved = false
 	private var escape: Any?
 
-	/// How far an island moves aside: the lifted one's height and the space after it.
-	func shift(of index: Int, spacing: Double) -> Double {
-		guard dragged != nil, let target, index != from else { return 0 }
-		if from < index, index <= target { return -(lifted.height + spacing) }
-		if target <= index, index < from { return lifted.height + spacing }
-		return 0
+	/// How far an island other than the lifted one is moved aside.
+	func shift(of name: String) -> Double {
+		guard name != dragged, let frame = laidOut[name] else { return 0 }
+		return shift(at: frame.minY)
 	}
 
-	/// The order is read once, when the island lifts. A lift left over from a press whose
-	/// end never came, the view gone under it, gives way to the new one.
-	func move(_ name: String, by translation: CGSize, names: @autoclosure () -> [String]) {
+	/// How far an area's top and bottom are moved: the area the island leaves gets shorter,
+	/// the one it is over taller, and the areas under them move with their edges.
+	func shift(ofArea id: String) -> (top: Double, bottom: Double) {
+		guard let span = spans[id] else { return (0, 0) }
+		return (shift(at: span.lowerBound), shift(at: span.upperBound))
+	}
+
+	/// Up by the gap past the place the island was taken from, down by as much from the
+	/// place it would land in: for one area that is the old island-by-island rule, and it
+	/// holds for the area labels and edges in between as well.
+	private func shift(at y: Double) -> Double {
+		guard dragged != nil, target != nil else { return 0 }
+		var shift = y > lifted.minY ? -gap : 0
+		if let opening, y >= opening { shift += gap }
+		return shift
+	}
+
+	/// The sections are read once, when the island lifts. A lift left over from a press
+	/// whose end never came, the view gone under it, gives way to the new one.
+	func move(_ name: String, by translation: CGSize, sections: @autoclosure () -> [Section]) {
 		guard !cancelled else { return }
 		if dragged != name {
 			guard hypot(translation.width, translation.height) >= Self.threshold else { return }
 			moved = true
 			// The island still settling moves the frames once more: the lift waits for them.
 			guard settling == nil else { return }
-			lift(name, in: names())
+			lift(name, in: sections())
 		}
 		guard dragged == name else { return }
 
@@ -247,9 +312,40 @@ final class IslandDrag: ObservableObject {
 
 	private func place() {
 		translation = min(max(pointer + scrolled, reach.lowerBound), reach.upperBound)
-		let centre = lifted.midY + self.translation
-		let slot = middles.indices.count { $0 != from && middles[$0] < centre }
-		if slot != target { target = slot }
+		let centre = lifted.midY + translation
+		let section = section(at: centre)
+		let others = section.names.filter { $0 != dragged }
+		// In its own area the island is compared with the others where they stand. In another
+		// one they stand where the area moved to once the island left: an island is passed
+		// when the lifted one's middle passes the middle it is seen at.
+		let own = section.id == origin.section
+		let slot = others.count { name in
+			let middle = laidOut[name]?.midY ?? .infinity
+			return (own ? middle : closed(middle)) < centre
+		}
+		let drop = Drop(section: section.id, slot: slot)
+		guard drop != target else { return }
+		opening = if others.isEmpty {
+			nil
+		} else if slot < others.count {
+			laidOut[others[slot]].map { Double($0.minY) }
+		} else {
+			laidOut[others[others.count - 1]].map { $0.maxY + IslandStack.spacing / 2 }
+		}
+		target = drop
+	}
+
+	/// Where something laid out at `y` stands with the lifted island taken out.
+	private func closed(_ y: Double) -> Double { y > lifted.minY ? y - gap : y }
+
+	/// The area the middle of the island is over, the gaps between areas split halfway, as
+	/// the areas stand with the island taken out.
+	private func section(at centre: Double) -> Section {
+		for (section, next) in zip(sections, sections.dropFirst()) {
+			guard let span = spans[section.id], let below = spans[next.id] else { continue }
+			if centre < (closed(span.upperBound) + closed(below.lowerBound)) / 2 { return section }
+		}
+		return sections.last { spans[$0.id] != nil } ?? sections.first { $0.id == origin.section } ?? sections[0]
 	}
 
 	/// Lets go of the island, writing its new place with `write` in the same animation that
@@ -257,7 +353,7 @@ final class IslandDrag: ObservableObject {
 	/// zero then carries the island from where it was let go into its place. True when the
 	/// pointer never went past the threshold: a press that did is no click, even one that
 	/// could not lift.
-	func end(_ name: String, write: (_ target: String) -> Void) -> Bool {
+	func end(_ name: String, write: (Drop) -> Void) -> Bool {
 		defer {
 			cancelled = false
 			moved = false
@@ -265,22 +361,30 @@ final class IslandDrag: ObservableObject {
 		guard dragged == name else { return !moved }
 		let target = target
 		settle(name) {
-			if let target, target != from { write(order[target]) }
+			if let target, target != origin { write(target) }
 		}
 		return false
 	}
 
-	private func lift(_ name: String, in names: [String]) {
-		guard let frame = frames[name], let index = names.firstIndex(of: name) else { return }
-		order = names
-		// An island not measured yet sorts after every place, which leaves it where it is.
-		middles = names.map { frames[$0]?.midY ?? .infinity }
-		from = index
+	private func lift(_ name: String, in sections: [Section]) {
+		guard let frame = frames[name],
+		      let section = sections.first(where: { $0.names.contains(name) }),
+		      let index = section.names.firstIndex(of: name) else { return }
+		self.sections = sections
+		laidOut = frames
+		spans = areas.spans.filter { id, _ in sections.contains { $0.id == id } }
+		origin = Drop(section: section.id, slot: index)
 		lifted = frame
-		let laidOut = names.compactMap { frames[$0] }
-		let top = laidOut.map(\.minY).min() ?? frame.minY
-		let bottom = laidOut.map(\.maxY).max() ?? frame.maxY
-		reach = (top - frame.minY)...(bottom - frame.maxY)
+		gap = frame.height + IslandStack.spacing
+		// Over every area, an empty one too; without areas, from the first island to the last.
+		let edges = spans.isEmpty
+			? sections.flatMap(\.names).compactMap { frames[$0] }.map { $0.minY...$0.maxY }
+			: Array(spans.values)
+		let top = edges.map(\.lowerBound).min() ?? frame.minY
+		let bottom = edges.map(\.upperBound).max() ?? frame.maxY
+		reach = min(top - frame.minY, 0)...max(bottom - frame.maxY, 0)
+		// Its own place: what comes after it moves up by the gap and back down by as much.
+		opening = frame.minY
 		watchEscape()
 		autoScroll.start { [weak self] distance in
 			self?.scrolled += distance
@@ -290,7 +394,7 @@ final class IslandDrag: ObservableObject {
 		}
 		withAnimation(Self.spring) {
 			dragged = name
-			target = index
+			target = origin
 		}
 	}
 
@@ -352,6 +456,38 @@ final class IslandDrag: ObservableObject {
 	private func unwatchEscape() {
 		if let escape { NSEvent.removeMonitor(escape) }
 		escape = nil
+	}
+}
+
+/// Where each area runs, from the top of its label to the bottom of its Add Workspace row.
+/// The areas' backgrounds are drawn from these behind the one stack all islands are in, so
+/// an island carried into the other area glides there and keeps its view, and its focus.
+@MainActor
+final class AreaLayout: ObservableObject {
+	@Published private(set) var spans: [String: ClosedRange<Double>] = [:]
+	private var tops: [String: Double] = [:]
+	private var bottoms: [String: Double] = [:]
+
+	func top(of area: String, at y: Double) {
+		tops[area] = y
+		update(area)
+	}
+
+	func bottom(of area: String, at y: Double) {
+		bottoms[area] = y
+		update(area)
+	}
+
+	/// For a page that is gone, or that shows no areas any more.
+	func forget() {
+		tops = [:]
+		bottoms = [:]
+		if !spans.isEmpty { spans = [:] }
+	}
+
+	private func update(_ area: String) {
+		guard let top = tops[area], let bottom = bottoms[area], top <= bottom else { return }
+		if spans[area] != top...bottom { spans[area] = top...bottom }
 	}
 }
 
@@ -521,89 +657,231 @@ struct WorkspacesPage: View {
 			VStack(spacing: IslandStack.spacing) {
 				IslandStack(model: model, drag: model.islandDrag)
 
-				Button { model.addWorkspace() } label: {
-					Label("Add Workspace", systemImage: "plus")
-						.padding(.horizontal, 12)
-						.frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-						.contentShape(Rectangle())
-				}
-				.buttonStyle(.plain)
-				.foregroundStyle(.secondary)
-				.overlay(
-					RoundedRectangle(cornerRadius: 10, style: .continuous)
-						.strokeBorder(.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-				)
-				// One dialog for the page, on what stays when the island it asks about is gone.
-				.confirmationDialog(
-					"Remove \(model.workspacePendingRemoval ?? "")?",
-					isPresented: Binding(
-						get: { model.workspacePendingRemoval != nil },
-						set: { if !$0 { model.workspacePendingRemoval = nil } }
-					),
-					presenting: model.workspacePendingRemoval
-				) { name in
-					Button("Remove", role: .destructive) { model.removeWorkspace(name) }
-				} message: { _ in
-					Text("Its windows are placed on the other workspaces again.")
+				// With areas, each has its own.
+				if !model.screens.showsAreas {
+					AddWorkspaceButton { model.addWorkspace() }
 				}
 			}
+			// One dialog for the page, on what stays when the island it asks about is gone.
+			.confirmationDialog(
+				"Remove \(model.workspacePendingRemoval ?? "")?",
+				isPresented: Binding(
+					get: { model.workspacePendingRemoval != nil },
+					set: { if !$0 { model.workspacePendingRemoval = nil } }
+				),
+				presenting: model.workspacePendingRemoval
+			) { name in
+				Button("Remove", role: .destructive) { model.removeWorkspace(name) }
+			} message: { _ in
+				Text("Its windows are placed on the other workspaces again.")
+			}
+		}
+	}
+}
+
+/// A ghost row under the islands.
+private struct AddWorkspaceButton: View {
+	let add: () -> Void
+
+	var body: some View {
+		Button(action: add) {
+			Label("Add Workspace", systemImage: "plus")
+				.padding(.horizontal, 12)
+				.frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+				.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.foregroundStyle(.secondary)
+		.overlay(
+			RoundedRectangle(cornerRadius: 10, style: .continuous)
+				.strokeBorder(.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+		)
+	}
+}
+
+/// One line of the stack. With areas, each area is its label, its islands, and its Add
+/// Workspace row, or a place to drop into while it has no islands.
+private enum StackRow {
+	case label(Config.Workspace.Area, first: Bool)
+	case island(UUID, index: Int, Config.Workspace)
+	case empty(Config.Workspace.Area)
+	case add(Config.Workspace.Area)
+
+	var id: String {
+		switch self {
+		case let .label(area, _): "label-\(area.rawValue)"
+		case let .island(id, _, _): id.uuidString
+		case let .empty(area): "empty-\(area.rawValue)"
+		case let .add(area): "add-\(area.rawValue)"
 		}
 	}
 }
 
 /// The islands in their own stack, the one view that watches a drag: the lifted island
 /// follows the pointer above the others, which slide aside to open the place it would
-/// land in.
+/// land in. The areas are rows of the same stack, not stacks of their own: an island
+/// carried from one to the other stays the same view and glides into its place.
 private struct IslandStack: View {
 	/// Close, as Raycast keeps its islands. The drag counts it into how far the others make way.
 	static let spacing = 8.0
+	/// How far an area's islands sit in from its edges, and the space between two areas.
+	static let inset = 8.0
+	static let areaGap = 12.0
 	nonisolated static let space = "islands"
 
 	@ObservedObject var model: SettingsModel
 	@ObservedObject var drag: IslandDrag
 
-	private var islands: [(id: UUID, index: Int, workspace: Config.Workspace)] {
-		model.workspaces.enumerated().map { (model.islandID(for: $1.name), $0, $1) }
+	private var rows: [StackRow] {
+		let workspaces = model.workspaces
+		func island(_ index: Int) -> StackRow {
+			.island(model.islandID(for: workspaces[index].name), index: index, workspaces[index])
+		}
+		guard model.screens.showsAreas else { return workspaces.indices.map(island) }
+		return WorkspaceAreas.groups(of: workspaces).enumerated().flatMap { place, group in
+			[.label(group.area, first: place == 0)]
+				+ (group.entries.isEmpty ? [.empty(group.area)] : group.entries.map(island))
+				+ [.add(group.area)]
+		}
 	}
 
 	var body: some View {
+		let areas = model.screens.showsAreas
 		VStack(spacing: Self.spacing) {
 			// By an identity that outlives the name: a field being typed in stays with its workspace when
 			// the order changes, and when the name does.
-			ForEach(islands, id: \.id) { island in
-				let (index, workspace) = (island.index, island.workspace)
-				let lifted = drag.dragged == workspace.name
-				WorkspaceIsland(
-						model: model, workspace: workspace, number: index + 1, dragging: drag.dragged != nil
-					)
-					.scaleEffect(lifted ? 1.02 : 1)
-					.shadow(color: .black.opacity(lifted ? 0.18 : 0), radius: lifted ? 12 : 0, y: lifted ? 4 : 0)
-					.offset(y: drag.shift(of: index, spacing: Self.spacing))
-					.animation(IslandDrag.spring, value: drag.target)
-					// Outside the spring: the lifted island keeps up with the pointer.
-					.offset(y: lifted ? drag.translation : 0)
-					.zIndex(lifted || drag.settling == workspace.name ? 1 : 0)
-					// After the offsets, so they measure the place in the layout and not the one shown.
-					.onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frame in
-						drag.frames[workspace.name] = frame
-					}
+			ForEach(rows, id: \.id) { row in
+				switch row {
+				case let .label(area, first):
+					label(area)
+						.padding(.top, first ? 0 : Self.areaGap)
+				case let .island(_, index, workspace):
+					island(workspace, number: index + 1, area: areas ? workspace.area : nil)
+						.padding(.horizontal, areas ? Self.inset : 0)
+				case let .empty(area):
+					AreaDropZone(drag: drag, area: area.rawValue)
+						.padding(.horizontal, Self.inset)
+						.offset(y: drag.shift(ofArea: area.rawValue).top)
+						.animation(IslandDrag.spring, value: drag.target)
+				case let .add(area):
+					addRow(area)
+				}
 			}
+		}
+		.background(alignment: .top) {
+			if areas { AreaBackdrop(drag: drag, layout: drag.areas) }
 		}
 		.coordinateSpace(.named(Self.space))
 		.background(ScrollViewProbe { [weak drag] in drag?.autoScroll.scrollView = $0 })
 		.onDisappear {
 			drag.reset()
+			drag.areas.forget()
 			// A window closed under the pointer sends no exit, and the island would stay lit.
 			if model.workspacesPointer.hoveredIsland != nil { model.workspacesPointer.hoveredIsland = nil }
 			if model.workspacesPointer.hoveredApp != nil { model.workspacesPointer.hoveredApp = nil }
 		}
-		// The snapshot counts places by index, which a reload with other names would shift.
-		.onChange(of: model.workspaces.map(\.name)) { _, names in
+		// The snapshot counts places by section and index, which a reload with other names or
+		// displays would shift, and so would a monitor coming or going.
+		.onChange(of: model.islandSections) { _, sections in
 			guard let lifted = drag.dragged else { return }
-			if names.contains(lifted) { drag.cancel() } else { drag.abandon() }
+			if sections.contains(where: { $0.names.contains(lifted) }) { drag.cancel() } else { drag.abandon() }
 		}
+		.onChange(of: areas) { if !areas { drag.areas.forget() } }
 		// Over Add Workspace too, which a dragged island passes on its way to the bottom.
 		.zIndex(1)
+	}
+
+	private func island(_ workspace: Config.Workspace, number: Int, area: Config.Workspace.Area?) -> some View {
+		let lifted = drag.dragged == workspace.name
+		return WorkspaceIsland(
+				model: model, workspace: workspace, number: number, area: area, dragging: drag.dragged != nil
+			)
+			.scaleEffect(lifted ? 1.02 : 1)
+			.shadow(color: .black.opacity(lifted ? 0.18 : 0), radius: lifted ? 12 : 0, y: lifted ? 4 : 0)
+			.offset(y: lifted ? 0 : drag.shift(of: workspace.name))
+			.animation(IslandDrag.spring, value: drag.target)
+			// Outside the spring: the lifted island keeps up with the pointer.
+			.offset(y: lifted ? drag.translation : 0)
+			.zIndex(lifted || drag.settling == workspace.name ? 1 : 0)
+			// After the offsets, so they measure the place in the layout and not the one shown.
+			.onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frame in
+				drag.frames[workspace.name] = frame
+			}
+	}
+
+	/// The area's top edge, with the room above the label inside the area.
+	private func label(_ area: Config.Workspace.Area) -> some View {
+		Text(model.screens.label(of: area))
+			.font(.system(size: 11, weight: .medium))
+			.foregroundStyle(.secondary)
+			.lineLimit(1)
+			.truncationMode(.tail)
+			.frame(maxWidth: .infinity, alignment: .leading)
+			.padding(.horizontal, Self.inset + 4)
+			.padding(.top, Self.inset + 2)
+			.offset(y: drag.shift(ofArea: area.rawValue).top)
+			.animation(IslandDrag.spring, value: drag.target)
+			.onGeometryChange(for: Double.self) { $0.frame(in: .named(Self.space)).minY } action: { top in
+				drag.areas.top(of: area.rawValue, at: top)
+			}
+	}
+
+	/// The area's bottom edge, with the room under the button inside the area.
+	private func addRow(_ area: Config.Workspace.Area) -> some View {
+		AddWorkspaceButton { model.addWorkspace(to: area) }
+			.padding(.horizontal, Self.inset)
+			.padding(.bottom, Self.inset)
+			.offset(y: drag.shift(ofArea: area.rawValue).bottom)
+			.animation(IslandDrag.spring, value: drag.target)
+			.onGeometryChange(for: Double.self) { $0.frame(in: .named(Self.space)).maxY } action: { bottom in
+				drag.areas.bottom(of: area.rawValue, at: bottom)
+			}
+	}
+}
+
+/// The areas' fills, a level under the islands: a touch darker than the page, with a
+/// hairline edge. They stretch and shrink with a drag the way the islands in them move.
+private struct AreaBackdrop: View {
+	static let radius = 14.0
+
+	@ObservedObject var drag: IslandDrag
+	@ObservedObject var layout: AreaLayout
+
+	var body: some View {
+		ZStack(alignment: .top) {
+			ForEach(layout.spans.keys.sorted(), id: \.self) { area in
+				if let span = layout.spans[area] {
+					let shift = drag.shift(ofArea: area)
+					let shape = RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+					shape
+						.fill(.black.opacity(0.035))
+						.overlay(shape.strokeBorder(.primary.opacity(0.07), lineWidth: 1))
+						.frame(height: max(span.upperBound - span.lowerBound + shift.bottom - shift.top, 0))
+						.offset(y: span.lowerBound + shift.top)
+						.animation(IslandDrag.spring, value: drag.target)
+				}
+			}
+		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+		.animation(IslandDrag.spring, value: layout.spans)
+		.allowsHitTesting(false)
+	}
+}
+
+/// What an area shows while it has no islands, lit while one is carried over it.
+private struct AreaDropZone: View {
+	@ObservedObject var drag: IslandDrag
+	let area: String
+
+	var body: some View {
+		let lit = drag.dragged != nil && drag.target?.section == area
+		let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+		Text("Drag a workspace here")
+			.foregroundStyle(.tertiary)
+			.frame(maxWidth: .infinity, minHeight: 40)
+			.background(shape.fill(.primary.opacity(lit ? 0.05 : 0)))
+			.overlay(shape.strokeBorder(SwiftUI.Color.accentColor.opacity(lit ? 0.7 : 0), lineWidth: 1.5))
+			.animation(.easeOut(duration: 0.15), value: lit)
 	}
 }
 
@@ -614,6 +892,8 @@ private struct WorkspaceIsland: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
 	let number: Int
+	/// The area it is shown in, nil while there are none.
+	let area: Config.Workspace.Area?
 	/// Some island is lifted: none lights up then, the lifted one keeps its lifted look.
 	let dragging: Bool
 
@@ -651,10 +931,10 @@ private struct WorkspaceIsland: View {
 		DragGesture(minimumDistance: 0, coordinateSpace: .named(IslandStack.space))
 			.onChanged { value in
 				if pointer.clicked != workspace.name { pointer.clicked = workspace.name }
-				model.islandDrag.move(workspace.name, by: value.translation, names: model.workspaces.map(\.name))
+				model.islandDrag.move(workspace.name, by: value.translation, sections: model.islandSections)
 			}
 			.onEnded { _ in
-				let click = model.islandDrag.end(workspace.name) { model.moveWorkspace(workspace.name, to: $0) }
+				let click = model.islandDrag.end(workspace.name) { model.dropWorkspace(workspace.name, at: $0) }
 				if click { model.toggleExpanded(workspace.name) }
 			}
 	}
@@ -676,9 +956,7 @@ private struct WorkspaceIsland: View {
 				.font(.system(size: 10, weight: .semibold))
 				.foregroundStyle(.secondary)
 			Spacer(minLength: 16)
-			HeaderApps(
-				title: DisplayChoice.title(of: workspace.display), apps: workspace.apps, isDefault: workspace.isDefault
-			)
+			HeaderApps(title: displayTitle, apps: workspace.apps, isDefault: workspace.isDefault)
 		}
 		.padding(.vertical, 10)
 		.contentShape(Rectangle())
@@ -692,27 +970,35 @@ private struct WorkspaceIsland: View {
 			return .handled
 		}
 		.contextMenu {
-			Button("Move Up") { move(by: -1) }
-				.disabled(neighbour(-1) == nil)
-			Button("Move Down") { move(by: 1) }
-				.disabled(neighbour(1) == nil)
+			Button("Move Up") { model.stepWorkspace(workspace.name, by: -1) }
+				.disabled(!model.canStep(workspace.name, by: -1))
+			Button("Move Down") { model.stepWorkspace(workspace.name, by: 1) }
+				.disabled(!model.canStep(workspace.name, by: 1))
+			if let other {
+				Divider()
+				Button("Move to \(other == .main ? "Main" : "External")") {
+					model.moveWorkspace(workspace.name, to: other)
+				}
+			}
 		}
 		.accessibilityElement(children: .combine)
 		.accessibilityAddTraits(.isButton)
 		.accessibilityValue(expanded ? "Expanded" : "Collapsed")
 		.accessibilityAction { model.toggleExpanded(workspace.name) }
-		.accessibilityAction(named: "Move Up") { move(by: -1) }
-		.accessibilityAction(named: "Move Down") { move(by: 1) }
+		.accessibilityAction(named: "Move Up") { model.stepWorkspace(workspace.name, by: -1) }
+		.accessibilityAction(named: "Move Down") { model.stepWorkspace(workspace.name, by: 1) }
 	}
 
-	/// What a drag does, for the keyboard and VoiceOver: a step towards the top or the bottom.
-	private func move(by offset: Int) {
-		if let target = neighbour(offset) { model.moveWorkspace(workspace.name, to: target) }
+	private var other: Config.Workspace.Area? {
+		area.map { $0 == .main ? .external : .main }
 	}
 
-	private func neighbour(_ offset: Int) -> String? {
-		let index = number - 1 + offset
-		return model.workspaces.indices.contains(index) ? model.workspaces[index].name : nil
+	/// Only with areas, and only what the area does not say already: `builtin`, or part of a
+	/// screen's name, which would be lost from sight with the Display menu gone.
+	private var displayTitle: String? {
+		let said = Config.Workspace.Area.allCases.map(\.display)
+		guard area != nil, !said.contains(workspace.display) else { return nil }
+		return workspace.display == "builtin" ? "Built-in" : workspace.display
 	}
 
 	@ViewBuilder
@@ -725,18 +1011,6 @@ private struct WorkspaceIsland: View {
 			)
 			.textFieldStyle(.roundedBorder)
 			.frame(width: 200)
-		}
-		Row(title: "Display") {
-			Picker(
-				"",
-				selection: Binding(
-					get: { workspace.display }, set: { model.setWorkspace(workspace.name, "display", .string($0)) }
-				)
-			) {
-				ForEach(DisplayChoice.all(current: workspace.display), id: \.self) { Text($0.title).tag($0.value) }
-			}
-			.labelsHidden()
-			.fixedSize()
 		}
 		SwitchRow(
 			title: "Default",
@@ -943,19 +1217,19 @@ private struct IslandBackground: View {
 	}
 }
 
-/// What the header says on its right: the display, then the apps that open here as icons, so the
-/// island tells what is in it without being opened.
+/// What the header says on its right: a display its area does not say, then the apps that
+/// open here as icons, so the island tells what is in it without being opened.
 private struct HeaderApps: View {
 	static let size = 16.0
 	static let limit = 7
 
-	let title: String
+	let title: String?
 	let apps: [String]
 	let isDefault: Bool
 
 	var body: some View {
 		HStack(spacing: 8) {
-			Text(title)
+			if let title { Text(title) }
 			if !apps.isEmpty {
 				HStack(spacing: 4) {
 					ForEach(Array(apps.prefix(Self.limit).enumerated()), id: \.offset) { _, entry in
@@ -977,7 +1251,7 @@ private struct HeaderApps: View {
 	/// The icons say nothing to VoiceOver: the names come from the entries.
 	private var label: String {
 		let names = apps.map { Config.Workspace.name(of: $0) ?? $0 }
-		return ([title] + names + (isDefault ? ["default"] : [])).joined(separator: ", ")
+		return ([title].compactMap(\.self) + names + (isDefault ? ["default"] : [])).joined(separator: ", ")
 	}
 
 	/// A pattern has no icon to show, and an app not found has none yet: both get a stand-in.

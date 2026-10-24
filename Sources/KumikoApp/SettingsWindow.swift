@@ -132,6 +132,10 @@ final class SettingsModel: ObservableObject {
 	/// Not published either: a dragged island moves with the pointer, and only the islands
 	/// follow it.
 	let islandDrag = IslandDrag()
+	/// The screens behind the Workspaces page's areas. Without a monitor there are no areas,
+	/// and the page says nothing about displays.
+	@Published private(set) var screens = AreaScreens.current()
+	private var screensObserver: (any NSObjectProtocol)?
 	/// The workspace the Remove dialog asks about, named when it opened.
 	@Published var workspacePendingRemoval: String?
 	/// Tells the window manager a rename is coming, before the file has it.
@@ -155,6 +159,15 @@ final class SettingsModel: ObservableObject {
 		self.config = config
 		self.error = error
 		readMenuBar = menuBar
+		screensObserver = NotificationCenter.default.addObserver(
+			forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+		) { [weak self] _ in
+			MainActor.assumeIsolated {
+				guard let self else { return }
+				let screens = AreaScreens.current()
+				if screens != self.screens { self.screens = screens }
+			}
+		}
 	}
 
 	/// Called from the stack's `body`, so a name seen for the first time gets its id there.
