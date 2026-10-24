@@ -21,15 +21,16 @@ struct DisplayChoice: Hashable {
 	let value: String
 	let title: String
 
-	/// The keywords, and the names of the external screens when there are several of them: with
-	/// one, its name says no more than External, and the built-in one is Built-in. A value none of
-	/// them is, part of a name, is kept as written, so opening the menu changes nothing.
+	/// Main and External, and the names of the external screens when there are several of them:
+	/// with one, its name says no more than External. Built-in is left out, since it is Main unless
+	/// the menu bar was moved to a monitor; a workspace that already says `builtin`, or part of a
+	/// name, keeps it, so opening the menu changes nothing.
 	@MainActor
 	static func all(current: String) -> [DisplayChoice] {
-		var choices = [
-			DisplayChoice(value: "main", title: "Main"), DisplayChoice(value: "builtin", title: "Built-in"),
-			DisplayChoice(value: "external", title: "External"),
-		]
+		var choices = [DisplayChoice(value: "main", title: "Main"), DisplayChoice(value: "external", title: "External")]
+		if current == "builtin" {
+			choices.append(DisplayChoice(value: "builtin", title: "Built-in"))
+		}
 		let externals = NSScreen.screens.filter { screen in
 			let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
 			return number.map { CGDisplayIsBuiltin($0.uint32Value) == 0 } ?? true
