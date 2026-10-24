@@ -17,6 +17,16 @@ public struct Config: Equatable, Sendable {
 
 	/// One `[[workspace]]`: a virtual desktop with its own layout, shown on one display at a time.
 	public struct Workspace: Equatable, Sendable, Decodable {
+		/// How a workspace arranges the windows the rules manage, yabai's `layout`.
+		public enum Layout: String, CaseIterable, Sendable {
+			/// Windows split the area between them, the binary tree kumiko has always had.
+			case bsp
+			/// Every window fills the area, in one stack, one window in front at a time.
+			case stack
+			/// Nothing is tiled: the windows keep the frames they are given.
+			case float
+		}
+
 		public var name: String
 		/// Which screen it lives on: `main`, `builtin`, `external`, or part of a screen's name.
 		/// A screen that is not attached falls back to the main one.
@@ -40,13 +50,17 @@ public struct Config: Equatable, Sendable {
 		/// The share of its split a window of the app gets when it joins the layout, or when this
 		/// changes. An app without one splits evenly.
 		public var share: [String: Double]
+		/// `bsp` unless the file says otherwise. The order of `apps` and `share` size the splits of
+		/// `bsp` only: a stack and floating windows have no splits. Window rules still decide which
+		/// windows are managed at all; in `float` none is tiled.
+		public var layout: Layout
 
 		/// What a file with no `[[workspace]]` gets: "1"…"9" on the main display.
 		public static let builtIn = (1...9).map { Workspace(name: String($0)) }
 
 		public init(
 			name: String, display: String = "main", apps: [String] = [], isDefault: Bool = false, stack: [String] = [],
-			last: [String] = [], share: [String: Double] = [:]
+			last: [String] = [], share: [String: Double] = [:], layout: Layout = .bsp
 		) {
 			self.name = name
 			self.display = display
@@ -55,6 +69,7 @@ public struct Config: Equatable, Sendable {
 			self.stack = stack
 			self.last = last
 			self.share = share
+			self.layout = layout
 		}
 
 		public init(from decoder: any Decoder) throws {
@@ -66,10 +81,18 @@ public struct Config: Equatable, Sendable {
 			stack = try container.decodeIfPresent([String].self, forKey: .stack) ?? []
 			last = try container.decodeIfPresent([String].self, forKey: .last) ?? []
 			share = try container.decodeIfPresent([String: Double].self, forKey: .share) ?? [:]
+			let layout = try container.decodeIfPresent(String.self, forKey: .layout) ?? Layout.bsp.rawValue
+			guard let known = Layout(rawValue: layout) else {
+				throw DecodingError.dataCorruptedError(
+					forKey: .layout, in: container,
+					debugDescription: "workspace \"\(name)\": layout must be bsp, stack or float, not \"\(layout)\""
+				)
+			}
+			self.layout = known
 		}
 
 		private enum CodingKeys: String, CodingKey {
-			case name, display, apps, stack, last, share
+			case name, display, apps, stack, last, share, layout
 			case isDefault = "default"
 		}
 	}

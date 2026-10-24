@@ -350,6 +350,13 @@ struct ConfigWriterTests {
 
 	private let media = Config.Workspace(name: "Media", display: "builtin")
 
+	@Test func workspaceLayoutIsWrittenOnlyWhenNotBSP() throws {
+		#expect(!Config.Workspace(name: "A").tomlFields.contains { $0.key == "layout" })
+		let workspace = Config.Workspace(name: "A", layout: .float)
+		let text = try ConfigWriter.apply(EntryEdit.insert("workspace", fields: workspace.tomlFields), to: "")
+		#expect(try Config.parse(text).workspaces == [workspace])
+	}
+
 	@Test func workspaceFieldsReadBackAsTheWorkspace() throws {
 		let workspace = Config.Workspace(
 			name: "Chat", display: "builtin", apps: ["Time", "Telegram"], isDefault: true, last: ["Telegram"],

@@ -531,6 +531,7 @@ extension Config.Workspace {
 		if !share.isEmpty {
 			fields.append(.init("share", Self.shareValue(share, order: apps.map { Self.name(of: $0) ?? $0 })))
 		}
+		if layout != .bsp { fields.append(.init("layout", .string(layout.rawValue))) }
 		return fields
 	}
 

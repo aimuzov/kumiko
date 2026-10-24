@@ -253,6 +253,19 @@ final class BSPTree {
 		leafByWindow[b] = leafA
 	}
 
+	/// Every window in one stack over the whole area, in the order the leaves had them, with
+	/// `active` in front, else the stack's first. For a workspace switched to the stack layout;
+	/// a zoom has nothing left to cover and is dropped.
+	func collapse(active: UInt32?) {
+		let windows = allWindows
+		guard !windows.isEmpty else { return }
+		let leaf = Node(windows: windows)
+		leaf.active = active.flatMap(windows.firstIndex) ?? 0
+		root = leaf
+		leafByWindow = Dictionary(uniqueKeysWithValues: windows.map { ($0, leaf) })
+		zoomed = [:]
+	}
+
 	/// Moves whole leaves, a stack with all its windows and the one in front: leaf `i` gets
 	/// what leaf `order[i]` held. The splits and their ratios stay where they are. Anything but
 	/// a reordering of every leaf is ignored.

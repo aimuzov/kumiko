@@ -341,3 +341,25 @@ struct BSPTreePermuteTests {
 		#expect(tree.visibleWindows == [1, 2])
 	}
 }
+
+struct BSPTreeCollapseTests {
+	@Test func putsEveryWindowInOneStackOverTheArea() {
+		let tree = tree(1, 2, 3)
+		tree.stack(3, onto: 2)
+		tree.collapse(active: 2)
+		#expect(tree.leaves.map(\.windows) == [[1, 2, 3]])
+		#expect(tree.visibleWindows == [2])
+		#expect(tree.frames(in: area, gap: 0) == [1: area, 2: area, 3: area])
+	}
+
+	@Test func keepsWorkingAsAStackAfterwards() {
+		let tree = tree(1, 2)
+		tree.collapse(active: nil)
+		#expect(tree.visibleWindows == [1])
+		tree.remove(1)
+		#expect(tree.visibleWindows == [2])
+		tree.insert(3, near: nil, in: area, gap: 0)
+		tree.stack(3, onto: 2)
+		#expect(tree.leaves.map(\.windows) == [[2, 3]])
+	}
+}

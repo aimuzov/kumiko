@@ -316,6 +316,12 @@ public final class WindowManager {
 		}
 
 		for workspace in workspaces {
+			guard let previous = workspace.changedLayout else { continue }
+			workspace.changedLayout = nil
+			relayout(workspace, from: previous)
+		}
+
+		for workspace in workspaces {
 			for id in workspace.tree.allWindows where !isTiled(id, in: workspace) {
 				workspace.tree.remove(id)
 			}
@@ -370,8 +376,13 @@ public final class WindowManager {
 			if let workspace = old[config.name] ?? renamed {
 				if renamed != nil, previousWorkspace == workspace.name { previousWorkspace = config.name }
 				let previous = workspace.config
-				if previous.apps != config.apps || previous.last != config.last || previous.share != config.share {
+				if previous.apps != config.apps || previous.last != config.last || previous.share != config.share
+					|| previous.layout != config.layout
+				{
 					workspace.changedRules = workspace.changedRules ?? previous
+				}
+				if previous.layout != config.layout {
+					workspace.changedLayout = workspace.changedLayout ?? previous.layout
 				}
 				workspace.config = config
 				workspace.display = display
@@ -421,7 +432,9 @@ public final class WindowManager {
 	}
 
 	private func isTiled(_ id: UInt32, in workspace: Workspace) -> Bool {
-		guard let info = tracker.windows[id], assignment[id] === workspace else { return false }
+		// A floating workspace tiles nothing, not even a window toggled into the layout by hand.
+		guard workspace.config.layout != .float, let info = tracker.windows[id], assignment[id] === workspace
+		else { return false }
 		// A toggle can bring in a window the rules skip, but never a dialog or a panel.
 		let wanted = tiledByUser[id].map { $0 && info.subrole == "AXStandardWindow" } ?? info.isManaged
 		return wanted && !info.isMinimized && !isHiddenByUser(info) && !info.isFullscreen
@@ -440,7 +453,10 @@ public final class WindowManager {
 
 		let rules = workspace.config
 
-		if rules.stack.contains(info.app),
+		// The stack layout has one leaf, and every newcomer goes in front in it.
+		if rules.layout == .stack, let other = tree.visibleWindows.first(where: { $0 != info.id }) {
+			tree.stack(info.id, onto: other)
+		} else if rules.stack.contains(info.app),
 		   let other = tree.allWindows.first(where: { $0 != info.id && rules.stack.contains(tracker.windows[$0]?.app ?? "") })
 		{
 			tree.stack(info.id, onto: other)
@@ -449,6 +465,23 @@ public final class WindowManager {
 		// Only a window new to the workspace reorders it. One coming back, unminimized, shown
 		// again or tiled again, leaves the layout as the user made it.
 		applyLayoutRules(workspace, reorder: workspace.seen.insert(info.id).inserted)
+	}
+
+	/// Makes the tree over for a layout a reload switched to. Into a stack the windows go as
+	/// one, the focused one in front. Out of one they are taken out, and the pass puts them back
+	/// one by one with the `stack` rule, then in the apps' order with their shares. Into and out
+	/// of float needs nothing here: `isTiled` takes the windows out, or lets them back in.
+	private func relayout(_ workspace: Workspace, from previous: Config.Workspace.Layout) {
+		let tree = workspace.tree
+		switch workspace.config.layout {
+		case .stack:
+			let active = [tracker.focusedWindowID, workspace.lastFocused].compactMap(\.self).first { tree.contains($0) }
+			tree.collapse(active: active)
+		case .bsp where previous == .stack:
+			tree.allWindows.forEach(tree.remove)
+		case .bsp, .float:
+			break
+		}
 	}
 
 	/// The workspace's apps put its windows in their order, and their shares sized: whole
