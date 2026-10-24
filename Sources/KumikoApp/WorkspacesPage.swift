@@ -49,8 +49,13 @@ extension SettingsModel {
 		change(changes)
 	}
 
-	/// Every app a workspace names, in the order they first come up.
-	func apps(of workspace: Config.Workspace) -> [String] { workspace.appRows }
+	/// The app table's rows: the `apps` entries in layout order, then an app with only a share,
+	/// so the share can still be cleared. One named only by `stack` or `last` has no row: the
+	/// Window Rules page is where windows are stacked.
+	func apps(of workspace: Config.Workspace) -> [String] {
+		let ordered = orderedAppRows(of: workspace)
+		return ordered + workspace.share.keys.sorted().filter { !ordered.contains($0) }
+	}
 
 	func setApp(_ app: String, _ list: AppList, _ on: Bool, in name: String) {
 		guard let index = index(of: name) else { return }
@@ -65,7 +70,7 @@ extension SettingsModel {
 	}
 
 	/// The rows a drag reorders: the `apps` entries, by the names their rows carry, in layout
-	/// order. Rows named only by `stack`, `last` or `share` come after them and stay put.
+	/// order. A row with only a share comes after them and stays put.
 	func orderedAppRows(of workspace: Config.Workspace) -> [String] {
 		workspace.orderedApps.map { Config.Workspace.name(of: $0) ?? $0 }
 	}
@@ -675,12 +680,11 @@ private struct WorkspaceDetail: View {
 }
 
 /// Widths the header and every row of the app table share, so the columns line up. Narrow
-/// enough for the detail beside the list: the name keeps about 130 points of the 380.
+/// enough for the detail beside the list: the name keeps about 190 points of the 380.
 private enum AppColumn {
 	static let handle = 14.0
 	static let icon = 18.0
-	static let share = 96.0
-	static let check = 60.0
+	static let share = 104.0
 	static let remove = 20.0
 	static let spacing = 8.0
 }
@@ -740,8 +744,6 @@ private struct AppTable: View {
 					.frame(maxWidth: .infinity, alignment: .leading)
 				Text("Share")
 					.frame(width: AppColumn.share)
-				Text("One stack")
-					.frame(width: AppColumn.check)
 				Spacer().frame(width: AppColumn.remove)
 			}
 			.font(.system(size: 11))
@@ -844,7 +846,7 @@ private struct AppRow: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
 	let app: String
-	/// One of `apps`, which a drag reorders; a row named only by `stack` or `share` has no order.
+	/// One of `apps`, which a drag reorders; a row with only a share has no order.
 	let movable: Bool
 
 	private static let patternHelp =
@@ -868,12 +870,13 @@ private struct AppRow: View {
 					Text(app)
 						.lineLimit(1)
 						.truncationMode(.tail)
-					if let note {
+					ForEach(notes, id: \.self) { note in
 						Text(note)
 							.font(.caption)
 							.foregroundStyle(.secondary)
 							.lineLimit(1)
 							.truncationMode(.tail)
+							.help(note)
 					}
 				}
 			}
@@ -883,19 +886,6 @@ private struct AppRow: View {
 				.frame(width: AppColumn.share)
 				.disabled(workspace.isPattern(app))
 				.help(workspace.isPattern(app) ? Self.patternHelp : ShareSlider.help)
-
-			Toggle(
-				"",
-				isOn: Binding(
-					get: { workspace.stack.contains(app) },
-					set: { model.setApp(app, .stack, $0, in: workspace.name) }
-				)
-			)
-			.toggleStyle(.checkbox)
-			.labelsHidden()
-			.frame(width: AppColumn.check)
-			.disabled(workspace.isPattern(app))
-			.help(workspace.isPattern(app) ? Self.patternHelp : "")
 
 			// Always there: one shown on hover only was found by chance. The red circle is how macOS
 			// marks taking a row out of a list; a bordered button this small flattens into a pill.
@@ -962,11 +952,21 @@ private struct AppRow: View {
 		return ordered.firstIndex(of: app).map { ordered.indices.contains($0 + offset) } ?? false
 	}
 
-	/// A row is an app that opens here. One named only by `stack`, `last` or `share`, written in
-	/// the file by hand, keeps its row so nothing is lost, and says it doesn't open here.
-	private var note: String? {
-		guard workspace.listsInApps(app) else { return "Doesn't open here" }
-		return earlierWorkspace.map { "Opens in \($0), which comes first" }
+	/// What the row would not say otherwise, a line each: they are too long to share one in a
+	/// column this narrow. A row is an app that opens here; one with only a share, written in the
+	/// file by hand, keeps its row so the share can be cleared, and says it doesn't open here.
+	private var notes: [String] {
+		let opens = workspace.listsInApps(app)
+			? earlierWorkspace.map { "Opens in \($0), which comes first" }
+			: "Doesn't open here"
+		return [opens, floats ? "Floats: no window rule tiles it" : nil].compactMap(\.self)
+	}
+
+	/// The share and the order mean nothing to a window that is not tiled. Only while the rules
+	/// are what decides: with the window manager or its rules off, the row has nothing to add.
+	private var floats: Bool {
+		let wm = model.config.wm
+		return wm.enabled && wm.useRules && !workspace.isPattern(app) && !wm.tiles(app)
 	}
 
 	/// The first workspace before this one whose `apps` also match the app, and so wins it.
