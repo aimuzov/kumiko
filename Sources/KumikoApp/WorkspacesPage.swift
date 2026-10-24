@@ -549,7 +549,7 @@ private struct WorkspaceIsland: View {
 						Image(systemName: "trash")
 					}
 					.buttonStyle(.borderless)
-					.foregroundStyle(.secondary)
+					.foregroundStyle(.red)
 					.help("Remove Workspace")
 					.accessibilityLabel("Remove Workspace")
 				} else {
@@ -665,15 +665,18 @@ private struct AppTable: View {
 
 	var body: some View {
 		let apps = model.apps(of: workspace)
-		HStack(alignment: .center) {
+		// The same leading column and spacing as the island's header, so the plus stands under
+		// the remove button and the title under the workspace's name.
+		HStack(alignment: .center, spacing: 8) {
+			AddAppButton(model: model, workspace: workspace)
+				.frame(width: 16)
 			VStack(alignment: .leading, spacing: 2) {
 				Text("Apps")
 				Text("Windows of these apps open on this workspace.")
 					.font(.system(size: 11))
 					.foregroundStyle(.secondary)
 			}
-			Spacer(minLength: 16)
-			AddAppButton(model: model, workspace: workspace)
+			Spacer(minLength: 0)
 		}
 		.padding(.top, 12)
 		.padding(.bottom, apps.isEmpty ? 8 : 0)
@@ -705,8 +708,8 @@ private struct AppTable: View {
 	}
 }
 
-/// Raycast's plus in the corner of a list: a grey square that opens the running apps, and a way to
-/// pick one in /Applications.
+/// Raycast's plus: a grey square that opens the running apps, and a way to pick one in
+/// /Applications.
 private struct AddAppButton: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
@@ -728,9 +731,9 @@ private struct AddAppButton: View {
 			}
 		} label: {
 			Image(systemName: "plus")
-				.font(.system(size: 13, weight: .medium))
-				.frame(width: 26, height: 26)
-				.background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.primary.opacity(0.07)))
+				.font(.system(size: 11, weight: .semibold))
+				.frame(width: 20, height: 20)
+				.background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.primary.opacity(0.07)))
 				.contentShape(Rectangle())
 		}
 		.menuStyle(.borderlessButton)
