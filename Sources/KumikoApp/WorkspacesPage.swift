@@ -361,6 +361,11 @@ private struct WorkspaceList: View {
 		}
 	}
 
+	/// The room between two areas' islands, outside both.
+	static let areaGap = 12.0
+	/// How far an area's rows stand in from its island's edges.
+	static let inset = 6.0
+
 	var body: some View {
 		let areas = model.screens.showsAreas
 		let shown = model.shownWorkspace?.name
@@ -372,8 +377,10 @@ private struct WorkspaceList: View {
 						label(area, first: first)
 					case let .workspace(_, workspace):
 						self.row(workspace, area: areas ? workspace.area : nil, selected: workspace.name == shown)
+							.padding(.horizontal, areas ? Self.inset : 0)
 					case let .empty(area):
 						AreaDropZone(drag: drag, area: area.rawValue)
+							.padding(.horizontal, Self.inset)
 							.offset(y: drag.shift(ofArea: area.rawValue).top)
 							.animation(IslandDrag.spring, value: drag.target)
 					case let .end(area):
@@ -382,18 +389,22 @@ private struct WorkspaceList: View {
 				}
 			}
 			.coordinateSpace(.named(Self.space))
+			// Each display its own island, drawn behind the one stack the rows share.
+			.background(alignment: .top) { if areas { AreaIslands(areas: drag.areas, drag: drag) } }
 			.background(ScrollViewProbe { [weak drag] in drag?.autoScroll.scrollView = $0 })
-			.padding(6)
+			.padding(areas ? 0 : 6)
 			// Over the buttons too, which a row dragged to the bottom passes.
 			.zIndex(1)
 
-			Divider()
+			if !areas { Divider() }
 			ListButtons(
 				add: { model.addWorkspace(to: areas ? model.shownWorkspace?.area ?? model.areaOrder().first : nil) },
 				remove: { model.workspacePendingRemoval = shown }
 			)
 		}
-		.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.02)))
+		.background {
+			if !areas { RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.02)) }
+		}
 		// Takes the keyboard when clicked, for the arrow keys; the selection shows where it is.
 		.focusable(interactions: .edit)
 		.focusEffectDisabled()
@@ -431,7 +442,8 @@ private struct WorkspaceList: View {
 			}
 	}
 
-	/// The area's top edge, with the room above the label inside the area.
+	/// The top of the area's island, with the room above the label inside it; the gap from the
+	/// island above comes after the measuring, so it stays outside both.
 	private func label(_ area: Config.Workspace.Area, first: Bool) -> some View {
 		Text(model.screens.label(of: area))
 			.font(.system(size: 11, weight: .medium))
@@ -439,20 +451,21 @@ private struct WorkspaceList: View {
 			.lineLimit(1)
 			.truncationMode(.tail)
 			.frame(maxWidth: .infinity, alignment: .leading)
-			.padding(.horizontal, 8)
-			.padding(.top, first ? 4 : 12)
+			.padding(.horizontal, 8 + Self.inset)
+			.padding(.top, 8)
 			.padding(.bottom, 2)
 			.offset(y: drag.shift(ofArea: area.rawValue).top)
 			.animation(IslandDrag.spring, value: drag.target)
 			.onGeometryChange(for: Double.self) { $0.frame(in: .named(Self.space)).minY } action: { top in
 				drag.areas.top(of: area.rawValue, at: top)
 			}
+			.padding(.top, first ? 0 : Self.areaGap)
 	}
 
-	/// The area's bottom edge: nothing to see, only where the area stops.
+	/// The bottom of the area's island: nothing to see but the room under its last row.
 	private func end(_ area: Config.Workspace.Area) -> some View {
 		SwiftUI.Color.clear
-			.frame(height: 0)
+			.frame(height: Self.inset - IslandDrag.spacing)
 			.onGeometryChange(for: Double.self) { $0.frame(in: .named(Self.space)).maxY } action: { bottom in
 				drag.areas.bottom(of: area.rawValue, at: bottom)
 			}
@@ -590,6 +603,29 @@ private struct RowSummary: View {
 		Image(systemName: symbol)
 			.font(.system(size: 11))
 			.frame(width: Self.size, height: Self.size)
+	}
+}
+
+/// An island per display, from the top of its label to the room under its last row, the way
+/// the list's rows measured them. A drag moves the edges with the rows: the island a row leaves
+/// gets shorter, the one it is carried over taller.
+private struct AreaIslands: View {
+	@ObservedObject var areas: AreaLayout
+	@ObservedObject var drag: IslandDrag
+
+	var body: some View {
+		ZStack(alignment: .top) {
+			ForEach(areas.spans.sorted { $0.key < $1.key }, id: \.key) { id, span in
+				let shift = drag.shift(ofArea: id)
+				let top = span.lowerBound + shift.top
+				RoundedRectangle(cornerRadius: 10, style: .continuous)
+					.fill(.primary.opacity(0.02))
+					.frame(height: max(span.upperBound + shift.bottom - top, 0))
+					.offset(y: top)
+			}
+		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+		.animation(IslandDrag.spring, value: drag.target)
 	}
 }
 
