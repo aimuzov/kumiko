@@ -109,9 +109,12 @@ final class SettingsModel: ObservableObject {
 	@Published var search = ""
 	/// The padding's sides are set one by one even while they are all the same.
 	@Published var paddingPerSide = false
-	/// The workspace the cards under the list edit, by its index in the file. A reload keeps it on
-	/// the same name.
-	@Published var selectedWorkspace = 0
+	/// The workspaces shown open, by name: a rename takes its name along, a removal drops it.
+	@Published var expandedWorkspaces: Set<String> = []
+	/// The workspace a dragged one is over, so it can show where the drop lands.
+	@Published var workspaceDropTarget: String?
+	/// The app row under the pointer, the one that shows its remove button.
+	@Published var hoveredWorkspaceApp: WorkspaceApp?
 	/// The workspace the Remove dialog asks about, named when it opened.
 	@Published var workspacePendingRemoval: String?
 	/// Tells the window manager a rename is coming, before the file has it.
@@ -138,11 +141,11 @@ final class SettingsModel: ObservableObject {
 	}
 
 	func update(_ config: Config, error: String?) {
-		let selected = selected?.name
 		self.config = config
 		self.error = error
 		writeError = nil
-		keepSelection(on: selected)
+		// A broken file may come back with none of its workspaces, and they would all close.
+		if error == nil { expandedWorkspaces.formIntersection(config.workspaces.map(\.name)) }
 
 		// A colour changed in the file by hand is no longer the panel's pick.
 		if let picked = pickedBorderColor, pendingBorderColor == nil,

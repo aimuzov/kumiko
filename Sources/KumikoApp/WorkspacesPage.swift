@@ -46,17 +46,8 @@ struct DisplayChoice: Hashable {
 extension SettingsModel {
 	var workspaces: [Config.Workspace] { config.workspaces }
 
-	var selected: Config.Workspace? {
-		workspaces.indices.contains(selectedWorkspace) ? workspaces[selectedWorkspace] : nil
-	}
-
-	/// On the workspace of that name wherever it went, else on the place it was.
-	func keepSelection(on name: String?) {
-		if let name, let index = index(of: name) {
-			selectedWorkspace = index
-		} else {
-			selectedWorkspace = max(min(selectedWorkspace, workspaces.count - 1), 0)
-		}
+	func toggleExpanded(_ name: String) {
+		if expandedWorkspaces.remove(name) == nil { expandedWorkspaces.insert(name) }
 	}
 
 	func setWorkspace(_ name: String, _ key: String, _ value: TOMLValue?) {
@@ -70,6 +61,7 @@ extension SettingsModel {
 		guard new != name, index(of: name) != nil else { return }
 		onRenameWorkspace(name, new)
 		setWorkspace(name, "name", .string(new))
+		if writeError == nil, expandedWorkspaces.remove(name) != nil { expandedWorkspaces.insert(new) }
 	}
 
 	/// Only the first default counts, so turning one on turns the others off.
@@ -120,14 +112,13 @@ extension SettingsModel {
 		let names = Set(workspaces.map(\.name))
 		let name = ((workspaces.count + 1)...).lazy.map { "Workspace \($0)" }.first { !names.contains($0) }!
 		change([EntryEdit.insert("workspace", fields: Config.Workspace(name: name).tomlFields)])
-		if writeError == nil { keepSelection(on: name) }
+		if writeError == nil { expandedWorkspaces.insert(name) }
 	}
 
 	func removeWorkspace(_ name: String) {
 		guard let index = index(of: name) else { return }
-		let selected = selected?.name
 		change([EntryEdit.remove("workspace", index)])
-		keepSelection(on: selected)
+		if writeError == nil { expandedWorkspaces.remove(name) }
 	}
 
 	/// What `onMove` gives: the rows taken and the place before which they go, counted before they
@@ -136,16 +127,21 @@ extension SettingsModel {
 		guard let from = source.first else { return }
 		let to = offset > from ? offset - 1 : offset
 		guard to != from else { return }
-
-		let selected = selected?.name
 		change([EntryEdit.move("workspace", from: from, to: to)])
-		keepSelection(on: selected)
+	}
+
+	/// A dragged island takes the place of the one it is dropped on, which moves aside towards
+	/// where the dragged one came from. Any other text dropped there names no workspace.
+	@discardableResult
+	func moveWorkspace(_ name: String, to target: String) -> Bool {
+		guard let from = index(of: name), let to = index(of: target), from != to else { return false }
+		moveWorkspaces(from: [from], to: to > from ? to + 1 : to)
+		return writeError == nil
 	}
 
 	/// The built-in nine, written out so they can be changed.
 	func customizeWorkspaces() {
 		change(Config.Workspace.builtIn.map { EntryEdit.insert("workspace", fields: $0.tomlFields) })
-		selectedWorkspace = 0
 	}
 
 	/// Looked up when the change is written: the file may have changed since the page was drawn.
@@ -181,6 +177,12 @@ extension SettingsModel {
 	}
 }
 
+/// An app row of one workspace, for the row under the pointer.
+struct WorkspaceApp: Hashable {
+	let workspace: String
+	let app: String
+}
+
 struct WorkspacesPage: View {
 	@ObservedObject var model: SettingsModel
 
@@ -196,155 +198,175 @@ struct WorkspacesPage: View {
 				}
 			}
 		} else {
-			WorkspaceList(model: model)
-
-			if let workspace = model.selected {
-				Group {
-					WorkspaceCard(model: model, workspace: workspace)
-					AppsCard(model: model, workspace: workspace)
-				}
-				// A field being typed in belongs to its own workspace, not to the next one selected.
-				.id(model.selectedWorkspace)
+			// By name: a field being typed in stays with its workspace when the order changes.
+			ForEach(Array(model.workspaces.enumerated()), id: \.element.name) { index, workspace in
+				WorkspaceIsland(model: model, workspace: workspace, number: index + 1)
 			}
-		}
-	}
-}
 
-/// The workspaces in file order, which is the order `workspace focus <n>` counts them in.
-private struct WorkspaceList: View {
-	@ObservedObject var model: SettingsModel
-
-	private static let rowHeight = 28.0
-
-	var body: some View {
-		Card(title: "Workspaces") {
-			List(selection: selection) {
-				ForEach(Array(model.workspaces.enumerated()), id: \.offset) { index, workspace in
-					HStack {
-						Text("\(index + 1)")
-							.monospacedDigit()
-							.foregroundStyle(.secondary)
-							.frame(width: 20, alignment: .trailing)
-						Text(workspace.name)
-						Spacer()
-						Text(DisplayChoice.title(of: workspace.display))
-							.foregroundStyle(.secondary)
-						Text(appCount(workspace))
-							.foregroundStyle(.secondary)
-							.frame(width: 64, alignment: .trailing)
-					}
-					.frame(height: Self.rowHeight)
-					.tag(index)
-				}
-				.onMove { model.moveWorkspaces(from: $0, to: $1) }
+			Button { model.addWorkspace() } label: {
+				Label("Add Workspace", systemImage: "plus")
+					.padding(.horizontal, 12)
+					.frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+					.contentShape(Rectangle())
 			}
-			.listStyle(.plain)
-			.scrollContentBackground(.hidden)
-			.scrollDisabled(true)
-			// A list inside the page's scroll view has no height of its own.
-			.frame(height: Double(model.workspaces.count) * (Self.rowHeight + 4) + 8)
-
-			HStack {
-				Spacer()
-				Button { model.addWorkspace() } label: { Image(systemName: "plus") }
-				Button { model.workspacePendingRemoval = model.selected?.name } label: { Image(systemName: "minus") }
-					.disabled(model.selected == nil)
-			}
-			.buttonStyle(.borderless)
-			.padding(.vertical, 8)
-		}
-		.confirmationDialog(
-			"Remove \(model.workspacePendingRemoval ?? "")?",
-			isPresented: Binding(
-				get: { model.workspacePendingRemoval != nil }, set: { if !$0 { model.workspacePendingRemoval = nil } }
-			),
-			presenting: model.workspacePendingRemoval
-		) { name in
-			Button("Remove", role: .destructive) { model.removeWorkspace(name) }
-		} message: { _ in
-			Text("Its windows are placed on the other workspaces again.")
-		}
-	}
-
-	private var selection: Binding<Int?> {
-		// Cmd-click takes the row out of the selection; the cards below keep showing it.
-		Binding(get: { model.selectedWorkspace }, set: { if let index = $0 { model.selectedWorkspace = index } })
-	}
-
-	private func appCount(_ workspace: Config.Workspace) -> String {
-		if workspace.isDefault { return "default" }
-		return workspace.apps.count == 1 ? "1 app" : "\(workspace.apps.count) apps"
-	}
-}
-
-private struct WorkspaceCard: View {
-	@ObservedObject var model: SettingsModel
-	let workspace: Config.Workspace
-
-	var body: some View {
-		Card(title: workspace.name) {
-			Row(title: "Name") {
-				TextField(
-					"",
-					value: Binding(get: { workspace.name }, set: { model.renameWorkspace(workspace.name, to: $0) }),
-					format: Verbatim()
-				)
-				.textFieldStyle(.roundedBorder)
-				.frame(width: 200)
-			}
-			Row(title: "Display") {
-				Picker(
-					"",
-					selection: Binding(
-						get: { workspace.display }, set: { model.setWorkspace(workspace.name, "display", .string($0)) }
-					)
-				) {
-					ForEach(DisplayChoice.all(current: workspace.display), id: \.self) { Text($0.title).tag($0.value) }
-				}
-				.labelsHidden()
-				.fixedSize()
-			}
-			SwitchRow(
-				title: "Default",
-				detail: "Every other app opens here.",
-				on: Binding(get: { workspace.isDefault }, set: { model.setDefault(workspace.name, $0) }),
-				last: true
+			.buttonStyle(.plain)
+			.foregroundStyle(.secondary)
+			.overlay(
+				RoundedRectangle(cornerRadius: 10, style: .continuous)
+					.strokeBorder(.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
 			)
+			.confirmationDialog(
+				"Remove \(model.workspacePendingRemoval ?? "")?",
+				isPresented: Binding(
+					get: { model.workspacePendingRemoval != nil },
+					set: { if !$0 { model.workspacePendingRemoval = nil } }
+				),
+				presenting: model.workspacePendingRemoval
+			) { name in
+				Button("Remove", role: .destructive) { model.removeWorkspace(name) }
+			} message: { _ in
+				Text("Its windows are placed on the other workspaces again.")
+			}
 		}
 	}
 }
 
-private struct AppsCard: View {
+/// A workspace as one of Raycast's collapsible groups: the header alone while closed, its settings
+/// and its apps under it while open. Islands come in file order, which is the order
+/// `workspace focus <n>` counts them in, and the header is what is dragged to change it.
+private struct WorkspaceIsland: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
+	let number: Int
+
+	private var expanded: Bool { model.expandedWorkspaces.contains(workspace.name) }
+	private var targeted: Bool { model.workspaceDropTarget == workspace.name }
 
 	var body: some View {
-		Card(title: "Apps") {
-			ForEach(model.apps(of: workspace), id: \.self) { app in
-				AppRow(model: model, workspace: workspace, app: app)
-			}
+		VStack(spacing: 0) {
+			header
 
-			HStack {
-				Menu("Add App…") {
-					ForEach(Self.running(excluding: model.apps(of: workspace)), id: \.self) { app in
-						Button { model.setApp(app, .apps, true, in: workspace.name) } label: {
-							if let icon = AppIcon.image(for: app, size: 16) {
-								Label { Text(app) } icon: { Image(nsImage: icon) }
-							} else {
-								Text(app)
-							}
+			if expanded {
+				Divider()
+				settings
+				AppTable(model: model, workspace: workspace)
+				Divider()
+				footer
+			}
+		}
+		.padding(.horizontal, 12)
+		.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.035)))
+		.overlay(
+			RoundedRectangle(cornerRadius: 10, style: .continuous)
+				.strokeBorder(SwiftUI.Color.accentColor, lineWidth: 2)
+				.opacity(targeted ? 1 : 0)
+		)
+		.dropDestination(for: String.self) { names, _ in
+			model.workspaceDropTarget = nil
+			guard let name = names.first else { return false }
+			return model.moveWorkspace(name, to: workspace.name)
+		} isTargeted: { inside in
+			// Leaving one island and entering the next come in either order.
+			if inside {
+				model.workspaceDropTarget = workspace.name
+			} else if targeted {
+				model.workspaceDropTarget = nil
+			}
+		}
+	}
+
+	/// A tap opens or closes the island and a drag moves it: a drag starts only once the pointer
+	/// moves, and a tap is a press let go where it began, so the two never both happen.
+	private var header: some View {
+		HStack(spacing: 8) {
+			Image(systemName: "line.3.horizontal")
+				.foregroundStyle(.tertiary)
+			// Past nine there is no key to name.
+			Text(number <= 9 ? "alt-\(number)" : "\(number)")
+				.font(.system(.body, design: .monospaced))
+				.foregroundStyle(.secondary)
+			Text(workspace.name)
+				.lineLimit(1)
+				.truncationMode(.tail)
+			Image(systemName: expanded ? "chevron.down" : "chevron.right")
+				.font(.system(size: 10, weight: .semibold))
+				.foregroundStyle(.secondary)
+			Spacer(minLength: 16)
+			Text(summary)
+				.foregroundStyle(.secondary)
+				.lineLimit(1)
+		}
+		.padding(.vertical, 10)
+		.contentShape(Rectangle())
+		.onTapGesture { model.toggleExpanded(workspace.name) }
+		.draggable(workspace.name)
+		.accessibilityElement(children: .combine)
+		.accessibilityAddTraits(.isButton)
+		.accessibilityAction { model.toggleExpanded(workspace.name) }
+	}
+
+	private var summary: String {
+		let count = workspace.apps.count
+		let apps = workspace.isDefault ? "default" : count == 1 ? "1 app" : "\(count) apps"
+		return "\(DisplayChoice.title(of: workspace.display)) · \(apps)"
+	}
+
+	@ViewBuilder
+	private var settings: some View {
+		Row(title: "Name") {
+			TextField(
+				"",
+				value: Binding(get: { workspace.name }, set: { model.renameWorkspace(workspace.name, to: $0) }),
+				format: Verbatim()
+			)
+			.textFieldStyle(.roundedBorder)
+			.frame(width: 200)
+		}
+		Row(title: "Display") {
+			Picker(
+				"",
+				selection: Binding(
+					get: { workspace.display }, set: { model.setWorkspace(workspace.name, "display", .string($0)) }
+				)
+			) {
+				ForEach(DisplayChoice.all(current: workspace.display), id: \.self) { Text($0.title).tag($0.value) }
+			}
+			.labelsHidden()
+			.fixedSize()
+		}
+		SwitchRow(
+			title: "Default",
+			detail: "Every other app opens here.",
+			on: Binding(get: { workspace.isDefault }, set: { model.setDefault(workspace.name, $0) }),
+			last: model.apps(of: workspace).isEmpty
+		)
+	}
+
+	private var footer: some View {
+		HStack {
+			Menu("Add App…") {
+				ForEach(Self.running(excluding: model.apps(of: workspace)), id: \.self) { app in
+					Button { model.setApp(app, .apps, true, in: workspace.name) } label: {
+						if let icon = AppIcon.image(for: app, size: 16) {
+							Label { Text(app) } icon: { Image(nsImage: icon) }
+						} else {
+							Text(app)
 						}
 					}
-					Divider()
-					Button("Choose…") {
-						if let app = Self.chooseApp() { model.setApp(app, .apps, true, in: workspace.name) }
-					}
 				}
-				.fixedSize()
-				Spacer()
+				Divider()
+				Button("Choose…") {
+					if let app = Self.chooseApp() { model.setApp(app, .apps, true, in: workspace.name) }
+				}
 			}
-			.padding(.vertical, 10)
+			.menuStyle(.borderlessButton)
+			.fixedSize()
+			Spacer()
+			Button("Remove Workspace…", role: .destructive) { model.workspacePendingRemoval = workspace.name }
+				.buttonStyle(.borderless)
+				.foregroundStyle(.secondary)
 		}
+		.padding(.vertical, 10)
 	}
 
 	/// Apps with a Dock icon, the ones whose windows kumiko arranges, that the workspace does not name yet.
@@ -366,6 +388,50 @@ private struct AppsCard: View {
 	}
 }
 
+/// Widths the header and every row of the app table share, so the columns line up.
+private enum AppColumn {
+	static let icon = 18.0
+	static let share = 52.0
+	static let check = 72.0
+	static let remove = 16.0
+	static let spacing = 8.0
+}
+
+/// The apps as Raycast lays out its extensions: column titles, then a row per app.
+private struct AppTable: View {
+	@ObservedObject var model: SettingsModel
+	let workspace: Config.Workspace
+
+	var body: some View {
+		let apps = model.apps(of: workspace)
+		if !apps.isEmpty {
+			HStack(spacing: AppColumn.spacing) {
+				Text("App")
+					.frame(maxWidth: .infinity, alignment: .leading)
+				Text("Share")
+					.frame(width: AppColumn.share, alignment: .leading)
+				Text("One stack")
+					.frame(width: AppColumn.check)
+				Text("Always last")
+					.frame(width: AppColumn.check)
+				Text("Opens here")
+					.frame(width: AppColumn.check)
+				Spacer().frame(width: AppColumn.remove)
+			}
+			.font(.system(size: 11))
+			.foregroundStyle(.secondary)
+			.lineLimit(1)
+			.padding(.top, 10)
+			.padding(.bottom, 6)
+
+			ForEach(apps, id: \.self) { app in
+				Divider()
+				AppRow(model: model, workspace: workspace, app: app)
+			}
+		}
+	}
+}
+
 private struct AppRow: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
@@ -374,53 +440,69 @@ private struct AppRow: View {
 	private static let patternHelp =
 		"A pattern only chooses where windows open: the other settings match exact app names."
 
+	private var id: WorkspaceApp { WorkspaceApp(workspace: workspace.name, app: app) }
+
 	var body: some View {
-		VStack(spacing: 0) {
+		HStack(spacing: AppColumn.spacing) {
 			HStack(spacing: 10) {
 				if let icon = AppIcon.image(for: app) {
-					Image(nsImage: icon).resizable().frame(width: 18, height: 18)
+					Image(nsImage: icon).resizable().frame(width: AppColumn.icon, height: AppColumn.icon)
 				} else {
-					Spacer().frame(width: 18)
+					Spacer().frame(width: AppColumn.icon)
 				}
-				Text(app)
-					.lineLimit(1)
-					.truncationMode(.tail)
-				Spacer(minLength: 8)
-				toggle("Opens here", .apps)
-				toggle("One stack", .stack, exact: true)
-				toggle("Always last", .last, exact: true)
-				TextField(
-					"Share",
-					value: Binding(
-						get: { workspace.share[app] },
-						set: { model.setShare(app, $0.map { min(max($0, 0.1), 0.9) }, in: workspace.name) }
-					),
-					format: FloatingPointFormatStyle<Double>.number.precision(.fractionLength(0...2))
-				)
-				.textFieldStyle(.roundedBorder)
-				.frame(width: 52)
-				.disabled(workspace.isPattern(app))
-				.help(
-					workspace.isPattern(app)
-						? Self.patternHelp : "The share of its split the app's window gets, 0.1 to 0.9"
-				)
-				Button { model.removeApp(app, from: workspace.name) } label: { Image(systemName: "minus.circle") }
-					.buttonStyle(.borderless)
-					.foregroundStyle(.secondary)
-					.help("Take \(app) out of this workspace")
+				VStack(alignment: .leading, spacing: 2) {
+					Text(app)
+						.lineLimit(1)
+						.truncationMode(.tail)
+					if let earlier = earlierWorkspace {
+						Text("Opens in \(earlier), which comes first")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+							.lineLimit(1)
+							.truncationMode(.tail)
+					}
+				}
 			}
-			.controlSize(.small)
-			.padding(.vertical, 8)
+			.frame(maxWidth: .infinity, alignment: .leading)
 
-			if let earlier = earlierWorkspace {
-				Text("Opens in \(earlier), which comes first")
-					.font(.caption)
-					.foregroundStyle(.secondary)
-					.frame(maxWidth: .infinity, alignment: .trailing)
-					.padding(.bottom, 8)
+			TextField(
+				"Share",
+				value: Binding(
+					get: { workspace.share[app] },
+					set: { model.setShare(app, $0.map { min(max($0, 0.1), 0.9) }, in: workspace.name) }
+				),
+				format: FloatingPointFormatStyle<Double>.number.precision(.fractionLength(0...2))
+			)
+			.textFieldStyle(.plain)
+			.frame(width: AppColumn.share)
+			.disabled(workspace.isPattern(app))
+			.help(
+				workspace.isPattern(app) ? Self.patternHelp : "The share of its split the app's window gets, 0.1 to 0.9"
+			)
+
+			checkbox(.stack, exact: true)
+			checkbox(.last, exact: true)
+			checkbox(.apps)
+
+			Button { model.removeApp(app, from: workspace.name) } label: { Image(systemName: "minus.circle") }
+				.buttonStyle(.borderless)
+				.foregroundStyle(.secondary)
+				.help("Take \(app) out of this workspace")
+				.frame(width: AppColumn.remove)
+				// Kept in the layout while hidden, so the columns stay where they are.
+				.opacity(model.hoveredWorkspaceApp == id ? 1 : 0)
+		}
+		.padding(.vertical, 8)
+		.contentShape(Rectangle())
+		.onHover { inside in
+			if inside {
+				model.hoveredWorkspaceApp = id
+			} else if model.hoveredWorkspaceApp == id {
+				model.hoveredWorkspaceApp = nil
 			}
-
-			Divider()
+		}
+		.contextMenu {
+			Button("Remove from Workspace") { model.removeApp(app, from: workspace.name) }
 		}
 	}
 
@@ -431,17 +513,17 @@ private struct AppRow: View {
 	}
 
 	/// `exact` lists compare app names as they are, which a pattern row never is.
-	private func toggle(_ title: String, _ list: AppList, exact: Bool = false) -> some View {
+	private func checkbox(_ list: AppList, exact: Bool = false) -> some View {
 		Toggle(
-			title,
+			"",
 			isOn: Binding(
-				get: {
-					list == .apps ? workspace.listsInApps(app) : workspace[keyPath: list.keyPath].contains(app)
-				},
+				get: { list == .apps ? workspace.listsInApps(app) : workspace[keyPath: list.keyPath].contains(app) },
 				set: { model.setApp(app, list, $0, in: workspace.name) }
 			)
 		)
 		.toggleStyle(.checkbox)
+		.labelsHidden()
+		.frame(width: AppColumn.check)
 		.disabled(exact && workspace.isPattern(app))
 		.help(exact && workspace.isPattern(app) ? Self.patternHelp : "")
 	}
