@@ -48,7 +48,8 @@ final class SettingsWindow {
 		frame.origin.x -= missing / 2
 		frame.size.width += missing
 		if let screen = window.screen?.visibleFrame {
-			frame.origin.x = min(max(frame.origin.x, screen.minX), max(screen.maxX - frame.width, screen.minX))
+			frame.size.width = min(frame.width, screen.width)
+			frame.origin.x = min(max(frame.origin.x, screen.minX), screen.maxX - frame.width)
 		}
 		window.setFrame(frame, display: true, animate: window.isVisible)
 	}

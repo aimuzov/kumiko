@@ -72,7 +72,8 @@ extension SettingsModel {
 
 	/// The app goes to `drop.slot` of the ordered rows, in one write with the `last` entries the
 	/// order now covers: kept, they would go on pulling their apps to the end whatever the order
-	/// says. A `last` app that `apps` does not name stays in `last`, so nothing it does is lost.
+	/// says. Folded in, such an app takes the last of the listed apps' places rather than the very
+	/// last place. A `last` app that `apps` does not name stays in `last`.
 	func dropApp(_ app: String, at drop: IslandDrag.Drop, in name: String) {
 		guard let index = index(of: name) else { return }
 		let workspace = workspaces[index]
@@ -757,7 +758,10 @@ private struct AppTable: View {
 		.background(ScrollViewProbe { [weak drag] in drag?.autoScroll.scrollView = $0 })
 		// The frames stay: the next workspace's rows may be laid out already, and each row writes
 		// its own frame when it is.
-		.onDisappear { drag.reset() }
+		.onDisappear {
+			drag.reset()
+			if model.draggedShare != nil { model.draggedShare = nil }
+		}
 		.onChange(of: ordered) { _, ordered in
 			guard let lifted = drag.dragged else { return }
 			if ordered.contains(lifted) { drag.cancel() } else { drag.abandon() }
@@ -973,7 +977,7 @@ private struct AppRow: View {
 }
 
 /// An app's share of its split as a slider, its middle the even split the app gets with no
-/// share at all. It snaps to the middle near it, so evenly is easy to find again, and is
+/// share at all. A drag snaps to the middle near it, so evenly is easy to find again, and is
 /// written once on release: every step of a drag would rewrite the file and lay out the windows.
 private struct ShareSlider: View {
 	static let help = "The share of its split this app's window gets; the middle splits evenly"
@@ -982,8 +986,11 @@ private struct ShareSlider: View {
 	let workspace: Config.Workspace
 	let app: String
 
+	private var dragged: Double? {
+		model.draggedShare.flatMap { $0.workspace == workspace.name && $0.app == app ? $0.value : nil }
+	}
+
 	var body: some View {
-		let dragged = model.draggedShare.flatMap { $0.workspace == workspace.name && $0.app == app ? $0.value : nil }
 		let value = dragged ?? workspace.share[app] ?? 0.5
 
 		HStack(spacing: 4) {
@@ -991,22 +998,24 @@ private struct ShareSlider: View {
 				value: Binding(
 					get: { value },
 					set: { new in
-						let snapped = Self.snap(new)
-						// Arrow keys move it without a drag, and write at once.
+						// Read now, not when drawn: the drag may have begun since.
 						if dragged != nil {
-							model.draggedShare = DraggedShare(workspace: workspace.name, app: app, value: snapped)
+							let share = Self.snap(new)
+							model.draggedShare = DraggedShare(workspace: workspace.name, app: app, value: share)
 						} else {
-							write(snapped)
+							// Arrow keys move it a step without a drag, and write at once.
+							write(new)
 						}
 					}
 				),
-				in: 0.1...0.9
+				in: 0.1...0.9,
+				step: 0.05
 			) { dragging in
 				if dragging {
 					model.draggedShare = DraggedShare(workspace: workspace.name, app: app, value: value)
-				} else if let share = model.draggedShare, share.workspace == workspace.name, share.app == app {
+				} else if let share = dragged {
 					model.draggedShare = nil
-					write(share.value)
+					write(share)
 				}
 			}
 			.controlSize(.mini)
@@ -1020,15 +1029,18 @@ private struct ShareSlider: View {
 		}
 	}
 
-	/// The middle is no share, so the key leaves the file.
+	/// The middle is no share, so the key leaves the file. Rounded to the step, which a double
+	/// misses by a hair.
 	private func write(_ value: Double) {
-		let share = value == 0.5 ? nil : value
+		let rounded = (value * 20).rounded() / 20
+		let share = rounded == 0.5 ? nil : rounded
 		if share != workspace.share[app] { model.setShare(app, share, in: workspace.name) }
 	}
 
-	/// To twentieths, and to the middle within a few hundredths of it.
+	/// The steps either side of the middle snap to it while dragged; the arrow keys still reach
+	/// them.
 	static func snap(_ value: Double) -> Double {
-		abs(value - 0.5) < 0.04 ? 0.5 : (value * 20).rounded() / 20
+		abs(value - 0.5) < 0.06 ? 0.5 : value
 	}
 }
 
