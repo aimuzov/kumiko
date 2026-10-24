@@ -30,9 +30,9 @@ struct SystemMenuBarTests {
 		#expect(try Config.parse("[bar]\nfollow_menu_bar = false").bar.followMenuBar == false)
 	}
 
-	@Test func takingFromTheMenuBarIsOffUnlessTurnedOn() throws {
-		#expect(try Config.parse("").bar.takeFromMenuBar == false)
-		#expect(try Config.parse("[bar]\ntake_from_menu_bar = true").bar.takeFromMenuBar)
+	@Test func takingFromTheMenuBarIsOnUnlessTurnedOff() throws {
+		#expect(try Config.parse("").bar.takeFromMenuBar)
+		#expect(try Config.parse("[bar]\ntake_from_menu_bar = false").bar.takeFromMenuBar == false)
 	}
 
 	@Test func withoutBarItemsKeepsTheBatteryInControlCenter() {

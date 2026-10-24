@@ -107,8 +107,9 @@ public struct Config: Equatable, Sendable {
 		/// Leave out the time, battery and input items while the macOS menu bar shows them itself.
 		public var followMenuBar = true
 		/// Turn the battery and the input menu off in the macOS menu bar and make its clock analog, so
-		/// the bar shows them; off puts back what was there before.
-		public var takeFromMenuBar = false
+		/// the bar shows them; off puts back what was there before. On unless turned off: the bar is
+		/// where kumiko shows them.
+		public var takeFromMenuBar = true
 		/// `[bar.colors]`: the palette items draw with, Catppuccin Macchiato unless overridden.
 		public var colors = Palette()
 		/// `[bar.input]`: text to show for an input source id instead of the system badge.
