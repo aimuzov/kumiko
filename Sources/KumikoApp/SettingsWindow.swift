@@ -331,6 +331,7 @@ final class SettingsModel: ObservableObject {
 
 	/// What lives outside the config and may have changed while the window was closed.
 	func refresh() {
+		AppIcon.forgetMissing()
 		opensAtLogin = LoginItem.isEnabled
 		payloadVersion = ScriptingAddition.handshake()
 		sipAllowsPayload = ScriptingAddition.isAllowedBySIP

@@ -81,6 +81,7 @@ extension SettingsModel {
 
 	/// Into an area, at its end; without areas, at the end of the file.
 	func addWorkspace(to area: Config.Workspace.Area? = nil) {
+		endTyping()
 		let names = Set(workspaces.map(\.name))
 		let name = ((workspaces.count + 1)...).lazy.map { "Workspace \($0)" }.first { !names.contains($0) }!
 		let workspace = Config.Workspace(name: name, display: area?.display ?? "main")
@@ -103,6 +104,21 @@ extension SettingsModel {
 		if writeError == nil, shown { selectedWorkspace = neighbour }
 	}
 
+	/// Ends the typing in the name field first: its edit is written when the field is left,
+	/// and the detail it is in goes away with the pick. The field's setter holds the name it
+	/// was drawn with, so the edit renames the workspace it was typed for.
+	func pickWorkspace(_ name: String) {
+		endTyping()
+		selectedWorkspace = name
+	}
+
+	/// Only while a field editor has the keyboard: taken from anything else, it would take the
+	/// list's focus, and the arrow keys with it.
+	private func endTyping() {
+		guard let window = NSApp.keyWindow, window.firstResponder is NSText else { return }
+		window.makeFirstResponder(nil)
+	}
+
 	/// The workspace whose settings show: the one picked, else the first in the list.
 	var shownWorkspace: Config.Workspace? {
 		if let picked = workspaces.first(where: { $0.name == selectedWorkspace }) { return picked }
@@ -112,6 +128,7 @@ extension SettingsModel {
 
 	/// For the arrow keys: the row above or below the shown one, across the areas.
 	func selectWorkspace(by offset: Int) {
+		endTyping()
 		let order = workspaceSections.flatMap(\.names)
 		guard let shown = shownWorkspace?.name, let place = order.firstIndex(of: shown),
 		      order.indices.contains(place + offset) else { return }
@@ -233,6 +250,8 @@ struct WorkspacesPage: View {
 						.id(model.workspaceID(for: workspace.name))
 				}
 			}
+			// Gone before the page shows again, which then looks for the icons afresh.
+			.onDisappear { AppIcon.forgetMissing() }
 			// One dialog for the page, on what stays when the workspace it asks about is gone.
 			.confirmationDialog(
 				"Remove \(model.workspacePendingRemoval ?? "")?",
@@ -321,7 +340,7 @@ private struct WorkspaceList: View {
 			Divider()
 			ListButtons(
 				add: { model.addWorkspace(to: areas ? model.shownWorkspace?.area ?? model.areaOrder().first : nil) },
-				remove: shown.map { name in { model.workspacePendingRemoval = name } }
+				remove: { model.workspacePendingRemoval = shown }
 			)
 		}
 		.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.02)))
@@ -396,7 +415,9 @@ private struct WorkspaceList: View {
 private struct WorkspaceRow: View {
 	static let height = 28.0
 
-	@ObservedObject var model: SettingsModel
+	/// Not watched: what a row shows comes in from the list, so a pick draws the list once and
+	/// not every row with it.
+	let model: SettingsModel
 	let workspace: Config.Workspace
 	/// The area it is shown in, nil while there are none.
 	let area: Config.Workspace.Area?
@@ -409,8 +430,6 @@ private struct WorkspaceRow: View {
 			Text(workspace.name)
 				.lineLimit(1)
 				.truncationMode(.tail)
-				// The summary gives way first.
-				.layoutPriority(1)
 			Spacer(minLength: 4)
 			RowSummary(apps: workspace.apps, isDefault: workspace.isDefault)
 		}
@@ -435,7 +454,7 @@ private struct WorkspaceRow: View {
 		}
 		.accessibilityElement(children: .combine)
 		.accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-		.accessibilityAction { model.selectedWorkspace = workspace.name }
+		.accessibilityAction { model.pickWorkspace(workspace.name) }
 		.accessibilityAction(named: "Move Up") { model.stepWorkspace(workspace.name, by: -1) }
 		.accessibilityAction(named: "Move Down") { model.stepWorkspace(workspace.name, by: 1) }
 	}
@@ -454,7 +473,7 @@ private struct WorkspaceRow: View {
 		DragGesture(minimumDistance: 0, coordinateSpace: .named(WorkspaceList.space))
 			.onChanged { value in
 				// On the press, as a list picks a row, and once: every pick draws the detail again.
-				if !selected, model.islandDrag.dragged == nil { model.selectedWorkspace = workspace.name }
+				if !selected, model.islandDrag.dragged == nil { model.pickWorkspace(workspace.name) }
 				model.islandDrag.move(workspace.name, by: value.translation, sections: model.workspaceSections)
 			}
 			.onEnded { _ in
@@ -467,8 +486,9 @@ private struct WorkspaceRow: View {
 	}
 }
 
-/// What a row says on its right: "default", then as many app icons as fit beside it, so the
-/// list tells the workspaces apart without opening them.
+/// What a row says on its right: "default", then up to three app icons, two beside "default",
+/// so the list tells the workspaces apart without opening them. It keeps its size: the name
+/// is what truncates.
 private struct RowSummary: View {
 	static let size = 14.0
 
@@ -538,8 +558,7 @@ private struct AreaDropZone: View {
 /// as buttons and not as two loose symbols.
 private struct ListButtons: View {
 	let add: () -> Void
-	/// Nil while nothing is picked, which leaves minus disabled.
-	let remove: (() -> Void)?
+	let remove: () -> Void
 
 	var body: some View {
 		HStack {
@@ -548,10 +567,9 @@ private struct ListButtons: View {
 					Image(systemName: "plus").accessibilityLabel("Add Workspace")
 				}
 				.help("Add Workspace")
-				Button { remove?() } label: {
+				Button(action: remove) {
 					Image(systemName: "minus").accessibilityLabel("Remove Workspace")
 				}
-				.disabled(remove == nil)
 				.help("Remove Workspace")
 			}
 			.controlSize(.small)
@@ -839,8 +857,11 @@ private struct AppRow: View {
 /// folders. A pattern like `Arc|Dia` has none.
 @MainActor
 enum AppIcon {
-	/// Found icons only: an app launched or installed later gets its icon on the next look.
 	private static var cache: [String: NSImage] = [:]
+	/// Names with no icon, so a pattern or an app not installed is not looked for with every
+	/// draw. Forgotten when the page goes and when the window comes forward: an app launched
+	/// or installed since gets its icon.
+	private static var missing: Set<String> = []
 	/// The menu's copies, made once: the menu is drawn with every draw of the detail.
 	private static var sized: [String: NSImage] = [:]
 	private static let folders = [
@@ -849,6 +870,7 @@ enum AppIcon {
 
 	static func image(for name: String) -> NSImage? {
 		if let cached = cache[name] { return cached }
+		guard !missing.contains(name) else { return nil }
 
 		let running = NSWorkspace.shared.runningApplications.first { $0.localizedName == name }?.icon
 		let installed = folders.lazy
@@ -856,9 +878,16 @@ enum AppIcon {
 			.first { FileManager.default.fileExists(atPath: $0) }
 			.map { NSWorkspace.shared.icon(forFile: $0) }
 
-		guard let image = running ?? installed else { return nil }
+		guard let image = running ?? installed else {
+			missing.insert(name)
+			return nil
+		}
 		cache[name] = image
 		return image
+	}
+
+	static func forgetMissing() {
+		missing = []
 	}
 
 	/// A menu draws an image at its own size, which for an app icon is twice a menu line.
