@@ -488,6 +488,10 @@ private struct AreaDropZone: View {
 /// and its apps under it while open. Islands come in file order, which is the order
 /// `workspace focus <n>` counts them in, and the header is what is dragged to change it.
 private struct WorkspaceIsland: View {
+	/// Wide enough for a small bordered button: the header's handle or remove button and the
+	/// Apps row's plus stand in it, one above the other.
+	static let leadingColumn = 26.0
+
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
 	/// The area it is shown in, nil while there are none.
@@ -546,10 +550,10 @@ private struct WorkspaceIsland: View {
 			ZStack {
 				if expanded {
 					Button { model.workspacePendingRemoval = workspace.name } label: {
-						IconChip(symbol: "trash", tint: .red)
+						Image(systemName: "trash").foregroundStyle(.red)
 					}
-					.buttonStyle(IconChipStyle())
-					.pointingHand()
+					.buttonStyle(.bordered)
+					.controlSize(.small)
 					.help("Remove Workspace")
 					.accessibilityLabel("Remove Workspace")
 				} else {
@@ -557,7 +561,7 @@ private struct WorkspaceIsland: View {
 						.foregroundStyle(.tertiary)
 				}
 			}
-			.frame(width: 16)
+			.frame(width: Self.leadingColumn)
 			Text(workspace.name)
 				.lineLimit(1)
 				.truncationMode(.tail)
@@ -669,7 +673,7 @@ private struct AppTable: View {
 		// the remove button and the title under the workspace's name.
 		HStack(alignment: .center, spacing: 8) {
 			AddAppButton(model: model, workspace: workspace)
-				.frame(width: 16)
+				.frame(width: WorkspaceIsland.leadingColumn)
 			VStack(alignment: .leading, spacing: 2) {
 				Text("Apps")
 				Text("Windows of these apps open on this workspace.")
@@ -728,46 +732,16 @@ private struct AddAppButton: View {
 				if let app = WorkspaceIsland.chooseApp() { model.setApp(app, .apps, true, in: workspace.name) }
 			}
 		} label: {
-			IconChip(symbol: "plus", tint: nil)
+			Image(systemName: "plus")
 		}
-		.menuStyle(.borderlessButton)
+		// A system button, bordered like the remove button above it: a bare symbol reads as
+		// decoration, not as something to press.
+		.menuStyle(.button)
+		.buttonStyle(.bordered)
+		.controlSize(.small)
 		.menuIndicator(.hidden)
 		.fixedSize()
-		.pointingHand()
 		.help("Add App")
-	}
-}
-
-/// A symbol on a small rounded square: a bare icon in a row of text reads as decoration, the
-/// square says it can be pressed. A tinted one, the remove button, takes its colour on both.
-private struct IconChip: View {
-	let symbol: String
-	let tint: SwiftUI.Color?
-
-	var body: some View {
-		Image(systemName: symbol)
-			.font(.system(size: 11, weight: .semibold))
-			.foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
-			.frame(width: 20, height: 20)
-			.background(
-				RoundedRectangle(cornerRadius: 6, style: .continuous)
-					.fill((tint ?? .primary).opacity(tint == nil ? 0.07 : 0.12))
-			)
-			.contentShape(Rectangle())
-	}
-}
-
-/// Darkens an `IconChip` while it is held, the way a button answers a press.
-private struct IconChipStyle: ButtonStyle {
-	func makeBody(configuration: Configuration) -> some View {
-		configuration.label.opacity(configuration.isPressed ? 0.6 : 1)
-	}
-}
-
-extension View {
-	/// The pointing hand over something to press, the cue a borderless control otherwise lacks.
-	fileprivate func pointingHand() -> some View {
-		onHover { inside in (inside ? NSCursor.pointingHand : NSCursor.arrow).set() }
 	}
 }
 
