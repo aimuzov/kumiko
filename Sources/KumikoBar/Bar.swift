@@ -237,6 +237,13 @@ public final class Bar {
 		model.inputSource = InputSource.current()
 		model.inputLanguage = InputSource.languageCode()
 		model.isCaffeinated = caffeine.isOn
+		readMenuBar()
+	}
+
+	/// Assigned only when it changed, so a read that finds nothing new redraws nothing.
+	private func readMenuBar() {
+		let menuBar = SystemMenuBar.read()
+		if menuBar != model.menuBar { model.menuBar = menuBar }
 	}
 
 	private func scheduleTimers() {
@@ -259,6 +266,16 @@ public final class Bar {
 		}
 		RunLoop.main.add(desktop, forMode: .common)
 		timers.append(desktop)
+
+		// System Settings posts nothing when an item leaves the menu bar; three preference reads every
+		// two seconds catch it soon enough.
+		if config.followMenuBar {
+			let menuBar = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+				MainActor.assumeIsolated { self?.readMenuBar() }
+			}
+			RunLoop.main.add(menuBar, forMode: .common)
+			timers.append(menuBar)
+		}
 
 		for item in config.shell {
 			let run: @MainActor () -> Void = { [weak self] in

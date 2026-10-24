@@ -1090,7 +1090,14 @@ private struct BarPage: View {
 
 		Card(title: "Items") {
 			Row("Left", value: list(bar.left))
-			Row("Right", value: list(bar.right), last: true)
+			Row("Right", value: list(bar.right))
+			SwitchRow(
+				title: "Leave out what the menu bar shows",
+				detail: "The time while its clock is digital, the battery and the input source while they are in it.",
+				on: model.binding(\.bar.followMenuBar, "bar", "follow_menu_bar"),
+				last: true,
+				reset: model.reset(\.bar.followMenuBar, "bar", "follow_menu_bar")
+			)
 		}
 
 		Card(title: "Magnification") {

@@ -16,9 +16,9 @@ struct BarView: View {
 		let config = model.config
 
 		HStack(spacing: 14 * config.scale) {
-			ForEach(config.left, id: \.self) { item(named: $0) }
+			ForEach(model.items(config.left), id: \.self) { item(named: $0) }
 			Spacer(minLength: 0)
-			ForEach(config.right.reversed(), id: \.self) { item(named: $0) }
+			ForEach(model.items(config.right).reversed(), id: \.self) { item(named: $0) }
 		}
 		.padding(.horizontal, config.padding + 6)
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
