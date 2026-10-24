@@ -121,21 +121,12 @@ extension SettingsModel {
 		if writeError == nil { expandedWorkspaces.remove(name) }
 	}
 
-	/// What `onMove` gives: the rows taken and the place before which they go, counted before they
-	/// are taken out. The list moves one row at a time.
-	func moveWorkspaces(from source: IndexSet, to offset: Int) {
-		guard let from = source.first else { return }
-		let to = offset > from ? offset - 1 : offset
-		guard to != from else { return }
-		change([EntryEdit.move("workspace", from: from, to: to)])
-	}
-
-	/// A dragged island takes the place of the one it is dropped on, which moves aside towards
-	/// where the dragged one came from. Any other text dropped there names no workspace.
+	/// The workspace takes the place of the target, which moves aside towards where it came from.
+	/// A name the file no longer has, gone in a reload while it was dragged, moves nothing.
 	@discardableResult
 	func moveWorkspace(_ name: String, to target: String) -> Bool {
 		guard let from = index(of: name), let to = index(of: target), from != to else { return false }
-		moveWorkspaces(from: [from], to: to > from ? to + 1 : to)
+		change([EntryEdit.move("workspace", from: from, to: to)])
 		return writeError == nil
 	}
 
@@ -174,6 +165,20 @@ extension SettingsModel {
 			value: shares.isEmpty ? nil : Config.Workspace.shareValue(
 				shares, order: workspaces[index].apps.map { Config.Workspace.name(of: $0) ?? $0 })
 		)
+	}
+}
+
+extension UTType {
+	static let kumikoWorkspace = UTType(exportedAs: "online.aimuzov.kumiko.workspace")
+}
+
+/// An island on the move. A type of its own, not the name as text: a text field it passes over
+/// would take text in, and nothing outside kumiko has a use for it.
+struct DraggedWorkspace: Codable, Transferable {
+	let name: String
+
+	static var transferRepresentation: some TransferRepresentation {
+		CodableRepresentation(contentType: .kumikoWorkspace).visibility(.ownProcess)
 	}
 }
 
@@ -261,9 +266,9 @@ private struct WorkspaceIsland: View {
 				.strokeBorder(SwiftUI.Color.accentColor, lineWidth: 2)
 				.opacity(targeted ? 1 : 0)
 		)
-		.dropDestination(for: String.self) { names, _ in
+		.dropDestination(for: DraggedWorkspace.self) { dragged, _ in
 			model.workspaceDropTarget = nil
-			guard let name = names.first else { return false }
+			guard let name = dragged.first?.name else { return false }
 			return model.moveWorkspace(name, to: workspace.name)
 		} isTargeted: { inside in
 			// Leaving one island and entering the next come in either order.
@@ -299,7 +304,7 @@ private struct WorkspaceIsland: View {
 		.padding(.vertical, 10)
 		.contentShape(Rectangle())
 		.onTapGesture { model.toggleExpanded(workspace.name) }
-		.draggable(workspace.name)
+		.draggable(DraggedWorkspace(name: workspace.name))
 		.accessibilityElement(children: .combine)
 		.accessibilityAddTraits(.isButton)
 		.accessibilityAction { model.toggleExpanded(workspace.name) }
