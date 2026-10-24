@@ -114,6 +114,9 @@ final class SettingsModel: ObservableObject {
 	@Published var expandedWorkspaces: Set<String> = []
 	/// Not published from here: the pointer moves often, and only what it lights up is drawn again.
 	let workspacesPointer = WorkspacesPointer()
+	/// Not published either: a dragged island moves with the pointer, and only the islands
+	/// follow it.
+	let islandDrag = IslandDrag()
 	/// The workspace the Remove dialog asks about, named when it opened.
 	@Published var workspacePendingRemoval: String?
 	/// Tells the window manager a rename is coming, before the file has it.

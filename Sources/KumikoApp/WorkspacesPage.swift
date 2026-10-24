@@ -172,17 +172,129 @@ extension SettingsModel {
 	}
 }
 
-extension UTType {
-	static let kumikoWorkspace = UTType(exportedAs: "online.aimuzov.kumiko.workspace")
-}
+/// An island lifted by its header and carried up or down the page, the others making
+/// way. Only the stack of islands watches it: the rest of the window does not draw again
+/// with every move.
+@MainActor
+final class IslandDrag: ObservableObject {
+	/// The pointer moves this far before a press stops being a click.
+	static let threshold = 4.0
+	static let spring = Animation.spring(duration: 0.3, bounce: 0.15)
 
-/// An island on the move. A type of its own, not the name as text: a text field it passes over
-/// would take text in, and nothing outside kumiko has a use for it.
-struct DraggedWorkspace: Codable, Transferable {
-	let name: String
+	@Published private(set) var dragged: String?
+	@Published private(set) var translation = 0.0
+	/// The place the island lands in if let go now, counted with it out of the list.
+	@Published private(set) var target: Int?
+	/// The island gliding into its place, kept above the ones it passes over until it is
+	/// there.
+	@Published private(set) var settling: String?
+	/// Where each island is laid out in the stack. Written when the layout changes, not
+	/// observed: the islands make way with offsets, which leave the layout as it is.
+	var frames: [String: CGRect] = [:]
 
-	static var transferRepresentation: some TransferRepresentation {
-		CodableRepresentation(contentType: .kumikoWorkspace).visibility(.ownProcess)
+	/// What the lift saw, so a move only compares numbers: the order, the islands' middles
+	/// and how far the lifted one can go before it leaves the first or the last behind.
+	private var order: [String] = []
+	private var middles: [Double] = []
+	private var from = 0
+	private var lifted = CGRect.zero
+	private var reach = 0.0...0.0
+	private var cancelled = false
+	private var escape: Any?
+
+	/// How far an island moves aside: the lifted one's height and the space after it.
+	func shift(of index: Int, spacing: Double) -> Double {
+		guard dragged != nil, let target, index != from else { return 0 }
+		if from < index, index <= target { return -(lifted.height + spacing) }
+		if target <= index, index < from { return lifted.height + spacing }
+		return 0
+	}
+
+	/// The order is read once, when the island lifts. A lift left over from a press whose
+	/// end never came, the view gone under it, gives way to the new one.
+	func move(_ name: String, by translation: CGSize, names: @autoclosure () -> [String]) {
+		guard !cancelled else { return }
+		if dragged != name {
+			guard hypot(translation.width, translation.height) >= Self.threshold else { return }
+			lift(name, in: names())
+		}
+		guard dragged == name else { return }
+
+		self.translation = min(max(translation.height, reach.lowerBound), reach.upperBound)
+		let centre = lifted.midY + self.translation
+		let slot = middles.indices.count { $0 != from && middles[$0] < centre }
+		if slot != target { target = slot }
+	}
+
+	/// Lets go of the island, writing its new place with `write` in the same animation that
+	/// brings it there: the file reorders the islands at once, and the offset going back to
+	/// zero then carries the island from where it was let go into its place. True when the
+	/// press was a click.
+	func end(_ name: String, write: (_ target: String) -> Void) -> Bool {
+		defer { cancelled = false }
+		guard dragged == name else { return !cancelled }
+		let target = target
+		settle(name) {
+			if let target, target != from { write(order[target]) }
+		}
+		return false
+	}
+
+	private func lift(_ name: String, in names: [String]) {
+		guard let frame = frames[name], let index = names.firstIndex(of: name) else { return }
+		order = names
+		// An island not measured yet sorts after every place, which leaves it where it is.
+		middles = names.map { frames[$0]?.midY ?? .infinity }
+		from = index
+		lifted = frame
+		let laidOut = names.compactMap { frames[$0] }
+		let top = laidOut.map(\.minY).min() ?? frame.minY
+		let bottom = laidOut.map(\.maxY).max() ?? frame.maxY
+		reach = (top - frame.minY)...(bottom - frame.maxY)
+		watchEscape()
+		withAnimation(Self.spring) {
+			dragged = name
+			target = index
+		}
+	}
+
+	/// Escape puts the island back where it was lifted from, and the rest of the press moves
+	/// nothing.
+	private func cancel() {
+		guard let name = dragged else { return }
+		cancelled = true
+		settle(name) {}
+	}
+
+	private func settle(_ name: String, _ write: () -> Void) {
+		unwatchEscape()
+		settling = name
+		withAnimation(Self.spring, completionCriteria: .logicallyComplete) {
+			write()
+			dragged = nil
+			translation = 0
+			target = nil
+		} completion: { [weak self] in
+			if self?.settling == name { self?.settling = nil }
+		}
+	}
+
+	private func watchEscape() {
+		unwatchEscape()
+		escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+			let code = event.keyCode
+			let handled = MainActor.assumeIsolated {
+				guard code == 53, let self, self.dragged != nil else { return false }
+				self.cancel()
+				return true
+			}
+			return handled ? nil : event
+		}
+	}
+
+	private func unwatchEscape() {
+		if let escape { NSEvent.removeMonitor(escape) }
+		escape = nil
 	}
 }
 
@@ -198,8 +310,9 @@ struct WorkspaceApp: Hashable {
 final class WorkspacesPointer: ObservableObject {
 	/// The app row whose remove button shows.
 	@Published var hoveredApp: WorkspaceApp?
-	/// The island a dragged one is over, which shows where the drop lands.
-	@Published var dropTarget: String?
+	/// The island last pressed with the mouse, which takes the focus without showing its
+	/// ring: the ring is for finding the focus from the keyboard.
+	@Published var clicked: String?
 
 	func forget(_ app: WorkspaceApp) {
 		if hoveredApp == app { hoveredApp = nil }
@@ -216,7 +329,7 @@ final class WorkspacesPointer: ObservableObject {
 	/// Set only when it changes: every set draws the buttons again, nil over nil too.
 	private func keep(_ kept: (String) -> Bool) {
 		if let app = hoveredApp, !kept(app.workspace) { hoveredApp = nil }
-		if let target = dropTarget, !kept(target) { dropTarget = nil }
+		if let island = clicked, !kept(island) { clicked = nil }
 	}
 }
 
@@ -235,10 +348,7 @@ struct WorkspacesPage: View {
 				}
 			}
 		} else {
-			// By name: a field being typed in stays with its workspace when the order changes.
-			ForEach(Array(model.workspaces.enumerated()), id: \.element.name) { index, workspace in
-				WorkspaceIsland(model: model, workspace: workspace, number: index + 1)
-			}
+			IslandStack(model: model, drag: model.islandDrag)
 
 			Button { model.addWorkspace() } label: {
 				Label("Add Workspace", systemImage: "plus")
@@ -269,6 +379,42 @@ struct WorkspacesPage: View {
 	}
 }
 
+/// The islands in their own stack, the one view that watches a drag: the lifted island
+/// follows the pointer above the others, which slide aside to open the place it would
+/// land in.
+private struct IslandStack: View {
+	/// The page's spacing, which the islands keep between them while they make way too.
+	static let spacing = 20.0
+	nonisolated static let space = "islands"
+
+	@ObservedObject var model: SettingsModel
+	@ObservedObject var drag: IslandDrag
+
+	var body: some View {
+		VStack(spacing: Self.spacing) {
+			// By name: a field being typed in stays with its workspace when the order changes.
+			ForEach(Array(model.workspaces.enumerated()), id: \.element.name) { index, workspace in
+				let lifted = drag.dragged == workspace.name
+				WorkspaceIsland(model: model, workspace: workspace, number: index + 1)
+					.scaleEffect(lifted ? 1.02 : 1)
+					.shadow(color: .black.opacity(lifted ? 0.18 : 0), radius: lifted ? 12 : 0, y: lifted ? 4 : 0)
+					.offset(y: drag.shift(of: index, spacing: Self.spacing))
+					.animation(IslandDrag.spring, value: drag.target)
+					// Outside the spring: the lifted island keeps up with the pointer.
+					.offset(y: lifted ? drag.translation : 0)
+					.zIndex(lifted || drag.settling == workspace.name ? 1 : 0)
+					// After the offsets, so they measure the place in the layout and not the one shown.
+					.onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frame in
+						drag.frames[workspace.name] = frame
+					}
+			}
+		}
+		.coordinateSpace(.named(Self.space))
+		// Over Add Workspace too, which a dragged island passes on its way to the bottom.
+		.zIndex(1)
+	}
+}
+
 /// A workspace as one of Raycast's collapsible groups: the header alone while closed, its settings
 /// and its apps under it while open. Islands come in file order, which is the order
 /// `workspace focus <n>` counts them in, and the header is what is dragged to change it.
@@ -294,23 +440,22 @@ private struct WorkspaceIsland: View {
 		}
 		.padding(.horizontal, 12)
 		.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.035)))
-		.overlay(IslandOutline(pointer: pointer, name: workspace.name))
-		.dropDestination(for: DraggedWorkspace.self) { dragged, _ in
-			pointer.dropTarget = nil
-			guard let name = dragged.first?.name else { return false }
-			return model.moveWorkspace(name, to: workspace.name)
-		} isTargeted: { inside in
-			// Leaving one island and entering the next come in either order.
-			if inside {
-				pointer.dropTarget = workspace.name
-			} else if pointer.dropTarget == workspace.name {
-				pointer.dropTarget = nil
-			}
-		}
 	}
 
-	/// A tap opens or closes the island and a drag moves it: a drag starts only once the pointer
-	/// moves, and a tap is a press let go where it began, so the two never both happen.
+	/// One gesture for the click and the drag, so the two never both happen: a press let go
+	/// before the pointer moved opens or closes the island, one that moved lifts it.
+	private var press: some Gesture {
+		DragGesture(minimumDistance: 0, coordinateSpace: .named(IslandStack.space))
+			.onChanged { value in
+				if pointer.clicked != workspace.name { pointer.clicked = workspace.name }
+				model.islandDrag.move(workspace.name, by: value.translation, names: model.workspaces.map(\.name))
+			}
+			.onEnded { _ in
+				let click = model.islandDrag.end(workspace.name) { model.moveWorkspace(workspace.name, to: $0) }
+				if click { model.toggleExpanded(workspace.name) }
+			}
+	}
+
 	private var header: some View {
 		HStack(spacing: 8) {
 			Image(systemName: "line.3.horizontal")
@@ -332,9 +477,10 @@ private struct WorkspaceIsland: View {
 		}
 		.padding(.vertical, 10)
 		.contentShape(Rectangle())
-		.onTapGesture { model.toggleExpanded(workspace.name) }
-		.draggable(DraggedWorkspace(name: workspace.name))
+		.gesture(press)
+		.overlay(FocusRing(pointer: pointer, name: workspace.name))
 		.focusable(interactions: .activate)
+		.focusEffectDisabled()
 		.onKeyPress(keys: [.space, .return]) { _ in
 			model.toggleExpanded(workspace.name)
 			return .handled
@@ -584,15 +730,23 @@ private struct AppRow: View {
 	}
 }
 
-/// The drop border of an island, the one view a drag over it draws again.
-private struct IslandOutline: View {
+/// The header's own focus ring, in place of the system's, which shows on a mouse click
+/// too. Left with the focus, the island shows it again when the keyboard comes back to
+/// it.
+private struct FocusRing: View {
 	@ObservedObject var pointer: WorkspacesPointer
+	@Environment(\.isFocused) private var focused
 	let name: String
 
 	var body: some View {
-		RoundedRectangle(cornerRadius: 10, style: .continuous)
-			.strokeBorder(SwiftUI.Color.accentColor, lineWidth: 2)
-			.opacity(pointer.dropTarget == name ? 1 : 0)
+		RoundedRectangle(cornerRadius: 6, style: .continuous)
+			.strokeBorder(SwiftUI.Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 3)
+			.padding(.horizontal, -6)
+			.opacity(focused && pointer.clicked != name ? 1 : 0)
+			.allowsHitTesting(false)
+			.onChange(of: focused) {
+				if !focused, pointer.clicked == name { pointer.clicked = nil }
+			}
 	}
 }
 

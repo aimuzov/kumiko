@@ -62,19 +62,6 @@ cat >"$app/Contents/Info.plist" <<PLIST
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>online.aimuzov.kumiko.workspace</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Kumiko Workspace</string>
-		</dict>
-	</array>
 </dict>
 </plist>
 PLIST
