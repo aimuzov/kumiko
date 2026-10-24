@@ -342,7 +342,11 @@ public final class WindowManager {
 		for workspace in workspaces {
 			guard let previous = workspace.changedRules else { continue }
 			workspace.changedRules = nil
-			applyLayoutRules(workspace, reorder: true, previous: previous)
+			// Only what says the order reorders: a size moved leaves a layout arranged by hand as
+			// it is. A layout switched rebuilds the tree, whose windows then need the order.
+			let rules = workspace.config
+			let reorder = previous.apps != rules.apps || previous.last != rules.last || previous.layout != rules.layout
+			applyLayoutRules(workspace, reorder: reorder, previous: previous)
 		}
 
 		arrange(displays)
@@ -446,9 +450,11 @@ public final class WindowManager {
 	}
 
 	/// Puts a window into its workspace's layout, then applies the workspace's layout rules.
-	private func add(_ info: WindowInfo, to workspace: Workspace) {
+	/// `near` is the window it goes next to, the focused one when none is given.
+	private func add(_ info: WindowInfo, to workspace: Workspace, near anchor: UInt32? = nil) {
 		let tree = workspace.tree
-		let near = [tracker.focusedWindowID, workspace.lastFocused].compactMap(\.self).first { tree.contains($0) }
+		let near = [anchor, tracker.focusedWindowID, workspace.lastFocused].compactMap(\.self)
+			.first { tree.contains($0) }
 		tree.insert(info.id, near: near, in: area(of: workspace.display), gap: gap)
 
 		let rules = workspace.config
@@ -884,9 +890,7 @@ public final class WindowManager {
 			workspace.tree.swap(id, target)
 		} else {
 			// Dropped on a window on another display: the window moves to that workspace.
-			workspace.tree.remove(id)
-			assignment[id] = targetWorkspace
-			targetWorkspace.tree.insert(id, near: target, in: self.area(of: targetWorkspace.display), gap: gap)
+			transfer(id, from: workspace, to: targetWorkspace, near: target)
 		}
 	}
 
@@ -1038,9 +1042,7 @@ public final class WindowManager {
 				tree.warp(id, to: other, direction: direction)
 			} else {
 				// Across displays: the window joins the workspace shown there, next to `other`.
-				tree.remove(id)
-				assignment[id] = otherWorkspace
-				otherWorkspace.tree.insert(id, near: other, in: area(of: otherWorkspace.display), gap: gap)
+				transfer(id, from: workspace, to: otherWorkspace, near: other)
 			}
 		default:
 			return .failure("usage: kumiko window warp west|east|north|south|first|last")
@@ -1057,13 +1059,7 @@ public final class WindowManager {
 		}
 		guard destination !== current else { return .failure("the window is already on \(destination.name)") }
 
-		current.tree.remove(id)
-		assignment[id] = destination
-		if current.lastFocused == id { current.lastFocused = nil }
-
-		if let info = tracker.windows[id], isTiled(id, in: destination) {
-			add(info, to: destination)
-		}
+		transfer(id, from: current, to: destination)
 
 		if follow {
 			destination.lastFocused = id
@@ -1108,10 +1104,28 @@ public final class WindowManager {
 		return .success()
 	}
 
+	/// Takes a window from one workspace to another the way a new one joins: the destination's
+	/// layout and rules place it, a stack keeps it in its one leaf, and it counts as new there,
+	/// so the apps' order takes it in. The workspace it leaves forgets it.
+	private func transfer(_ id: UInt32, from current: Workspace, to destination: Workspace, near: UInt32? = nil) {
+		current.tree.remove(id)
+		current.seen.remove(id)
+		if current.lastFocused == id { current.lastFocused = nil }
+		assignment[id] = destination
+		if let info = tracker.windows[id], isTiled(id, in: destination) {
+			add(info, to: destination, near: near)
+		}
+	}
+
 	/// Toggles floating, the way yabai does: a window in the layout floats, and any other window
 	/// joins the layout, also one the rules leave out. `--grid rows:cols:x:y:width:height` places a
 	/// window that starts floating on that cell of a grid laid over its display.
 	private func float(_ id: UInt32, _ args: [String]) -> Response {
+		// Nothing to toggle there, and a window marked tiled would be pulled into the layout the
+		// day the workspace tiles again, though no rule asks for it.
+		if let workspace = assignment[id], workspace.config.layout == .float {
+			return .failure("workspace \(workspace.name) floats every window")
+		}
 		guard assignment[id]?.tree.contains(id) == true else {
 			guard tracker.windows[id]?.subrole == "AXStandardWindow" else {
 				return .failure("only standard windows can join the layout")
@@ -1211,7 +1225,8 @@ public final class WindowManager {
 			current.tree.mirror(.rows)
 		default:
 			return .failure(
-				"usage: kumiko workspace focus <name>|<n>|next|prev|recent|balance|rotate 90|180|270|mirror horizontal|vertical"
+				"usage: kumiko workspace focus <name>|<n>|next|prev|recent|balance|rotate 90|180|270"
+					+ "|mirror horizontal|vertical|layout bsp|stack|float [<name>]"
 			)
 		}
 
