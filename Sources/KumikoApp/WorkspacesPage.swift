@@ -34,6 +34,11 @@ extension SettingsModel {
 		carryWorkspace(from: name, to: new, id: id)
 	}
 
+	/// `bsp` is the default and leaves the file.
+	func setLayout(_ name: String, _ layout: Config.Workspace.Layout) {
+		setWorkspace(name, "layout", layout == .bsp ? nil : .string(layout.rawValue))
+	}
+
 	/// Only the first default counts, so turning one on turns the others off.
 	func setDefault(_ name: String, _ on: Bool) {
 		guard let index = index(of: name) else { return }
@@ -475,6 +480,13 @@ private struct WorkspaceRow: View {
 				.lineLimit(1)
 				.truncationMode(.tail)
 			Spacer(minLength: 4)
+			// Only for the layouts that are not the usual one, so most rows stay as they were.
+			if let symbol = workspace.layout.symbol {
+				Image(systemName: symbol)
+					.font(.system(size: 10))
+					.foregroundStyle(.secondary)
+					.help(workspace.layout.title)
+			}
 			RowSummary(apps: workspace.apps, isDefault: workspace.isDefault)
 		}
 		.padding(.horizontal, 8)
@@ -624,6 +636,34 @@ private struct ListButtons: View {
 	}
 }
 
+/// What the Layout row and the list say about a layout.
+extension Config.Workspace.Layout {
+	var title: String {
+		switch self {
+		case .bsp: "BSP"
+		case .stack: "Stack"
+		case .float: "Float"
+		}
+	}
+
+	var detail: String {
+		switch self {
+		case .bsp: "Windows split the screen."
+		case .stack: "One window at a time, the rest stacked behind."
+		case .float: "Windows stay where you put them."
+		}
+	}
+
+	/// Nil for BSP, which most workspaces are.
+	var symbol: String? {
+		switch self {
+		case .bsp: nil
+		case .stack: "square.stack"
+		case .float: "macwindow"
+		}
+	}
+}
+
 /// The picked workspace's settings, and its apps under them.
 private struct WorkspaceDetail: View {
 	@ObservedObject var model: SettingsModel
@@ -645,6 +685,19 @@ private struct WorkspaceDetail: View {
 					Row(title: "Display") {
 						Text(displayTitle).foregroundStyle(.secondary)
 					}
+				}
+				Row(title: "Layout", detail: workspace.layout.detail) {
+					Picker(
+						"",
+						selection: Binding(get: { workspace.layout }, set: { model.setLayout(workspace.name, $0) })
+					) {
+						ForEach(Config.Workspace.Layout.allCases, id: \.self) { layout in
+							Text(layout.title).tag(layout)
+						}
+					}
+					.pickerStyle(.segmented)
+					.labelsHidden()
+					.fixedSize()
 				}
 				SwitchRow(
 					title: "Default",
@@ -720,6 +773,13 @@ private struct AppsCard: View {
 						.padding(.vertical, 10)
 				} else {
 					AppTable(model: model, drag: model.appDrag, workspace: workspace)
+					if workspace.layout != .bsp {
+						Text("\(workspace.layout.title) has no splits: the order and shares apply in BSP only.")
+							.font(.system(size: 11))
+							.foregroundStyle(.secondary)
+							.frame(maxWidth: .infinity, alignment: .leading)
+							.padding(.vertical, 8)
+					}
 				}
 			}
 		}
@@ -856,6 +916,8 @@ private struct AppRow: View {
 		HStack(spacing: AppColumn.spacing) {
 			if movable {
 				handle
+					.disabled(workspace.layout != .bsp)
+					.opacity(workspace.layout != .bsp ? 0.4 : 1)
 			} else {
 				Spacer().frame(width: AppColumn.handle)
 			}
@@ -884,7 +946,7 @@ private struct AppRow: View {
 
 			ShareSlider(model: model, workspace: workspace, app: app)
 				.frame(width: AppColumn.share)
-				.disabled(workspace.isPattern(app))
+				.disabled(workspace.isPattern(app) || workspace.layout != .bsp)
 				.help(workspace.isPattern(app) ? Self.patternHelp : ShareSlider.help)
 
 			// Always there: one shown on hover only was found by chance. The red circle is how macOS
