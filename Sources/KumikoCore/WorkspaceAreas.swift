@@ -1,7 +1,8 @@
 extension Config.Workspace {
 	/// The two places the settings window puts workspaces in while a monitor is attached.
-	/// Only `external` is the monitor's: `main`, `builtin` and part of a screen's name all
-	/// start out on the screen with the menu bar, or fall back to it.
+	/// Only `external` says the monitor. `main` and `builtin` live on their own screens,
+	/// and part of a screen's name on the screen it names, a monitor too; the page still
+	/// groups all of them under Main, since none of them follows the monitor.
 	public enum Area: String, Sendable, CaseIterable {
 		case external, main
 

@@ -16,9 +16,11 @@ enum AppList: String, CaseIterable {
 	}
 }
 
-/// The screens the two areas stand for, by the names macOS gives them. Main is the
-/// screen with the menu bar. External is a monitor other than that one, or the monitor
-/// itself when the menu bar was moved onto it. No monitor, no areas.
+/// The screens the two areas stand for, by the names macOS gives them, picked the way
+/// the window manager places a workspace: Main is the screen with the menu bar, External
+/// the first monitor, which is Main itself when the menu bar was moved onto it. Areas
+/// show only with more than one screen and a monitor among them: a Mac mini with one
+/// monitor or a closed laptop would get two areas for the same screen.
 struct AreaScreens: Equatable {
 	var main: String?
 	var external: String?
@@ -30,7 +32,7 @@ struct AreaScreens: Equatable {
 			let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
 			return number.map { CGDisplayIsBuiltin($0.uint32Value) == 0 } ?? true
 		}
-		let external = monitors.first { $0 != screens.first } ?? monitors.first
+		let external = screens.count > 1 ? monitors.first : nil
 		return AreaScreens(main: screens.first?.localizedName, external: external?.localizedName)
 	}
 
@@ -994,7 +996,7 @@ private struct WorkspaceIsland: View {
 	}
 
 	/// Only with areas, and only what the area does not say already: `builtin`, or part of a
-	/// screen's name, which would be lost from sight with the Display menu gone.
+	/// screen's name. Grouped under Main, it would not show anywhere else on the page.
 	private var displayTitle: String? {
 		let said = Config.Workspace.Area.allCases.map(\.display)
 		guard area != nil, !said.contains(workspace.display) else { return nil }
