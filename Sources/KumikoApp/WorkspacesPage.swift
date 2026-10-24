@@ -276,6 +276,8 @@ final class IslandDrag: ObservableObject {
 		autoScroll.start { [weak self] distance in
 			self?.scrolled += distance
 			self?.place()
+		} lost: { [weak self] in
+			self?.abandon()
 		}
 		withAnimation(Self.spring) {
 			dragged = name
@@ -289,6 +291,14 @@ final class IslandDrag: ObservableObject {
 		guard let name = dragged else { return }
 		cancelled = true
 		settle(name) {}
+	}
+
+	/// Puts the island back for a press that will never end, whose gesture is gone: no end
+	/// comes to clear the press, and the next one elsewhere would be taken for its rest.
+	func abandon() {
+		cancel()
+		cancelled = false
+		moved = false
 	}
 
 	/// Drops everything at once, for a page that is gone: there is nothing left to animate.
@@ -350,12 +360,18 @@ final class IslandAutoScroll {
 	weak var scrollView: NSScrollView?
 	private var timer: Timer?
 	private var scrolled: (Double) -> Void = { _ in }
+	private var lost: () -> Void = {}
+	/// Ticks since the button came up. A real release reaches the gesture well within them.
+	private var released = 0
 
-	/// `scrolled` gets the distance of every tick that moved the page, down positive.
-	func start(_ scrolled: @escaping (Double) -> Void) {
+	/// `scrolled` gets the distance of every tick that moved the page, down positive. `lost`
+	/// is for a press whose end the gesture never hears: the window closed under it, or the
+	/// button came up and the gesture did not end.
+	func start(scrolled: @escaping (Double) -> Void, lost: @escaping () -> Void) {
 		stop()
-		guard scrollView != nil else { return }
 		self.scrolled = scrolled
+		self.lost = lost
+		released = 0
 		let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
 			MainActor.assumeIsolated { self?.tick() }
 		}
@@ -369,6 +385,13 @@ final class IslandAutoScroll {
 	}
 
 	private func tick() {
+		released = NSEvent.pressedMouseButtons & 1 == 0 ? released + 1 : 0
+		if released > 10 || scrollView.map({ $0.window?.isVisible != true }) == true {
+			stop()
+			lost()
+			return
+		}
+
 		// SwiftUI's document view is flipped, which the distances below count on.
 		guard let scrollView, let window = scrollView.window, let document = scrollView.documentView,
 		      document.isFlipped else { return }
@@ -538,8 +561,9 @@ private struct IslandStack: View {
 		.background(ScrollViewProbe { [weak drag] in drag?.autoScroll.scrollView = $0 })
 		.onDisappear { drag.reset() }
 		// The snapshot counts places by index, which a reload with other names would shift.
-		.onChange(of: model.workspaces.map(\.name)) {
-			if drag.dragged != nil { drag.cancel() }
+		.onChange(of: model.workspaces.map(\.name)) { _, names in
+			guard let lifted = drag.dragged else { return }
+			if names.contains(lifted) { drag.cancel() } else { drag.abandon() }
 		}
 		// Over Add Workspace too, which a dragged island passes on its way to the bottom.
 		.zIndex(1)
