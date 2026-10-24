@@ -3,6 +3,9 @@ import KumikoCore
 
 /// `[wm] shadows`: takes window shadows away through the scripting addition, and gives them back.
 /// Without the payload in Dock nothing changes and windows keep the shadow macOS gives them.
+///
+/// Only standard windows lose theirs. A panel floats over the windows, like Raycast's launcher, and
+/// without a shadow it has no edge against what is under it.
 @MainActor
 public final class Shadows {
 	private let bus: EventBus
@@ -61,8 +64,12 @@ public final class Shadows {
 	private func handle(_ event: Event) {
 		switch event {
 		case let .windowCreated(info):
-			guard !enabled, payloadVersion != nil else { return }
+			guard !enabled, payloadVersion != nil, Self.losesShadow(info) else { return }
 			take(from: [info.id])
+		case let .windowChanged(info):
+			// A window may tell its subrole only once it is fully there.
+			guard !enabled, payloadVersion != nil, Self.losesShadow(info) != stripped.contains(info.id) else { return }
+			Self.losesShadow(info) ? take(from: [info.id]) : give(to: [info.id])
 		case let .windowDestroyed(id):
 			stripped.remove(id)
 		default:
@@ -105,20 +112,32 @@ public final class Shadows {
 
 	private func sync() {
 		if enabled {
-			let ids = stripped
-			stripped = []
-			queue.async {
-				for id in ids { ScriptingAddition.setShadow(id, true) }
-			}
+			give(to: Array(stripped))
 		} else {
-			take(from: tracker.windows.keys.filter { !stripped.contains($0) })
+			let windows = tracker.windows.values
+			take(from: windows.filter { Self.losesShadow($0) && !stripped.contains($0.id) }.map(\.id))
+			// Only shadows kumiko took come back: an app may want a panel of its own without one.
+			give(to: windows.filter { !Self.losesShadow($0) && stripped.contains($0.id) }.map(\.id))
 		}
 	}
 
+	nonisolated static func losesShadow(_ info: WindowInfo) -> Bool {
+		info.subrole == kAXStandardWindowSubrole as String
+	}
+
 	private func take(from ids: [UInt32]) {
+		guard !ids.isEmpty else { return }
 		stripped.formUnion(ids)
 		queue.async {
 			for id in ids { ScriptingAddition.setShadow(id, false) }
+		}
+	}
+
+	private func give(to ids: [UInt32]) {
+		guard !ids.isEmpty else { return }
+		stripped.subtract(ids)
+		queue.async {
+			for id in ids { ScriptingAddition.setShadow(id, true) }
 		}
 	}
 }
