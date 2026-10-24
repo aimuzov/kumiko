@@ -113,7 +113,8 @@ final class SettingsModel: ObservableObject {
 	/// The workspaces shown open, by name: a rename takes its name along, a removal drops it.
 	@Published var expandedWorkspaces: Set<String> = []
 	/// An identity per workspace island that outlives its name, so a rename does not rebuild the island
-	/// and take the keyboard from the field it was typed in. Not published: a view only reads it.
+	/// and take the keyboard from the field it was typed in. Not published: the stack adds ids while
+	/// it draws, which sends no change.
 	private var islandIDs: [String: UUID] = [:]
 	/// Not published from here: the pointer moves often, and only what it lights up is drawn again.
 	let workspacesPointer = WorkspacesPointer()
@@ -145,6 +146,7 @@ final class SettingsModel: ObservableObject {
 		readMenuBar = menuBar
 	}
 
+	/// Called from the stack's `body`, so a name seen for the first time gets its id there.
 	func islandID(for name: String) -> UUID {
 		if let id = islandIDs[name] { return id }
 		let id = UUID()
@@ -154,6 +156,7 @@ final class SettingsModel: ObservableObject {
 
 	/// Moves the identity and what is kept by name to the new name, once the file has it.
 	func carryIsland(from name: String, to new: String, id: UUID) {
+		islandIDs[name] = nil
 		islandIDs[new] = id
 		workspacesPointer.rename(name, to: new)
 		if let frame = islandDrag.frames.removeValue(forKey: name) { islandDrag.frames[new] = frame }

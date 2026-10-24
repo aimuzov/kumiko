@@ -585,7 +585,12 @@ private struct IslandStack: View {
 		}
 		.coordinateSpace(.named(Self.space))
 		.background(ScrollViewProbe { [weak drag] in drag?.autoScroll.scrollView = $0 })
-		.onDisappear { drag.reset() }
+		.onDisappear {
+			drag.reset()
+			// A window closed under the pointer sends no exit, and the island would stay lit.
+			if model.workspacesPointer.hoveredIsland != nil { model.workspacesPointer.hoveredIsland = nil }
+			if model.workspacesPointer.hoveredApp != nil { model.workspacesPointer.hoveredApp = nil }
+		}
 		// The snapshot counts places by index, which a reload with other names would shift.
 		.onChange(of: model.workspaces.map(\.name)) { _, names in
 			guard let lifted = drag.dragged else { return }
@@ -659,6 +664,8 @@ private struct WorkspaceIsland: View {
 			Text(workspace.name)
 				.lineLimit(1)
 				.truncationMode(.tail)
+				// The summary gives way first.
+				.layoutPriority(1)
 			Image(systemName: expanded ? "chevron.down" : "chevron.right")
 				.font(.system(size: 10, weight: .semibold))
 				.foregroundStyle(.secondary)
@@ -957,6 +964,14 @@ private struct HeaderApps: View {
 		}
 		.foregroundStyle(.secondary)
 		.lineLimit(1)
+		.accessibilityElement(children: .ignore)
+		.accessibilityLabel(label)
+	}
+
+	/// The icons say nothing to VoiceOver: the names come from the entries.
+	private var label: String {
+		let names = apps.map { Config.Workspace.name(of: $0) ?? $0 }
+		return ([title] + names + (isDefault ? ["default"] : [])).joined(separator: ", ")
 	}
 
 	/// A pattern has no icon to show, and an app not found has none yet: both get a stand-in.
