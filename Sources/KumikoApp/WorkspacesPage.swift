@@ -546,10 +546,10 @@ private struct WorkspaceIsland: View {
 			ZStack {
 				if expanded {
 					Button { model.workspacePendingRemoval = workspace.name } label: {
-						Image(systemName: "trash")
+						IconChip(symbol: "trash", tint: .red)
 					}
-					.buttonStyle(.borderless)
-					.foregroundStyle(.red)
+					.buttonStyle(IconChipStyle())
+					.pointingHand()
 					.help("Remove Workspace")
 					.accessibilityLabel("Remove Workspace")
 				} else {
@@ -730,16 +730,46 @@ private struct AddAppButton: View {
 				if let app = WorkspaceIsland.chooseApp() { model.setApp(app, .apps, true, in: workspace.name) }
 			}
 		} label: {
-			Image(systemName: "plus")
-				.font(.system(size: 11, weight: .semibold))
-				.frame(width: 20, height: 20)
-				.background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.primary.opacity(0.07)))
-				.contentShape(Rectangle())
+			IconChip(symbol: "plus", tint: nil)
 		}
 		.menuStyle(.borderlessButton)
 		.menuIndicator(.hidden)
 		.fixedSize()
+		.pointingHand()
 		.help("Add App")
+	}
+}
+
+/// A symbol on a small rounded square: a bare icon in a row of text reads as decoration, the
+/// square says it can be pressed. A tinted one, the remove button, takes its colour on both.
+private struct IconChip: View {
+	let symbol: String
+	let tint: SwiftUI.Color?
+
+	var body: some View {
+		Image(systemName: symbol)
+			.font(.system(size: 11, weight: .semibold))
+			.foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
+			.frame(width: 20, height: 20)
+			.background(
+				RoundedRectangle(cornerRadius: 6, style: .continuous)
+					.fill((tint ?? .primary).opacity(tint == nil ? 0.07 : 0.12))
+			)
+			.contentShape(Rectangle())
+	}
+}
+
+/// Darkens an `IconChip` while it is held, the way a button answers a press.
+private struct IconChipStyle: ButtonStyle {
+	func makeBody(configuration: Configuration) -> some View {
+		configuration.label.opacity(configuration.isPressed ? 0.6 : 1)
+	}
+}
+
+extension View {
+	/// The pointing hand over something to press, the cue a borderless control otherwise lacks.
+	fileprivate func pointingHand() -> some View {
+		onHover { inside in (inside ? NSCursor.pointingHand : NSCursor.arrow).set() }
 	}
 }
 
