@@ -829,6 +829,7 @@ private struct HeaderApps: View {
 	var body: some View {
 		HStack(spacing: 8) {
 			if let title { Text(title) }
+			if isDefault { Text("default").font(.caption) }
 			if !apps.isEmpty {
 				HStack(spacing: 4) {
 					ForEach(Array(apps.prefix(Self.limit).enumerated()), id: \.offset) { _, entry in
@@ -839,7 +840,6 @@ private struct HeaderApps: View {
 					}
 				}
 			}
-			if isDefault { Text("default").font(.caption) }
 		}
 		.foregroundStyle(.secondary)
 		.lineLimit(1)
@@ -850,7 +850,7 @@ private struct HeaderApps: View {
 	/// The icons say nothing to VoiceOver: the names come from the entries.
 	private var label: String {
 		let names = apps.map { Config.Workspace.name(of: $0) ?? $0 }
-		return ([title].compactMap(\.self) + names + (isDefault ? ["default"] : [])).joined(separator: ", ")
+		return ([title].compactMap(\.self) + (isDefault ? ["default"] : []) + names).joined(separator: ", ")
 	}
 
 	/// A pattern has no icon to show, and an app not found has none yet: both get a stand-in.
