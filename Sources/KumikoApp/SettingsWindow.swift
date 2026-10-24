@@ -111,7 +111,21 @@ final class SettingsModel: ObservableObject {
 	/// Why the last change made here was not written.
 	@Published private(set) var writeError: String?
 	// In the model rather than in @State: the State macro needs a plugin only Xcode ships.
-	@Published var pane = Pane.general
+	/// The page shown. Every change of it is a step the header's arrows walk back.
+	@Published var pane = Pane.general {
+		didSet {
+			showsPaneInfo = false
+			guard pane != oldValue, !walking else { return }
+			backward.append(oldValue)
+			forward.removeAll()
+		}
+	}
+	/// The pages left behind, the nearest last, and the pages gone back from.
+	@Published private(set) var backward: [Pane] = []
+	@Published private(set) var forward: [Pane] = []
+	private var walking = false
+	/// The header's info button shows what the page's module does.
+	@Published var showsPaneInfo = false
 	@Published private(set) var opensAtLogin = LoginItem.isEnabled
 	@Published private(set) var payloadVersion: String?
 	@Published private(set) var sipAllowsPayload = ScriptingAddition.isAllowedBySIP
@@ -234,6 +248,25 @@ final class SettingsModel: ObservableObject {
 		sipAllowsPayload = ScriptingAddition.isAllowedBySIP
 		missing = Permission.missing
 		menuBarItems = readMenuBar()
+	}
+
+	func goBack() {
+		guard let previous = backward.popLast() else { return }
+		forward.append(pane)
+		walk(to: previous)
+	}
+
+	func goForward() {
+		guard let next = forward.popLast() else { return }
+		backward.append(pane)
+		walk(to: next)
+	}
+
+	/// A step through the history is no new step in it.
+	private func walk(to page: Pane) {
+		walking = true
+		pane = page
+		walking = false
 	}
 
 	/// The pages the search leaves, in the order given.
@@ -373,28 +406,116 @@ private struct SettingsView: View {
 			ScrollView {
 				Page(model: model)
 					.padding(.horizontal, 24)
-					.padding(.top, 44)
+					.padding(.top, PageBar.height + 8)
 					.padding(.bottom, 24)
 					.frame(maxWidth: 600)
 					.frame(maxWidth: .infinity)
 			}
-			.overlay(alignment: .topTrailing) {
-				if let setting = model.pane.enabledSetting {
-					// On the line of the traffic lights, where Raycast keeps a page's own switch.
-					Toggle("", isOn: model.binding(setting.keyPath, setting.table, setting.key))
-						.toggleStyle(.switch)
-						.controlSize(.small)
-						.labelsHidden()
-						.help("\(setting.table).\(setting.key) in kumiko.toml")
-						.padding(.top, 19)
-						.padding(.trailing, 18)
-				}
-			}
+			.overlay(alignment: .top) { PageBar(model: model) }
 		}
 		.frame(minWidth: 780, minHeight: 500)
 		.background(SwiftUI.Color(nsColor: .textBackgroundColor))
 		// Up under the transparent title bar, so the traffic lights sit inside the sidebar.
 		.ignoresSafeArea()
+	}
+}
+
+/// Raycast's header over a settings page: the way back and forth through the pages seen, the
+/// page's title, what its module does, and its switch. It keeps to the line of the traffic lights
+/// while the page scrolls under it and fades out into it. Its empty parts are the title bar's,
+/// so the window still moves by them.
+private struct PageBar: View {
+	static let height = 52.0
+
+	@ObservedObject var model: SettingsModel
+	@Environment(\.controlActiveState) private var activeState
+	@Environment(\.colorScheme) private var colorScheme
+
+	private var isActive: Bool { activeState != .inactive }
+
+	var body: some View {
+		let page = SwiftUI.Color(nsColor: .textBackgroundColor)
+
+		HStack(spacing: 12) {
+			arrows
+			Text(model.pane.title)
+				.font(.system(size: 15, weight: .semibold))
+				.foregroundStyle(isActive ? .primary : .secondary)
+				.lineLimit(1)
+			Spacer(minLength: 8)
+			Button { model.showsPaneInfo.toggle() } label: {
+				Image(systemName: "info.circle").font(.system(size: 15))
+			}
+			.buttonStyle(.borderless)
+			.foregroundStyle(.secondary)
+			.help("About this page")
+			.popover(isPresented: $model.showsPaneInfo, arrowEdge: .bottom) {
+				Text(model.pane.subtitle)
+					.fixedSize(horizontal: false, vertical: true)
+					.frame(width: 240, alignment: .leading)
+					.padding(12)
+			}
+			if let setting = model.pane.enabledSetting {
+				Toggle("", isOn: model.binding(setting.keyPath, setting.table, setting.key))
+					.toggleStyle(.switch)
+					.controlSize(.mini)
+					.labelsHidden()
+					.help("\(setting.table).\(setting.key) in kumiko.toml")
+			}
+		}
+		.padding(.horizontal, 16)
+		.frame(height: Self.height)
+		.frame(maxWidth: .infinity)
+		.background(alignment: .top) {
+			// Solid behind the header, then gone: what scrolls up fades out instead of being cut.
+			LinearGradient(
+				stops: [
+					.init(color: page, location: 0), .init(color: page, location: 0.6),
+					.init(color: page.opacity(0), location: 1),
+				],
+				startPoint: .top, endPoint: .bottom
+			)
+			.frame(height: Self.height + 24)
+			.allowsHitTesting(false)
+		}
+	}
+
+	/// The back and forward capsule floats over the page with a shadow, and lies flat with the
+	/// window in the back, like the sidebar.
+	private var arrows: some View {
+		let shape = Capsule()
+
+		return HStack(spacing: 0) {
+			arrow("chevron.left", "Back", enabled: !model.backward.isEmpty, key: "[") { model.goBack() }
+			Divider().frame(height: 14)
+			arrow("chevron.right", "Forward", enabled: !model.forward.isEmpty, key: "]") { model.goForward() }
+		}
+		.background {
+			if isActive {
+				shape.fill(SwiftUI.Color(nsColor: .textBackgroundColor))
+					.overlay(shape.strokeBorder(.primary.opacity(colorScheme == .dark ? 0.12 : 0.06)))
+					.shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.1), radius: 6, y: 1)
+			} else {
+				shape.fill(.primary.opacity(0.04))
+			}
+		}
+	}
+
+	private func arrow(
+		_ symbol: String, _ title: String, enabled: Bool, key: KeyEquivalent, action: @escaping () -> Void
+	) -> some View {
+		Button(action: action) {
+			Image(systemName: symbol)
+				.font(.system(size: 12, weight: .semibold))
+				.frame(width: 32, height: 28)
+				.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.foregroundStyle(enabled ? .primary : .tertiary)
+		.disabled(!enabled)
+		.keyboardShortcut(key, modifiers: .command)
+		.help(title)
+		.accessibilityLabel(title)
 	}
 }
 
