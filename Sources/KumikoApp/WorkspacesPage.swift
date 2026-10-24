@@ -191,6 +191,7 @@ final class IslandDrag: ObservableObject {
 	/// Where each island is laid out in the stack. Written when the layout changes, not
 	/// observed: the islands make way with offsets, which leave the layout as it is.
 	var frames: [String: CGRect] = [:]
+	let autoScroll = IslandAutoScroll()
 
 	/// What the lift saw, so a move only compares numbers: the order, the islands' middles
 	/// and how far the lifted one can go before it leaves the first or the last behind.
@@ -199,6 +200,10 @@ final class IslandDrag: ObservableObject {
 	private var from = 0
 	private var lifted = CGRect.zero
 	private var reach = 0.0...0.0
+	/// The pointer's own part of the translation, and what the page scrolled since it last
+	/// moved: held at the edge, the island goes along with the page under a still pointer.
+	private var pointer = 0.0
+	private var scrolled = 0.0
 	private var cancelled = false
 	/// The press went past the threshold, lifted or not, and is no click when let go.
 	private var moved = false
@@ -225,7 +230,14 @@ final class IslandDrag: ObservableObject {
 		}
 		guard dragged == name else { return }
 
-		self.translation = min(max(translation.height, reach.lowerBound), reach.upperBound)
+		// Measured in the stack, the gesture's translation has the scrolling in it already.
+		pointer = translation.height
+		scrolled = 0
+		place()
+	}
+
+	private func place() {
+		translation = min(max(pointer + scrolled, reach.lowerBound), reach.upperBound)
 		let centre = lifted.midY + self.translation
 		let slot = middles.indices.count { $0 != from && middles[$0] < centre }
 		if slot != target { target = slot }
@@ -261,6 +273,10 @@ final class IslandDrag: ObservableObject {
 		let bottom = laidOut.map(\.maxY).max() ?? frame.maxY
 		reach = (top - frame.minY)...(bottom - frame.maxY)
 		watchEscape()
+		autoScroll.start { [weak self] distance in
+			self?.scrolled += distance
+			self?.place()
+		}
 		withAnimation(Self.spring) {
 			dragged = name
 			target = index
@@ -278,6 +294,7 @@ final class IslandDrag: ObservableObject {
 	/// Drops everything at once, for a page that is gone: there is nothing left to animate.
 	func reset() {
 		unwatchEscape()
+		autoScroll.stop()
 		dragged = nil
 		target = nil
 		translation = 0
@@ -288,6 +305,7 @@ final class IslandDrag: ObservableObject {
 
 	private func settle(_ name: String, _ write: () -> Void) {
 		unwatchEscape()
+		autoScroll.stop()
 		settling = name
 		withAnimation(Self.spring, completionCriteria: .logicallyComplete) {
 			write()
@@ -315,6 +333,93 @@ final class IslandDrag: ObservableObject {
 	private func unwatchEscape() {
 		if let escape { NSEvent.removeMonitor(escape) }
 		escape = nil
+	}
+}
+
+/// Scrolls the page while a lifted island is held at its top or bottom, so a place out of
+/// sight can be reached: twelve workspaces do not fit the window.
+@MainActor
+final class IslandAutoScroll {
+	/// How near the edge the pointer starts the scrolling, and the most a tick scrolls, right
+	/// at the edge or past it.
+	static let edge = 40.0
+	static let fastest = 20.0
+
+	/// The page's own scroll view, found from inside it: SwiftUI hands out no way to scroll it
+	/// by a distance.
+	weak var scrollView: NSScrollView?
+	private var timer: Timer?
+	private var scrolled: (Double) -> Void = { _ in }
+
+	/// `scrolled` gets the distance of every tick that moved the page, down positive.
+	func start(_ scrolled: @escaping (Double) -> Void) {
+		stop()
+		guard scrollView != nil else { return }
+		self.scrolled = scrolled
+		let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+			MainActor.assumeIsolated { self?.tick() }
+		}
+		RunLoop.main.add(timer, forMode: .common)
+		self.timer = timer
+	}
+
+	func stop() {
+		timer?.invalidate()
+		timer = nil
+	}
+
+	private func tick() {
+		// SwiftUI's document view is flipped, which the distances below count on.
+		guard let scrollView, let window = scrollView.window, let document = scrollView.documentView,
+		      document.isFlipped else { return }
+		let point = scrollView.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+		let height = scrollView.bounds.height
+		let insets = scrollView.contentInsets
+		let fromTop = (scrollView.isFlipped ? point.y : height - point.y) - insets.top
+		let fromBottom = height - insets.top - insets.bottom - fromTop
+
+		// Faster the deeper in, slow at first so a pointer passing by barely moves the page.
+		let depth = fromTop < Self.edge ? -(Self.edge - fromTop) / Self.edge
+			: fromBottom < Self.edge ? (Self.edge - fromBottom) / Self.edge : 0
+		guard depth != 0 else { return }
+		let step = min(max(depth * abs(depth), -1), 1) * Self.fastest
+
+		let clip = scrollView.contentView
+		let bottom = max(-insets.top, document.frame.height - clip.bounds.height + insets.bottom)
+		let next = min(max(clip.bounds.origin.y + step, -insets.top), bottom)
+		let distance = next - clip.bounds.origin.y
+		guard distance != 0 else { return }
+		clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: next))
+		scrollView.reflectScrolledClipView(clip)
+		scrolled(distance)
+	}
+}
+
+/// Hands the scroll view around the page to the auto-scroll once it is in a window.
+private struct ScrollViewProbe: NSViewRepresentable {
+	let found: (NSScrollView?) -> Void
+
+	func makeNSView(context: Context) -> Probe { Probe(found: found) }
+
+	func updateNSView(_ view: Probe, context: Context) {}
+
+	final class Probe: NSView {
+		let found: (NSScrollView?) -> Void
+
+		init(found: @escaping (NSScrollView?) -> Void) {
+			self.found = found
+			super.init(frame: .zero)
+		}
+
+		required init?(coder: NSCoder) { nil }
+
+		override func viewDidMoveToWindow() {
+			super.viewDidMoveToWindow()
+			found(enclosingScrollView)
+		}
+
+		// Behind the islands, and never what a click lands on.
+		override func hitTest(_ point: NSPoint) -> NSView? { nil }
 	}
 }
 
@@ -430,6 +535,7 @@ private struct IslandStack: View {
 			}
 		}
 		.coordinateSpace(.named(Self.space))
+		.background(ScrollViewProbe { [weak drag] in drag?.autoScroll.scrollView = $0 })
 		.onDisappear { drag.reset() }
 		// The snapshot counts places by index, which a reload with other names would shift.
 		.onChange(of: model.workspaces.map(\.name)) {
