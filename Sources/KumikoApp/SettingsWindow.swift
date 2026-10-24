@@ -418,11 +418,9 @@ private struct Sidebar: View {
 				TextField("Search settings…", text: $model.search)
 					.textFieldStyle(.plain)
 			}
-			.padding(.horizontal, 8)
-			.padding(.vertical, 6)
-			.background(
-				RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.primary.opacity(isRaised ? 0.08 : 0.02))
-			)
+			.padding(.horizontal, 10)
+			.frame(height: 32)
+			.background(Capsule().fill(.primary.opacity(isRaised ? 0.08 : 0.02)))
 			.padding(.bottom, 12)
 
 			ForEach(model.matching(Pane.app)) { SidebarRow(pane: $0, model: model) }
