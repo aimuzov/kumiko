@@ -1,23 +1,16 @@
 import AppKit
+import KumikoCore
 import SwiftUI
 
 /// A workspace row lifted and carried up or down the list, the others making way. With a
 /// monitor attached it can be carried into the other area too: the area it leaves closes
 /// up, the one it is over opens a place. Only the list watches it: the rest of the window
-/// does not draw again with every move.
+/// does not draw again with every move. Where the row lands is `ListDrag`'s, which only
+/// counts; this is the pointer, the keyboard and the animation around it.
 @MainActor
 final class IslandDrag: ObservableObject {
-	/// The rows of one area, top to bottom. Without areas there is one, with no id.
-	struct Section: Equatable {
-		let id: String
-		let names: [String]
-	}
-
-	/// A place to land in: a section and a slot in it, counted with the lifted row out.
-	struct Drop: Equatable {
-		let section: String
-		let slot: Int
-	}
+	typealias Section = ListDrag.Section
+	typealias Drop = ListDrag.Drop
 
 	/// Between two rows, close as a sidebar keeps them, and counted into how far the others
 	/// make way.
@@ -40,19 +33,10 @@ final class IslandDrag: ObservableObject {
 	let areas = AreaLayout()
 	let autoScroll = IslandAutoScroll()
 
-	/// What the lift saw, so a move only compares numbers: the sections, the rows and
-	/// areas as they were laid out, and how far the lifted one can go.
-	private var sections: [Section] = []
-	private var laidOut: [String: CGRect] = [:]
-	private var spans: [String: ClosedRange<Double>] = [:]
-	private var origin = Drop(section: "", slot: 0)
-	private var lifted = CGRect.zero
-	/// How far the others move aside: the lifted row's height and the space after it.
-	private var gap = 0.0
+	/// What the lift saw, so a move only compares numbers.
+	private var geometry: ListDrag?
 	private var reach = 0.0...0.0
-	/// Where the place the row would land in opens, in the layout: whatever is laid out
-	/// from here down moves down by the gap. Nil for an empty other area, which only lights
-	/// up; the row's own area, emptied by the lift, keeps its place open.
+	/// Where the place the row would land in opens. See `ListDrag.opening(for:)`.
 	private var opening: Double?
 	/// The pointer's own part of the translation, and what the page scrolled since it last
 	/// moved: held at the edge, the row goes along with the page under a still pointer.
@@ -65,14 +49,14 @@ final class IslandDrag: ObservableObject {
 
 	/// How far a row other than the lifted one is moved aside.
 	func shift(of name: String) -> Double {
-		guard name != dragged, let frame = laidOut[name] else { return 0 }
-		return shift(at: frame.minY)
+		guard name != dragged, let row = geometry?.rows[name] else { return 0 }
+		return shift(at: row.lowerBound)
 	}
 
 	/// How far an area's top and bottom are moved: the area the row leaves gets shorter,
 	/// the one it is over taller, and the areas under them move with their edges.
 	func shift(ofArea id: String) -> (top: Double, bottom: Double) {
-		guard let span = spans[id] else { return (0, 0) }
+		guard let span = geometry?.spans[id] else { return (0, 0) }
 		return (shift(at: span.lowerBound), shift(at: span.upperBound))
 	}
 
@@ -80,9 +64,9 @@ final class IslandDrag: ObservableObject {
 	/// place it would land in: for one area that is the old row-by-row rule, and it
 	/// holds for the area labels and edges in between as well.
 	private func shift(at y: Double) -> Double {
-		guard dragged != nil, target != nil else { return 0 }
-		var shift = y > lifted.minY ? -gap : 0
-		if let opening, y >= opening { shift += gap }
+		guard dragged != nil, target != nil, let geometry else { return 0 }
+		var shift = y > geometry.lifted.lowerBound ? -geometry.gap : 0
+		if let opening, y >= opening { shift += geometry.gap }
 		return shift
 	}
 
@@ -107,41 +91,13 @@ final class IslandDrag: ObservableObject {
 	}
 
 	private func place() {
+		guard let geometry else { return }
 		translation = min(max(pointer + scrolled, reach.lowerBound), reach.upperBound)
-		let centre = lifted.midY + translation
-		let section = section(at: centre)
-		let others = section.names.filter { $0 != dragged }
-		// In its own area the row is compared with the others where they stand. In another
-		// one they stand where the area moved to once the row left: a row is passed
-		// when the lifted one's middle passes the middle it is seen at.
-		let own = section.id == origin.section
-		let slot = others.count { name in
-			let middle = laidOut[name]?.midY ?? .infinity
-			return (own ? middle : closed(middle)) < centre
-		}
-		let drop = Drop(section: section.id, slot: slot)
+		let lifted = geometry.lifted
+		let drop = geometry.drop(at: (lifted.lowerBound + lifted.upperBound) / 2 + translation)
 		guard drop != target else { return }
-		opening = if others.isEmpty {
-			section.id == origin.section ? lifted.minY : nil
-		} else if slot < others.count {
-			laidOut[others[slot]].map { Double($0.minY) }
-		} else {
-			laidOut[others[others.count - 1]].map { $0.maxY + IslandDrag.spacing / 2 }
-		}
+		opening = geometry.opening(for: drop)
 		target = drop
-	}
-
-	/// Where something laid out at `y` stands with the lifted row taken out.
-	private func closed(_ y: Double) -> Double { y > lifted.minY ? y - gap : y }
-
-	/// The area the middle of the row is over, the gaps between areas split halfway, as
-	/// the areas stand with the row taken out.
-	private func section(at centre: Double) -> Section {
-		for (section, next) in zip(sections, sections.dropFirst()) {
-			guard let span = spans[section.id], let below = spans[next.id] else { continue }
-			if centre < (closed(span.upperBound) + closed(below.lowerBound)) / 2 { return section }
-		}
-		return sections.last { spans[$0.id] != nil } ?? sections.first { $0.id == origin.section } ?? sections[0]
 	}
 
 	/// Lets go of the row, writing its new place with `write` in the same animation that
@@ -156,6 +112,7 @@ final class IslandDrag: ObservableObject {
 		}
 		guard dragged == name else { return !moved }
 		let target = target
+		let origin = geometry?.origin
 		settle(name) {
 			if let target, target != origin { write(target) }
 		}
@@ -163,27 +120,14 @@ final class IslandDrag: ObservableObject {
 	}
 
 	private func lift(_ name: String, in sections: [Section]) {
-		guard let frame = frames[name],
-		      let section = sections.first(where: { $0.names.contains(name) }),
-		      let index = section.names.firstIndex(of: name) else { return }
-		self.sections = sections
-		laidOut = frames
-		spans = areas.spans.filter { id, _ in sections.contains { $0.id == id } }
-		origin = Drop(section: section.id, slot: index)
-		lifted = frame
-		gap = frame.height + IslandDrag.spacing
-		// Over every area, an empty one too; without areas, from the first row to the last.
-		let edges = spans.isEmpty
-			? sections.flatMap(\.names).compactMap { frames[$0] }.map { $0.minY...$0.maxY }
-			: Array(spans.values)
-		let top = edges.map(\.lowerBound).min() ?? frame.minY
-		var bottom = edges.map(\.upperBound).max() ?? frame.maxY
+		guard let geometry = ListDrag(
+			lifting: name, sections: sections, rows: frames.mapValues { Double($0.minY)...Double($0.maxY) },
+			spans: areas.spans, spacing: Self.spacing
+		) else { return }
+		self.geometry = geometry
+		reach = geometry.reach
 		// Its own place: what comes after it moves up by the gap and back down by as much.
-		opening = frame.minY
-		// The last area ends a gap higher once the row has left it, and that is the end
-		// the row can be carried to.
-		if !spans.isEmpty { bottom = closed(bottom) }
-		reach = min(top - frame.minY, 0)...max(bottom - frame.maxY, 0)
+		opening = geometry.lifted.lowerBound
 		watchEscape()
 		autoScroll.start { [weak self] distance in
 			self?.scrolled += distance
@@ -193,7 +137,7 @@ final class IslandDrag: ObservableObject {
 		}
 		withAnimation(Self.spring) {
 			dragged = name
-			target = origin
+			target = geometry.origin
 		}
 	}
 

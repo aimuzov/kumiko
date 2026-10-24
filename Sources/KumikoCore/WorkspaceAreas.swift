@@ -28,7 +28,7 @@ public enum WorkspaceAreas {
 
 	/// The order the areas are shown in. Decided once, from the order the file first names
 	/// them, an area it does not name last. After that `previous` is kept, so emptying the
-	/// top area or carrying an island there and back does not swap the areas under the
+	/// top area or carrying a workspace there and back does not swap the areas under the
 	/// pointer; only a file that has both areas, each in one run, the other way round,
 	/// says otherwise, the way a hand edit would.
 	public static func order(of workspaces: [Config.Workspace], keeping previous: [Area]? = nil) -> [Area] {
