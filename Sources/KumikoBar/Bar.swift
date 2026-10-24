@@ -12,6 +12,7 @@ public final class Bar {
 	private let manager: WindowManager
 	private let model = BarModel()
 	private let caffeine = Caffeine()
+	private let takeover = MenuBarTakeover()
 
 	private var config: Config.Bar
 	private var windows: [UInt32: BarWindow] = [:]
@@ -76,6 +77,7 @@ public final class Bar {
 		if config.enabled && (config.left + config.right).contains("caffeinate") {
 			caffeine.restore()
 		}
+		takeover.update(on: config.enabled && config.takeFromMenuBar)
 		layoutWindows()
 		scheduleTimers()
 		tick()

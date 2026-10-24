@@ -35,18 +35,73 @@ public struct SystemMenuBar: Equatable, Sendable {
 		}
 	}
 
-	/// Reads the preferences fresh: System Settings writes them from another process, and a cached
-	/// value would miss a change made a moment ago.
+	public init(_ preferences: MenuBarPreferences) {
+		self.init(battery: preferences.battery, inputMenu: preferences.inputMenu, analogClock: preferences.analogClock)
+	}
+
 	public static func read() -> SystemMenuBar {
-		SystemMenuBar(
-			battery: value("Battery", in: "com.apple.controlcenter", host: kCFPreferencesCurrentHost),
-			inputMenu: value("visible", in: "com.apple.TextInputMenu", host: kCFPreferencesAnyHost),
-			analogClock: value("IsAnalog", in: "com.apple.menuextra.clock", host: kCFPreferencesAnyHost)
+		SystemMenuBar(MenuBarPreferences.read())
+	}
+}
+
+/// The three preferences behind the menu bar items the bar can show, as stored: nil for one that
+/// was never set. kumiko writes them to move those items out, and keeps the old ones to put back.
+public struct MenuBarPreferences: Codable, Equatable, Sendable {
+	public var battery: Int?
+	public var inputMenu: Bool?
+	public var analogClock: Bool?
+
+	public init(battery: Int? = nil, inputMenu: Bool? = nil, analogClock: Bool? = nil) {
+		self.battery = battery
+		self.inputMenu = inputMenu
+		self.analogClock = analogClock
+	}
+
+	/// With the bar's items out of the menu bar: the battery off there but still in Control Center,
+	/// no input menu, and an analog clock, the one item the menu bar cannot do without.
+	public var withoutBarItems: MenuBarPreferences {
+		MenuBarPreferences(battery: (battery ?? 18) & ~2 | 8, inputMenu: false, analogClock: true)
+	}
+
+	/// Read fresh: System Settings writes them from another process, and a cached value would miss
+	/// a change made a moment ago.
+	public static func read() -> MenuBarPreferences {
+		MenuBarPreferences(
+			battery: Key.battery.read(), inputMenu: Key.inputMenu.read(), analogClock: Key.analogClock.read()
 		)
 	}
 
-	private static func value<T>(_ key: String, in domain: String, host: CFString) -> T? {
-		CFPreferencesSynchronize(domain as CFString, kCFPreferencesCurrentUser, host)
-		return CFPreferencesCopyValue(key as CFString, domain as CFString, kCFPreferencesCurrentUser, host) as? T
+	/// Stores them, nil as no key at all. What shows them, Control Center or the input menu agent,
+	/// reads them only when it starts.
+	public func write() {
+		Key.battery.write(battery)
+		Key.inputMenu.write(inputMenu)
+		Key.analogClock.write(analogClock)
+	}
+
+	private enum Key {
+		case battery, inputMenu, analogClock
+
+		private var place: (key: String, domain: String, host: CFString) {
+			switch self {
+			case .battery: ("Battery", "com.apple.controlcenter", kCFPreferencesCurrentHost)
+			case .inputMenu: ("visible", "com.apple.TextInputMenu", kCFPreferencesAnyHost)
+			case .analogClock: ("IsAnalog", "com.apple.menuextra.clock", kCFPreferencesAnyHost)
+			}
+		}
+
+		func read<T>() -> T? {
+			let (key, domain, host) = place
+			CFPreferencesSynchronize(domain as CFString, kCFPreferencesCurrentUser, host)
+			return CFPreferencesCopyValue(key as CFString, domain as CFString, kCFPreferencesCurrentUser, host) as? T
+		}
+
+		func write(_ value: (some Any)?) {
+			let (key, domain, host) = place
+			CFPreferencesSetValue(
+				key as CFString, value.map { $0 as AnyObject }, domain as CFString, kCFPreferencesCurrentUser, host
+			)
+			CFPreferencesSynchronize(domain as CFString, kCFPreferencesCurrentUser, host)
+		}
 	}
 }
