@@ -106,6 +106,9 @@ public struct Config: Equatable, Sendable {
 		public var right = ["datetime", "caffeinate", "battery", "input"]
 		/// Leave out the time, battery and input items while the macOS menu bar shows them itself.
 		public var followMenuBar = true
+		/// Turn the battery and the input menu off in the macOS menu bar and make its clock analog, so
+		/// the bar shows them; off puts back what was there before.
+		public var takeFromMenuBar = false
 		/// `[bar.colors]`: the palette items draw with, Catppuccin Macchiato unless overridden.
 		public var colors = Palette()
 		/// `[bar.input]`: text to show for an input source id instead of the system badge.
@@ -200,6 +203,8 @@ public struct Config: Equatable, Sendable {
 			left = try container.decodeIfPresent([String].self, forKey: .left) ?? defaults.left
 			right = try container.decodeIfPresent([String].self, forKey: .right) ?? defaults.right
 			followMenuBar = try container.decodeIfPresent(Bool.self, forKey: .followMenuBar) ?? defaults.followMenuBar
+			takeFromMenuBar = try container.decodeIfPresent(Bool.self, forKey: .takeFromMenuBar)
+				?? defaults.takeFromMenuBar
 			colors = try container.decodeIfPresent(Palette.self, forKey: .colors) ?? defaults.colors
 			input = try container.decodeIfPresent([String: String].self, forKey: .input) ?? defaults.input
 			shell = try container.decodeIfPresent([ShellItem].self, forKey: .shell) ?? []
@@ -210,6 +215,7 @@ public struct Config: Equatable, Sendable {
 			case fontSize = "font_size"
 			case magnificationSize = "magnification_size"
 			case followMenuBar = "follow_menu_bar"
+			case takeFromMenuBar = "take_from_menu_bar"
 		}
 	}
 

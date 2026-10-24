@@ -1095,8 +1095,15 @@ private struct BarPage: View {
 				title: "Leave out what the menu bar shows",
 				detail: "The time while its clock is digital, the battery and the input source while they are in it.",
 				on: model.binding(\.bar.followMenuBar, "bar", "follow_menu_bar"),
-				last: true,
 				reset: model.reset(\.bar.followMenuBar, "bar", "follow_menu_bar")
+			)
+			SwitchRow(
+				title: "Move what it can out of the menu bar",
+				detail: "Turns the battery and the input menu off there and makes its clock analog, so the bar shows "
+					+ "them. Off puts back what was there.",
+				on: model.binding(\.bar.takeFromMenuBar, "bar", "take_from_menu_bar"),
+				last: true,
+				reset: model.reset(\.bar.takeFromMenuBar, "bar", "take_from_menu_bar")
 			)
 		}
 

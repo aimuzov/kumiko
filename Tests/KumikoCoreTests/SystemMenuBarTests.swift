@@ -29,4 +29,23 @@ struct SystemMenuBarTests {
 		#expect(try Config.parse("").bar.followMenuBar)
 		#expect(try Config.parse("[bar]\nfollow_menu_bar = false").bar.followMenuBar == false)
 	}
+
+	@Test func takingFromTheMenuBarIsOffUnlessTurnedOn() throws {
+		#expect(try Config.parse("").bar.takeFromMenuBar == false)
+		#expect(try Config.parse("[bar]\ntake_from_menu_bar = true").bar.takeFromMenuBar)
+	}
+
+	@Test func withoutBarItemsKeepsTheBatteryInControlCenter() {
+		#expect(MenuBarPreferences(battery: 18).withoutBarItems.battery == 24)
+		#expect(MenuBarPreferences(battery: 2).withoutBarItems.battery == 8)
+		#expect(MenuBarPreferences(battery: 24).withoutBarItems.battery == 24)
+		#expect(MenuBarPreferences().withoutBarItems.battery == 24)
+	}
+
+	@Test func withoutBarItemsLeavesTheMenuBarNothingTheBarShows() {
+		let preferences = MenuBarPreferences(battery: 18, inputMenu: true, analogClock: false).withoutBarItems
+		#expect(preferences == MenuBarPreferences(battery: 24, inputMenu: false, analogClock: true))
+		#expect(!["battery", "input", "datetime"].contains(where: SystemMenuBar(preferences).shows))
+		#expect(preferences.withoutBarItems == preferences)
+	}
 }
