@@ -307,11 +307,12 @@ final class BSPTree {
 		return false
 	}
 
-	/// Gives a window `share` of the split it is in.
+	/// Gives a window `size` of the split it is in: its part of the area it shares with its
+	/// neighbour, not of the screen.
 	@discardableResult
-	func setShare(_ id: UInt32, _ share: Double) -> Bool {
+	func setSize(_ id: UInt32, _ size: Double) -> Bool {
 		guard let leaf = leafByWindow[id], let parent = leaf.parent else { return false }
-		parent.ratio = clamp(parent.first === leaf ? share : 1 - share)
+		parent.ratio = clamp(parent.first === leaf ? size : 1 - size)
 		return true
 	}
 

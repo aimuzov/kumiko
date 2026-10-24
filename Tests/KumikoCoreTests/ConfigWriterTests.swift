@@ -238,8 +238,8 @@ struct ConfigWriterTests {
 			Config.Workspace(name: "A").tomlFields == [.init("name", .string("A")), .init("display", .string("main"))])
 	}
 
-	@Test func shareKeepsTheAppsOrderThenNames() {
-		let value = Config.Workspace.shareValue(["B": 0.3, "A": 0.6, "C": 0.1], order: ["C", "C", "B"])
+	@Test func sizeKeepsTheAppsOrderThenNames() {
+		let value = Config.Workspace.sizeValue(["B": 0.3, "A": 0.6, "C": 0.1], order: ["C", "C", "B"])
 		#expect(value == .table([.init("C", .double(0.1)), .init("B", .double(0.3)), .init("A", .double(0.6))]))
 	}
 
@@ -262,7 +262,7 @@ struct ConfigWriterTests {
 		[[workspace]]
 		name = "Chat"
 		apps = ["Time", "Telegram"]
-		share = { Time = 0.7 }
+		size = { Time = 0.7 }
 		"""
 
 	private func file(_ first: String, _ second: String, _ third: String) -> String {
@@ -292,9 +292,9 @@ struct ConfigWriterTests {
 	}
 
 	@Test func removesAKeyOfAnEntry() throws {
-		let changed = try entry(2, "share", nil, in: file(code, plan, chat))
-		#expect(changed == file(code, plan, chat.replacingOccurrences(of: "\nshare = { Time = 0.7 }", with: "")))
-		#expect(try Config.parse(changed).workspaces[2].share.isEmpty)
+		let changed = try entry(2, "size", nil, in: file(code, plan, chat))
+		#expect(changed == file(code, plan, chat.replacingOccurrences(of: "\nsize = { Time = 0.7 }", with: "")))
+		#expect(try Config.parse(changed).workspaces[2].size.isEmpty)
 	}
 
 	@Test func refusesAnEntryThatIsNotThere() {
@@ -306,23 +306,23 @@ struct ConfigWriterTests {
 	@Test func refusesADottedKeyInAnEntry() {
 		#expect(throws: ConfigError.self) {
 			try entry(
-				0, "share", .table([.init("Time", .double(0.5))]), in: "[[workspace]]\nname = \"A\"\nshare.Time = 0.7")
+				0, "size", .table([.init("Time", .double(0.5))]), in: "[[workspace]]\nname = \"A\"\nsize.Time = 0.7")
 		}
 	}
 
 	@Test func ignoresTheSubTableOfAnotherEntry() throws {
-		let text = "[[workspace]]\nname = \"A\"\nshare = { Time = 0.5 }\n\n"
-			+ "[[workspace]]\nname = \"B\"\n\n[workspace.share]\nTime = 0.7"
-		let changed = try entry(0, "share", .table([.init("Time", .double(0.6))]), in: text)
+		let text = "[[workspace]]\nname = \"A\"\nsize = { Time = 0.5 }\n\n"
+			+ "[[workspace]]\nname = \"B\"\n\n[workspace.size]\nTime = 0.7"
+		let changed = try entry(0, "size", .table([.init("Time", .double(0.6))]), in: text)
 		#expect(changed == text.replacingOccurrences(of: "0.5", with: "0.6"))
 	}
 
 	@Test func refusesAKeyWrittenAsTheSubTableOfItsEntry() {
-		let text = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n[workspace.share]\nTime = 0.7"
+		let text = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n[workspace.size]\nTime = 0.7"
 		#expect(throws: ConfigError.invalid(
-			"share of workspace #2 is written in a way the settings window cannot change; change it in kumiko.toml"
+			"size of workspace #2 is written in a way the settings window cannot change; change it in kumiko.toml"
 		)) {
-			try entry(1, "share", .table([.init("Time", .double(0.6))]), in: text)
+			try entry(1, "size", .table([.init("Time", .double(0.6))]), in: text)
 		}
 	}
 
@@ -343,12 +343,42 @@ struct ConfigWriterTests {
 	}
 
 	@Test func addsAKeyBeforeTheEntrysSubTable() throws {
-		let text = "[[workspace]]\nname = \"A\"\n\n[workspace.share]\nTime = 0.7"
+		let text = "[[workspace]]\nname = \"A\"\n\n[workspace.size]\nTime = 0.7"
 		#expect(try entry(0, "display", .string("main"), in: text)
-			== "[[workspace]]\nname = \"A\"\ndisplay = \"main\"\n\n[workspace.share]\nTime = 0.7")
+			== "[[workspace]]\nname = \"A\"\ndisplay = \"main\"\n\n[workspace.size]\nTime = 0.7")
 	}
 
 	private let media = Config.Workspace(name: "Media", display: "builtin")
+
+	private func size(_ value: TOMLValue?, in text: String) throws -> String {
+		try ConfigWriter.apply(
+			ConfigEdit(target: .entry("workspace", 0), key: "size", value: value, replacing: "share"), to: text
+		)
+	}
+
+	@Test func writesSizeInPlaceOfShareOnItsLine() throws {
+		let text = "[[workspace]]\nname = \"Chat\"\nshare = { Time = 0.6 }  # roomy\ndisplay = \"main\"\n"
+		let changed = try size(.table([.init("Time", .double(0.7))]), in: text)
+		#expect(changed == "[[workspace]]\nname = \"Chat\"\nsize = { Time = 0.7 }  # roomy\ndisplay = \"main\"\n")
+		#expect(try Config.parse(changed).workspaces[0].size == ["Time": 0.7])
+	}
+
+	@Test func takesShareOutForNoSize() throws {
+		let changed = try size(nil, in: "[[workspace]]\nname = \"Chat\"\nshare = { Time = 0.6 }\n")
+		#expect(changed == "[[workspace]]\nname = \"Chat\"\n")
+	}
+
+	@Test func writesSizeWhereThereIsNoShare() throws {
+		let changed = try size(.table([.init("Time", .double(0.7))]), in: "[[workspace]]\nname = \"Chat\"\n")
+		#expect(changed == "[[workspace]]\nname = \"Chat\"\nsize = { Time = 0.7 }\n")
+	}
+
+	@Test func refusesShareWrittenAsASubTable() {
+		#expect(throws: ConfigError.self) {
+			let text = "[[workspace]]\nname = \"A\"\n\n[workspace.share]\nTime = 0.6"
+			return try size(.table([.init("Time", .double(0.7))]), in: text)
+		}
+	}
 
 	@Test func workspaceLayoutIsWrittenOnlyWhenNotBSP() throws {
 		#expect(!Config.Workspace(name: "A").tomlFields.contains { $0.key == "layout" })
@@ -360,7 +390,7 @@ struct ConfigWriterTests {
 	@Test func workspaceFieldsReadBackAsTheWorkspace() throws {
 		let workspace = Config.Workspace(
 			name: "Chat", display: "builtin", apps: ["Time", "Telegram"], isDefault: true, last: ["Telegram"],
-			share: ["Time": 0.7]
+			size: ["Time": 0.7]
 		)
 		let text = try ConfigWriter.apply(EntryEdit.insert("workspace", fields: workspace.tomlFields), to: "")
 
@@ -371,7 +401,7 @@ struct ConfigWriterTests {
 			apps = ["Time", "Telegram"]
 			default = true
 			last = ["Telegram"]
-			share = { Time = 0.7 }
+			size = { Time = 0.7 }
 
 			""")
 		#expect(try Config.parse(text).workspaces == [workspace])
@@ -417,7 +447,7 @@ struct ConfigWriterTests {
 		}
 	}
 
-	private let sub = "[[workspace]]\nname = \"A\"\n\n[workspace.share]\nTime = 0.7"
+	private let sub = "[[workspace]]\nname = \"A\"\n\n[workspace.size]\nTime = 0.7"
 
 	@Test func insertsAfterTheLastEntrysSubTable() throws {
 		let insert = EntryEdit.insert("workspace", fields: media.tomlFields)
@@ -426,7 +456,7 @@ struct ConfigWriterTests {
 	}
 
 	@Test func removesAnEntryWithItsSubTable() throws {
-		let text = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n[workspace.share]\nTime = 0.7"
+		let text = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n[workspace.size]\nTime = 0.7"
 		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 1), to: text) == "[[workspace]]\nname = \"A\"")
 
 		let first = sub + "\n\n[[workspace]]\nname = \"B\""
@@ -439,7 +469,7 @@ struct ConfigWriterTests {
 
 		#expect(moved == "[[workspace]]\nname = \"B\"\n\n" + sub)
 		#expect(try Config.parse(moved).workspaces.map(\.name) == ["B", "A"])
-		#expect(try Config.parse(moved).workspaces[1].share == ["Time": 0.7])
+		#expect(try Config.parse(moved).workspaces[1].size == ["Time": 0.7])
 	}
 
 	@Test func refusesAnArrayWrittenInline() {
@@ -481,11 +511,11 @@ struct ConfigWriterTests {
 			"workspace is written in a way the settings window cannot change; change it in kumiko.toml"
 		)
 		let apart = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n"
-			+ "[hotkeys]\nenabled = true\n\n[workspace.share]\nTime = 0.7"
+			+ "[hotkeys]\nenabled = true\n\n[workspace.size]\nTime = 0.7"
 		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: apart) }
 		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 1), to: apart) }
 
-		let first = "[workspace.share]\nTime = 0.7\n\n[wm]\ngap = 4"
+		let first = "[workspace.size]\nTime = 0.7\n\n[wm]\ngap = 4"
 		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: first) }
 	}
 

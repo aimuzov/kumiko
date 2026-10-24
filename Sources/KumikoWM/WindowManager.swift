@@ -337,7 +337,7 @@ public final class WindowManager {
 			add(info, to: workspace)
 		}
 
-		// A reload that changed a workspace's apps or shares applies them to the windows it has
+		// A reload that changed a workspace's apps or sizes applies them to the windows it has
 		// already, once they are all in: the order and sizes change in front of the user.
 		for workspace in workspaces {
 			guard let previous = workspace.changedRules else { continue }
@@ -376,7 +376,7 @@ public final class WindowManager {
 			if let workspace = old[config.name] ?? renamed {
 				if renamed != nil, previousWorkspace == workspace.name { previousWorkspace = config.name }
 				let previous = workspace.config
-				if previous.apps != config.apps || previous.last != config.last || previous.share != config.share
+				if previous.apps != config.apps || previous.last != config.last || previous.size != config.size
 					|| previous.layout != config.layout
 				{
 					workspace.changedRules = workspace.changedRules ?? previous
@@ -469,7 +469,7 @@ public final class WindowManager {
 
 	/// Makes the tree over for a layout a reload switched to. Into a stack the windows go as
 	/// one, the focused one in front. Out of one they are taken out, and the pass puts them back
-	/// one by one with the `stack` rule, then in the apps' order with their shares. Into and out
+	/// one by one with the `stack` rule, then in the apps' order with their sizes. Into and out
 	/// of float needs nothing here: `isTiled` takes the windows out, or lets them back in.
 	private func relayout(_ workspace: Workspace, from previous: Config.Workspace.Layout) {
 		let tree = workspace.tree
@@ -484,10 +484,10 @@ public final class WindowManager {
 		}
 	}
 
-	/// The workspace's apps put its windows in their order, and their shares sized: whole
-	/// leaves move, so a stack stays one. Shares go to every window, not only a newcomer's: the
-	/// window that has a share may have joined first, when it had no split to take a share of.
-	/// `previous` is the config before a reload changed it: an app whose share is gone splits
+	/// The workspace's apps put its windows in their order, and their sizes set: whole leaves
+	/// move, so a stack stays one. Sizes go to every window, not only a newcomer's: the window
+	/// that has a size may have joined first, when it had no split to take a part of.
+	/// `previous` is the config before a reload changed it: an app whose size is gone splits
 	/// evenly again.
 	private func applyLayoutRules(_ workspace: Workspace, reorder: Bool, previous: Config.Workspace? = nil) {
 		let tree = workspace.tree
@@ -499,10 +499,10 @@ public final class WindowManager {
 
 		for id in tree.visibleWindows {
 			let app = app(of: id)
-			if let share = rules.share[app] {
-				tree.setShare(id, share)
-			} else if previous?.share[app] != nil {
-				tree.setShare(id, 0.5)
+			if let size = rules.size[app] {
+				tree.setSize(id, size)
+			} else if previous?.size[app] != nil {
+				tree.setSize(id, 0.5)
 			}
 		}
 	}
@@ -1097,10 +1097,10 @@ public final class WindowManager {
 	}
 
 	private func ratio(_ id: UInt32, _ value: String?) -> Response {
-		guard let share = value.flatMap(Double.init), share > 0, share < 1 else {
-			return .failure("usage: kumiko window ratio <0…1>, the window's share of its split")
+		guard let size = value.flatMap(Double.init), size > 0, size < 1 else {
+			return .failure("usage: kumiko window ratio <0…1>, the window's part of its split")
 		}
-		guard let tree = assignment[id]?.tree, tree.setShare(id, share) else {
+		guard let tree = assignment[id]?.tree, tree.setSize(id, size) else {
 			return .failure("the window is not in a split")
 		}
 

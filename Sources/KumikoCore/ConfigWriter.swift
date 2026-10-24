@@ -81,11 +81,15 @@ public struct ConfigEdit: Equatable, Sendable {
 	public var key: String
 	/// nil takes the key out, and with it back to its default.
 	public var value: TOMLValue?
+	/// An older name of the key. Found in the file under it, the key is written in its place
+	/// under the new name, on the same line with its comment, so the file never has both.
+	public var replacing: String?
 
-	public init(target: ConfigTarget, key: String, value: TOMLValue?) {
+	public init(target: ConfigTarget, key: String, value: TOMLValue?, replacing: String? = nil) {
 		self.target = target
 		self.key = key
 		self.value = value
+		self.replacing = replacing
 	}
 
 	public init(table: String, key: String, value: TOMLValue?) {
@@ -133,6 +137,11 @@ public enum ConfigWriter {
 
 	public static func apply(_ edit: ConfigEdit, to text: String) throws(ConfigError) -> String {
 		let target = [edit.target.name, edit.key]
+		let legacy = edit.replacing.map { [edit.target.name, $0] }
+		func spelled(_ path: [String]) -> Bool { path == target || path == legacy }
+		func overlaps(_ path: [String]) -> Bool {
+			[target, legacy].compactMap(\.self).contains { path.starts(with: $0) || $0.starts(with: path) }
+		}
 		let place = switch edit.target {
 		case .table: "\(edit.target.description).\(edit.key)"
 		case .entry: "\(edit.key) of \(edit.target.description)"
@@ -173,7 +182,7 @@ public enum ConfigWriter {
 				let array = first + 1 < line.count && line[first + 1] == "["
 				table = key(in: line, from: first + (array ? 2 : 1))?.parts ?? []
 
-				// A sub-table, `[workspace.share]`, belongs to the last entry the file opened.
+				// A sub-table, `[workspace.size]`, belongs to the last entry the file opened.
 				var ofTarget = true
 
 				switch edit.target {
@@ -190,7 +199,9 @@ public enum ConfigWriter {
 				}
 
 				if inSection { insertAfter = index }
-				if ofTarget && table.starts(with: target) { throw unchangeable }
+				if ofTarget && ([target, legacy].compactMap(\.self).contains { table.starts(with: $0) }) {
+					throw unchangeable
+				}
 				continue
 			}
 
@@ -200,7 +211,7 @@ public enum ConfigWriter {
 			if inOtherEntry { continue }
 			let path = table + parts
 
-			if path == target && inSection {
+			if spelled(path) && inSection {
 				guard let value = edit.value else {
 					// The key's line goes, and the lines of a value it spreads over with it.
 					var last = index
@@ -216,13 +227,15 @@ public enum ConfigWriter {
 				let old = line[(end + 1)..<valueEnd]
 				let leading = old.prefix { $0 == " " || $0 == "\t" }
 				let trailing = comment == nil ? [] : Array(old.reversed().prefix { $0 == " " || $0 == "\t" })
-				lines[index] = String(line[...end]) + String(leading) + value.literal + String(trailing.reversed())
+				// Under the old name, the key part is written anew: its value is what the edit is about.
+				let head = path == target ? String(line[...end]) : String(line[..<first]) + bare(edit.key) + " ="
+				lines[index] = head + String(leading) + value.literal + String(trailing.reversed())
 					+ String(line[valueEnd...]) + ending
 				return lines.joined(separator: "\n")
 			}
 
 			// `wm = { gap = 4 }`, `wm.gap = 4` or `gap.x = 1` under `[wm]`: the key exists, just not as a line of its own.
-			if path.starts(with: target) || target.starts(with: path) { throw unchangeable }
+			if overlaps(path) { throw unchangeable }
 
 			if inSection {
 				insertAfter = index
@@ -306,7 +319,7 @@ public enum ConfigWriter {
 
 	/// Each entry of the array `name`: the lines from its header to its last key line, a value
 	/// spread over several lines and comments between its keys included. Its sub-tables,
-	/// `[workspace.share]`, go with it. What cannot be told apart without reading the file as TOML
+	/// `[workspace.size]`, go with it. What cannot be told apart without reading the file as TOML
 	/// is refused: the array written inline or dotted at the top, a plain `[name]` table, and a
 	/// sub-table that stands apart from its entry.
 	private static func entries(of name: String, in lines: [String]) throws(ConfigError) -> [ClosedRange<Int>] {
@@ -528,20 +541,20 @@ extension Config.Workspace {
 		if isDefault { fields.append(.init("default", .bool(true))) }
 		if !stack.isEmpty { fields.append(.init("stack", .array(stack.map(TOMLValue.string)))) }
 		if !last.isEmpty { fields.append(.init("last", .array(last.map(TOMLValue.string)))) }
-		if !share.isEmpty {
-			fields.append(.init("share", Self.shareValue(share, order: apps.map { Self.name(of: $0) ?? $0 })))
+		if !size.isEmpty {
+			fields.append(.init("size", Self.sizeValue(size, order: apps.map { Self.name(of: $0) ?? $0 })))
 		}
 		if layout != .bsp { fields.append(.init("layout", .string(layout.rawValue))) }
 		return fields
 	}
 
-	/// `share` as an inline table. A dictionary has no order of its own; the apps go
+	/// `size` as an inline table. A dictionary has no order of its own; the apps go
 	/// in the order `order` names them, the rest after them by name, so the line
 	/// reads the same on every write.
-	public static func shareValue(_ share: [String: Double], order: [String]) -> TOMLValue {
+	public static func sizeValue(_ size: [String: Double], order: [String]) -> TOMLValue {
 		var seen = Set<String>()
-		let ordered = order.filter { share[$0] != nil && seen.insert($0).inserted }
-		let keys = ordered + share.keys.filter { !seen.contains($0) }.sorted()
-		return .table(keys.map { .init($0, .double(share[$0]!)) })
+		let ordered = order.filter { size[$0] != nil && seen.insert($0).inserted }
+		let keys = ordered + size.keys.filter { !seen.contains($0) }.sorted()
+		return .table(keys.map { .init($0, .double(size[$0]!)) })
 	}
 }

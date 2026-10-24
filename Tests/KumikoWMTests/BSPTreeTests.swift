@@ -140,9 +140,9 @@ struct BSPTreeSizeTests {
 		#expect(tree.frames(in: area, gap: 0)[1] == rect(0, 0, 900, 600))
 	}
 
-	@Test func shareIsTheWindowsOwnPart() {
+	@Test func sizeIsTheWindowsOwnPart() {
 		let tree = tree(1, 2)
-		tree.setShare(2, 0.7)
+		tree.setSize(2, 0.7)
 		#expect(tree.frames(in: area, gap: 0)[2] == rect(300, 0, 700, 600))
 	}
 
@@ -150,7 +150,7 @@ struct BSPTreeSizeTests {
 		let tree = tree(1, 2)
 		tree.insert(3, near: 2, in: area, gap: 0)
 		tree.insert(4, near: 1, in: area, gap: 0)
-		tree.setShare(1, 0.2)
+		tree.setSize(1, 0.2)
 		tree.resize(2, edge: .east, by: 200, in: area, gap: 0)
 		tree.balance()
 
@@ -182,7 +182,7 @@ struct BSPTreeTransformTests {
 
 	@Test func fourQuarterTurnsAreTheSameLayout() {
 		let tree = tree(1, 2, 3)
-		tree.setShare(1, 0.3)
+		tree.setSize(1, 0.3)
 		let before = tree.frames(in: area, gap: 0)
 
 		tree.rotate(270)
@@ -192,7 +192,7 @@ struct BSPTreeTransformTests {
 
 	@Test func mirrorColumnsSwapsLeftAndRight() {
 		let tree = tree(1, 2)
-		tree.setShare(1, 0.3)
+		tree.setSize(1, 0.3)
 		tree.mirror(.columns)
 
 		let frames = tree.frames(in: area, gap: 0)

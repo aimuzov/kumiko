@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// `apps` holds patterns while `stack`, `last` and `share` hold exact app names, so the same app
+/// `apps` holds patterns while `stack`, `last` and `size` hold exact app names, so the same app
 /// is written two ways. These helpers carry a name between the two.
 extension Config.Workspace {
 	/// The pattern that matches exactly this name, so `Foo (Beta)` is not read as a group.
@@ -87,7 +87,7 @@ extension Config.Workspace {
 	public var appRows: [String] {
 		var seen: [String] = []
 		let named = orderedApps.map { Self.name(of: $0) ?? $0 }
-		for app in named + stack + last + share.keys.sorted() where !seen.contains(app) {
+		for app in named + stack + last + size.keys.sorted() where !seen.contains(app) {
 			seen.append(app)
 		}
 		return seen
@@ -98,7 +98,7 @@ extension Config.Workspace {
 	/// them is a name there, whatever `apps` makes of it.
 	public func isPattern(_ row: String) -> Bool {
 		apps.contains { $0 == row && Self.name(of: $0) == nil }
-			&& !stack.contains(row) && !last.contains(row) && share[row] == nil
+			&& !stack.contains(row) && !last.contains(row) && size[row] == nil
 	}
 
 	/// Whether `row` is in `apps`, as its name or as the pattern it is.

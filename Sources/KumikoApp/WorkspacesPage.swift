@@ -53,12 +53,12 @@ extension SettingsModel {
 		change(changes)
 	}
 
-	/// The app table's rows: the `apps` entries in layout order, then an app with only a share,
-	/// so the share can still be cleared. One named only by `stack` or `last` has no row: the
+	/// The app table's rows: the `apps` entries in layout order, then an app with only a size,
+	/// so the size can still be cleared. One named only by `stack` or `last` has no row: the
 	/// Window Rules page is where windows are stacked.
 	func apps(of workspace: Config.Workspace) -> [String] {
 		let ordered = orderedAppRows(of: workspace)
-		return ordered + workspace.share.keys.sorted().filter { !ordered.contains($0) }
+		return ordered + workspace.size.keys.sorted().filter { !ordered.contains($0) }
 	}
 
 	func setApp(_ app: String, _ list: AppList, _ on: Bool, in name: String) {
@@ -66,15 +66,15 @@ extension SettingsModel {
 		change([listEdit(index, list, on: on, app)])
 	}
 
-	func setShare(_ app: String, _ share: Double?, in name: String) {
+	func setSize(_ app: String, _ size: Double?, in name: String) {
 		guard let index = index(of: name) else { return }
-		var shares = workspaces[index].share
-		shares[app] = share
-		change([shareEdit(index, shares)])
+		var sizes = workspaces[index].size
+		sizes[app] = size
+		change([sizeEdit(index, sizes)])
 	}
 
 	/// The rows a drag reorders: the `apps` entries, by the names their rows carry, in layout
-	/// order. A row with only a share comes after them and stays put.
+	/// order. A row with only a size comes after them and stays put.
 	func orderedAppRows(of workspace: Config.Workspace) -> [String] {
 		workspace.orderedApps.map { Config.Workspace.name(of: $0) ?? $0 }
 	}
@@ -105,7 +105,7 @@ extension SettingsModel {
 		change(changes)
 	}
 
-	/// Out of `apps`, `last` and `share`, in one write. `stack` is the Window Rules page's, which
+	/// Out of `apps`, `last` and `size`, in one write. `stack` is the Window Rules page's, which
 	/// the app may still be in after it no longer opens here.
 	func removeApp(_ app: String, from name: String) {
 		guard let index = index(of: name) else { return }
@@ -113,10 +113,10 @@ extension SettingsModel {
 		var changes: [any ConfigChange] = AppList.allCases
 			.filter { $0 == .apps ? workspace.listsInApps(app) : workspace[keyPath: $0.keyPath].contains(app) }
 			.map { listEdit(index, $0, on: false, app) }
-		if workspace.share[app] != nil {
-			var shares = workspace.share
-			shares[app] = nil
-			changes.append(shareEdit(index, shares))
+		if workspace.size[app] != nil {
+			var sizes = workspace.size
+			sizes[app] = nil
+			changes.append(sizeEdit(index, sizes))
 		}
 		change(changes)
 	}
@@ -255,17 +255,18 @@ extension SettingsModel {
 		)
 	}
 
-	private func shareEdit(_ index: Int, _ shares: [String: Double]) -> ConfigEdit {
+	/// Written as `size`, in place of an older file's `share` when it has one.
+	private func sizeEdit(_ index: Int, _ sizes: [String: Double]) -> ConfigEdit {
 		ConfigEdit(
-			target: .entry("workspace", index), key: "share",
-			value: shares.isEmpty ? nil : Config.Workspace.shareValue(
-				shares, order: workspaces[index].apps.map { Config.Workspace.name(of: $0) ?? $0 })
+			target: .entry("workspace", index), key: "size", value: sizes.isEmpty ? nil : Config.Workspace.sizeValue(
+				sizes, order: workspaces[index].apps.map { Config.Workspace.name(of: $0) ?? $0 }
+			), replacing: "share"
 		)
 	}
 }
 
-/// An app's share while its slider is dragged.
-struct DraggedShare: Equatable {
+/// An app's size while the edge of its split is dragged.
+struct DraggedSize: Equatable {
 	let workspace: String
 	let app: String
 	let value: Double
@@ -737,7 +738,7 @@ private struct WorkspaceDetail: View {
 private enum AppColumn {
 	static let handle = 14.0
 	static let icon = 18.0
-	static let share = 104.0
+	static let size = 104.0
 	static let remove = 20.0
 	static let spacing = 8.0
 }
@@ -774,7 +775,7 @@ private struct AppsCard: View {
 				} else {
 					AppTable(model: model, drag: model.appDrag, workspace: workspace)
 					if workspace.layout != .bsp {
-						Text("\(workspace.layout.title) has no splits: the order and shares apply in BSP only.")
+						Text("\(workspace.layout.title) has no splits: the order and sizes apply in BSP only.")
 							.font(.system(size: 11))
 							.foregroundStyle(.secondary)
 							.frame(maxWidth: .infinity, alignment: .leading)
@@ -802,8 +803,8 @@ private struct AppTable: View {
 				Spacer().frame(width: AppColumn.handle)
 				Text("App")
 					.frame(maxWidth: .infinity, alignment: .leading)
-				Text("Share")
-					.frame(width: AppColumn.share)
+				Text("Size")
+					.frame(width: AppColumn.size)
 				Spacer().frame(width: AppColumn.remove)
 			}
 			.font(.system(size: 11))
@@ -822,7 +823,7 @@ private struct AppTable: View {
 		// its own frame when it is.
 		.onDisappear {
 			drag.reset()
-			if model.draggedShare != nil { model.draggedShare = nil }
+			if model.draggedSize != nil { model.draggedSize = nil }
 		}
 		.onChange(of: ordered) { _, ordered in
 			guard let lifted = drag.dragged else { return }
@@ -906,7 +907,7 @@ private struct AppRow: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
 	let app: String
-	/// One of `apps`, which a drag reorders; a row with only a share has no order.
+	/// One of `apps`, which a drag reorders; a row with only a size has no order.
 	let movable: Bool
 
 	private static let patternHelp =
@@ -944,10 +945,10 @@ private struct AppRow: View {
 			}
 			.frame(maxWidth: .infinity, alignment: .leading)
 
-			ShareSlider(model: model, workspace: workspace, app: app)
-				.frame(width: AppColumn.share)
+			SizeControl(model: model, workspace: workspace, app: app)
+				.frame(width: AppColumn.size)
 				.disabled(workspace.isPattern(app) || workspace.layout != .bsp)
-				.help(workspace.isPattern(app) ? Self.patternHelp : ShareSlider.help)
+				.help(workspace.isPattern(app) ? Self.patternHelp : SizeControl.help)
 
 			// Always there: one shown on hover only was found by chance. The red circle is how macOS
 			// marks taking a row out of a list; a bordered button this small flattens into a pill.
@@ -1015,8 +1016,8 @@ private struct AppRow: View {
 	}
 
 	/// What the row would not say otherwise, a line each: they are too long to share one in a
-	/// column this narrow. A row is an app that opens here; one with only a share, written in the
-	/// file by hand, keeps its row so the share can be cleared, and says it doesn't open here.
+	/// column this narrow. A row is an app that opens here; one with only a size, written in the
+	/// file by hand, keeps its row so the size can be cleared, and says it doesn't open here.
 	private var notes: [String] {
 		let opens = workspace.listsInApps(app)
 			? earlierWorkspace.map { "Opens in \($0), which comes first" }
@@ -1024,7 +1025,7 @@ private struct AppRow: View {
 		return [opens, floats ? "Floats: no window rule tiles it" : nil].compactMap(\.self)
 	}
 
-	/// The share and the order mean nothing to a window that is not tiled. Only while the rules
+	/// The size and the order mean nothing to a window that is not tiled. Only while the rules
 	/// are what decides: with the window manager or its rules off, the row has nothing to add.
 	private var floats: Bool {
 		let wm = model.config.wm
@@ -1038,71 +1039,107 @@ private struct AppRow: View {
 	}
 }
 
-/// An app's share of its split as a slider, its middle the even split the app gets with no
-/// share at all. A drag snaps to the middle near it, so evenly is easy to find again, and is
-/// written once on release: every step of a drag would rewrite the file and lay out the windows.
-private struct ShareSlider: View {
-	static let help = "The share of its split this app's window gets; the middle splits evenly"
+/// An app's size as a picture of the split it makes: its window, tinted, beside its neighbour,
+/// and the edge between them dragged. No numbers: what the size does is how the two look.
+/// Without a size the split is even and drawn faded with a dashed edge, so it reads as unset
+/// rather than as a half someone chose. A drag snaps to the middle near it, which takes the
+/// key out, and is written once on release: every step would rewrite the file and lay out the
+/// windows.
+private struct SizeControl: View {
+	static let help = "How much of the split with its neighbour this app's window takes when it joins "
+		+ "the layout, and when this changes. Drag the edge; the middle splits evenly."
+	static let range = 0.1...0.9
+	static let height = 16.0
 
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
 	let app: String
+	@Environment(\.isEnabled) private var isEnabled
 
 	private var dragged: Double? {
-		model.draggedShare.flatMap { $0.workspace == workspace.name && $0.app == app ? $0.value : nil }
+		model.draggedSize.flatMap { $0.workspace == workspace.name && $0.app == app ? $0.value : nil }
 	}
 
+	private var set: Double? { workspace.size[app] }
+
 	var body: some View {
-		let value = dragged ?? workspace.share[app] ?? 0.5
+		let value = dragged ?? set ?? 0.5
+		let chosen = dragged.map { $0 != 0.5 } ?? (set != nil)
 
-		HStack(spacing: 4) {
-			Slider(
-				value: Binding(
-					get: { value },
-					set: { new in
-						// Read now, not when drawn: the drag may have begun since.
-						if dragged != nil {
-							let share = Self.snap(new)
-							model.draggedShare = DraggedShare(workspace: workspace.name, app: app, value: share)
-						} else {
-							// Arrow keys move it a step without a drag, and write at once.
-							write(new)
-						}
-					}
-				),
-				in: 0.1...0.9,
-				step: 0.05
-			) { dragging in
-				if dragging {
-					model.draggedShare = DraggedShare(workspace: workspace.name, app: app, value: value)
-				} else if let share = dragged {
-					model.draggedShare = nil
-					write(share)
+		GeometryReader { geometry in
+			let width = geometry.size.width
+			let edge = width * value
+			let shape = RoundedRectangle(cornerRadius: 3, style: .continuous)
+			ZStack(alignment: .leading) {
+				HStack(spacing: 2) {
+					shape.fill(SwiftUI.Color.accentColor.opacity(chosen ? 0.55 : 0.25))
+						.frame(width: max(edge - 1, 0))
+					shape.fill(SwiftUI.Color.primary.opacity(chosen ? 0.15 : 0.08))
 				}
+				// The edge, wider than it looks so it is easy to take.
+				Path { path in
+					path.move(to: CGPoint(x: edge, y: 0))
+					path.addLine(to: CGPoint(x: edge, y: Self.height))
+				}
+				.stroke(
+					SwiftUI.Color.primary.opacity(chosen ? 0.7 : 0.35),
+					style: StrokeStyle(lineWidth: 1.5, dash: chosen ? [] : [2, 2])
+				)
 			}
-			.controlSize(.mini)
-
-			// Nothing for the middle: an even split is what an app has without a share.
-			Text(value == 0.5 ? "" : "\(Int((value * 100).rounded()))%")
-				.font(.system(size: 10))
-				.foregroundStyle(.secondary)
-				.monospacedDigit()
-				.frame(width: 28, alignment: .trailing)
+			.contentShape(Rectangle())
+			.gesture(drag(width: width))
+		}
+		.frame(height: Self.height)
+		.opacity(isEnabled ? 1 : 0.4)
+		.focusable(isEnabled)
+		.onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+			step(by: press.key == .leftArrow ? -0.05 : 0.05)
+			return .handled
+		}
+		.contextMenu {
+			Button("Reset Size") { write(0.5) }
+				.disabled(set == nil || !isEnabled)
+		}
+		.accessibilityElement()
+		.accessibilityLabel("Size")
+		.accessibilityValue(set.map { "\(Int(($0 * 100).rounded())) percent of its split" } ?? "Even")
+		.accessibilityAdjustableAction { direction in
+			step(by: direction == .increment ? 0.05 : -0.05)
 		}
 	}
 
-	/// The middle is no share, so the key leaves the file. Rounded to the step, which a double
+	/// A press that does not move is no drag, so a stray click writes nothing.
+	private func drag(width: Double) -> some Gesture {
+		DragGesture(minimumDistance: 2)
+			.onChanged { value in
+				guard isEnabled, width > 0 else { return }
+				let size = Self.snap(value.location.x / width)
+				model.draggedSize = DraggedSize(workspace: workspace.name, app: app, value: size)
+			}
+			.onEnded { _ in
+				guard let size = dragged else { return }
+				model.draggedSize = nil
+				write(size)
+			}
+	}
+
+	private func step(by offset: Double) {
+		guard isEnabled else { return }
+		write(min(max((set ?? 0.5) + offset, Self.range.lowerBound), Self.range.upperBound))
+	}
+
+	/// The middle is no size, so the key leaves the file. Rounded to twentieths, which a double
 	/// misses by a hair.
 	private func write(_ value: Double) {
 		let rounded = (value * 20).rounded() / 20
-		let share = rounded == 0.5 ? nil : rounded
-		if share != workspace.share[app] { model.setShare(app, share, in: workspace.name) }
+		let size = rounded == 0.5 ? nil : rounded
+		if size != set { model.setSize(app, size, in: workspace.name) }
 	}
 
-	/// The steps either side of the middle snap to it while dragged; the arrow keys still reach
-	/// them.
+	/// Within the range, to twentieths, and to the middle near it.
 	static func snap(_ value: Double) -> Double {
-		abs(value - 0.5) < 0.06 ? 0.5 : value
+		let value = min(max(value, range.lowerBound), range.upperBound)
+		return abs(value - 0.5) < 0.06 ? 0.5 : (value * 20).rounded() / 20
 	}
 }
 
