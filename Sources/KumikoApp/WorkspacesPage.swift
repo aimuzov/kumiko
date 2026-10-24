@@ -60,8 +60,11 @@ extension SettingsModel {
 		let new = new.trimmingCharacters(in: .whitespaces)
 		guard new != name, index(of: name) != nil else { return }
 		onRenameWorkspace(name, new)
+		let id = islandID(for: name)
 		setWorkspace(name, "name", .string(new))
-		if writeError == nil, expandedWorkspaces.remove(name) != nil { expandedWorkspaces.insert(new) }
+		guard writeError == nil else { return }
+		if expandedWorkspaces.remove(name) != nil { expandedWorkspaces.insert(new) }
+		carryIsland(from: name, to: new, id: id)
 	}
 
 	/// Only the first default counts, so turning one on turns the others off.
@@ -464,6 +467,15 @@ final class WorkspacesPointer: ObservableObject {
 	/// The island under the pointer, which lights up. Only its background watches this.
 	@Published var hoveredIsland: String?
 
+	/// The island keeps its view through a rename, which sends no hover to set these again.
+	func rename(_ workspace: String, to new: String) {
+		if let app = hoveredApp, app.workspace == workspace {
+			hoveredApp = WorkspaceApp(workspace: new, app: app.app)
+		}
+		if clicked == workspace { clicked = new }
+		if hoveredIsland == workspace { hoveredIsland = new }
+	}
+
 	func forget(_ app: WorkspaceApp) {
 		if hoveredApp == app { hoveredApp = nil }
 	}
@@ -544,10 +556,16 @@ private struct IslandStack: View {
 	@ObservedObject var model: SettingsModel
 	@ObservedObject var drag: IslandDrag
 
+	private var islands: [(id: UUID, index: Int, workspace: Config.Workspace)] {
+		model.workspaces.enumerated().map { (model.islandID(for: $1.name), $0, $1) }
+	}
+
 	var body: some View {
 		VStack(spacing: Self.spacing) {
-			// By name: a field being typed in stays with its workspace when the order changes.
-			ForEach(Array(model.workspaces.enumerated()), id: \.element.name) { index, workspace in
+			// By an identity that outlives the name: a field being typed in stays with its workspace when
+			// the order changes, and when the name does.
+			ForEach(islands, id: \.id) { island in
+				let (index, workspace) = (island.index, island.workspace)
 				let lifted = drag.dragged == workspace.name
 				WorkspaceIsland(
 						model: model, workspace: workspace, number: index + 1, dragging: drag.dragged != nil

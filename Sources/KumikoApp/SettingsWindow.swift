@@ -112,6 +112,9 @@ final class SettingsModel: ObservableObject {
 	@Published var paddingPerSide = false
 	/// The workspaces shown open, by name: a rename takes its name along, a removal drops it.
 	@Published var expandedWorkspaces: Set<String> = []
+	/// An identity per workspace island that outlives its name, so a rename does not rebuild the island
+	/// and take the keyboard from the field it was typed in. Not published: a view only reads it.
+	private var islandIDs: [String: UUID] = [:]
 	/// Not published from here: the pointer moves often, and only what it lights up is drawn again.
 	let workspacesPointer = WorkspacesPointer()
 	/// Not published either: a dragged island moves with the pointer, and only the islands
@@ -142,6 +145,25 @@ final class SettingsModel: ObservableObject {
 		readMenuBar = menuBar
 	}
 
+	func islandID(for name: String) -> UUID {
+		if let id = islandIDs[name] { return id }
+		let id = UUID()
+		islandIDs[name] = id
+		return id
+	}
+
+	/// Moves the identity and what is kept by name to the new name, once the file has it.
+	func carryIsland(from name: String, to new: String, id: UUID) {
+		islandIDs[new] = id
+		workspacesPointer.rename(name, to: new)
+		if let frame = islandDrag.frames.removeValue(forKey: name) { islandDrag.frames[new] = frame }
+	}
+
+	private func forgetGoneIslands() {
+		let names = Set(config.workspaces.map(\.name))
+		islandIDs = islandIDs.filter { names.contains($0.key) }
+	}
+
 	func update(_ config: Config, error: String?) {
 		self.config = config
 		self.error = error
@@ -149,6 +171,7 @@ final class SettingsModel: ObservableObject {
 		// A broken file may come back with none of its workspaces, and they would all close.
 		if error == nil { expandedWorkspaces.formIntersection(config.workspaces.map(\.name)) }
 		workspacesPointer.keep(Set(config.workspaces.map(\.name)))
+		forgetGoneIslands()
 
 		// A colour changed in the file by hand is no longer the panel's pick.
 		if let picked = pickedBorderColor, pendingBorderColor == nil,
@@ -170,6 +193,7 @@ final class SettingsModel: ObservableObject {
 		do throws(ConfigError) {
 			config = try ConfigWriter.write(changes, to: configFile)
 			writeError = nil
+			forgetGoneIslands()
 		} catch {
 			writeError = error.description
 		}
