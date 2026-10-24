@@ -325,6 +325,7 @@ private enum ListRow {
 	case label(Config.Workspace.Area, first: Bool)
 	case workspace(UUID, Config.Workspace)
 	case empty(Config.Workspace.Area)
+	case add(Config.Workspace.Area)
 	case end(Config.Workspace.Area)
 
 	var id: String {
@@ -332,6 +333,7 @@ private enum ListRow {
 		case let .label(area, _): "label-\(area.rawValue)"
 		case let .workspace(id, _): id.uuidString
 		case let .empty(area): "empty-\(area.rawValue)"
+		case let .add(area): "add-\(area.rawValue)"
 		case let .end(area): "end-\(area.rawValue)"
 		}
 	}
@@ -357,7 +359,7 @@ private struct WorkspaceList: View {
 		return WorkspaceAreas.groups(of: workspaces, order: model.areaOrder()).enumerated().flatMap { place, group in
 			[.label(group.area, first: place == 0)]
 				+ (group.entries.isEmpty ? [.empty(group.area)] : group.entries.map(row))
-				+ [.end(group.area)]
+				+ [.add(group.area), .end(group.area)]
 		}
 	}
 
@@ -383,6 +385,12 @@ private struct WorkspaceList: View {
 							.padding(.horizontal, Self.inset)
 							.offset(y: drag.shift(ofArea: area.rawValue).top)
 							.animation(IslandDrag.spring, value: drag.target)
+					case let .add(area):
+						// Goes along with the island's bottom, which a drag moves.
+						AddWorkspaceRow { model.addWorkspace(to: area) }
+							.padding(.horizontal, Self.inset)
+							.offset(y: drag.shift(ofArea: area.rawValue).bottom)
+							.animation(IslandDrag.spring, value: drag.target)
 					case let .end(area):
 						end(area)
 					}
@@ -396,11 +404,11 @@ private struct WorkspaceList: View {
 			// Over the buttons too, which a row dragged to the bottom passes.
 			.zIndex(1)
 
-			if !areas { Divider() }
-			ListButtons(
-				add: { model.addWorkspace(to: areas ? model.shownWorkspace?.area ?? model.areaOrder().first : nil) },
-				remove: { model.workspacePendingRemoval = shown }
-			)
+			// Without areas, the one list is the island, and its plus closes it.
+			if !areas {
+				AddWorkspaceRow { model.addWorkspace() }
+					.padding([.horizontal, .bottom], 6)
+			}
 		}
 		.background {
 			if !areas { RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.02)) }
@@ -647,29 +655,25 @@ private struct AreaDropZone: View {
 	}
 }
 
-/// The plus and minus System Settings puts under a list, joined into one control so they read
-/// as buttons and not as two loose symbols.
-private struct ListButtons: View {
+/// The last line of an island, a row in looks so it reads as where the next workspace goes. It
+/// has no minus beside it: a workspace is removed from its own panel or its row's menu.
+private struct AddWorkspaceRow: View {
 	let add: () -> Void
-	let remove: () -> Void
 
 	var body: some View {
-		HStack {
-			ControlGroup {
-				Button(action: add) {
-					Image(systemName: "plus").accessibilityLabel("Add Workspace")
-				}
-				.help("Add Workspace")
-				Button(action: remove) {
-					Image(systemName: "minus").accessibilityLabel("Remove Workspace")
-				}
-				.help("Remove Workspace")
+		Button(action: add) {
+			HStack(spacing: 6) {
+				Image(systemName: "plus")
+					.font(.system(size: 11, weight: .semibold))
+				Text("Add Workspace")
+				Spacer(minLength: 0)
 			}
-			.controlSize(.small)
-			.fixedSize()
-			Spacer(minLength: 0)
+			.foregroundStyle(.secondary)
+			.padding(.horizontal, 8)
+			.frame(height: WorkspaceRow.height)
+			.contentShape(Rectangle())
 		}
-		.padding(6)
+		.buttonStyle(.plain)
 	}
 }
 
