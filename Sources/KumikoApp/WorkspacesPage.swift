@@ -3,14 +3,13 @@ import KumikoCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The lists of a workspace an app can be in.
+/// The lists of a workspace the app table writes. `stack` is the Window Rules page's.
 enum AppList: String, CaseIterable {
-	case apps, stack, last
+	case apps, last
 
 	var keyPath: KeyPath<Config.Workspace, [String]> {
 		switch self {
 		case .apps: \.apps
-		case .stack: \.stack
 		case .last: \.last
 		}
 	}
@@ -101,7 +100,8 @@ extension SettingsModel {
 		change(changes)
 	}
 
-	/// Out of all four, in one write.
+	/// Out of `apps`, `last` and `share`, in one write. `stack` is the Window Rules page's, which
+	/// the app may still be in after it no longer opens here.
 	func removeApp(_ app: String, from name: String) {
 		guard let index = index(of: name) else { return }
 		let workspace = workspaces[index]
