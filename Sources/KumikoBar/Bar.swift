@@ -24,6 +24,11 @@ public final class Bar {
 	private var refreshScheduled = false
 	/// The menu bar's look, the fallback when the desktop cannot be read.
 	private var menuBarIsDark = true
+	/// What the screens showed before the clock's click, for the click that goes back.
+	private var calendarReturn: WorkspaceReturn?
+	/// The clock's click opened Calendar with no window kumiko knew of: until then, the window
+	/// that comes brings its workspace forward. Only that click's window, so the time is short.
+	private var calendarWaitUntil: Date?
 	/// A plus was clicked on the bar of this display. The app writes the new workspace: kumiko.toml
 	/// is not the bar's to reach.
 	public var onAddWorkspace: @MainActor (UInt32) -> Void = { _ in }
@@ -208,8 +213,30 @@ public final class Bar {
 			model.vimCommandLine = commandLine
 		case .windowFrameChanged:
 			break
+		case let .windowCreated(info), let .windowChanged(info):
+			followCalendar(info)
+			scheduleRefresh()
 		default:
 			scheduleRefresh()
+		}
+	}
+
+	/// The window manager places a new window on the next pass of the run loop, so its workspace is
+	/// asked for after that, and once more a moment later for a window that is slow to settle.
+	private func followCalendar(_ info: WindowInfo) {
+		guard let until = calendarWaitUntil, info.bundleID == Self.calendar, !info.isMinimized else { return }
+		guard Date() < until else {
+			calendarWaitUntil = nil
+			return
+		}
+
+		for delay in [0.0, 0.3] {
+			DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+				MainActor.assumeIsolated {
+					guard let self, self.calendarWaitUntil != nil, self.bringCalendarForward() else { return }
+					self.calendarWaitUntil = nil
+				}
+			}
 		}
 	}
 
@@ -228,27 +255,53 @@ public final class Bar {
 
 	private static let calendar = "com.apple.iCal"
 
-	/// The clock's click, as in the macOS menu bar: Calendar. Brought forward on the workspace its
-	/// window is on, or opened; already in front, the workspace shown before comes back.
+	/// The clock's click, as in the macOS menu bar: Calendar, on the workspace and display its window
+	/// is on. Already in front there, the screens go back to what they showed before.
 	private func toggleCalendar() {
 		let running = NSRunningApplication.runningApplications(withBundleIdentifier: Self.calendar).first
 
-		if let running, running.isActive {
-			_ = manager.handle(["workspace", "focus", "recent"])
+		if let running, running.isActive, isCalendarShown(running.processIdentifier) {
+			calendarWaitUntil = nil
+			guard let back = calendarReturn else {
+				_ = manager.handle(["workspace", "focus", "recent"])
+				return
+			}
+			calendarReturn = nil
+			for name in back.steps(from: manager.workspaceStates) {
+				_ = manager.handle(["workspace", "focus", name])
+			}
 			return
 		}
 
-		if let running {
-			let pid = running.processIdentifier
-			let workspace = tracker.windows.values
-				.filter { $0.pid == pid && !$0.isMinimized }
-				.lazy.compactMap { self.manager.state(of: $0.id).workspace }.first
-			if let workspace, manager.focus(app: pid, on: workspace) { return }
-		}
+		calendarReturn = WorkspaceReturn(manager.workspaceStates)
+		if bringCalendarForward() { return }
 
-		// Not running, or with no window kumiko knows of: macOS opens one.
+		// Not running, with no window kumiko knows of, or only a minimized one: macOS opens or brings
+		// back a window, which shows its workspace when it comes.
 		guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.calendar) else { return }
+		calendarWaitUntil = Date().addingTimeInterval(5)
 		NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+	}
+
+	/// Calendar's window kumiko knows of, on its workspace: shown there, and focused.
+	private func bringCalendarForward() -> Bool {
+		guard let running = NSRunningApplication.runningApplications(withBundleIdentifier: Self.calendar).first else {
+			return false
+		}
+		let pid = running.processIdentifier
+		let workspace = tracker.windows.values
+			.filter { $0.pid == pid && !$0.isMinimized }
+			.lazy.compactMap { self.manager.state(of: $0.id).workspace }.first
+		guard let workspace else { return false }
+		return manager.focus(app: pid, on: workspace)
+	}
+
+	/// In front is not enough: Calendar opened by macOS may be active behind a workspace that hides it.
+	private func isCalendarShown(_ pid: pid_t) -> Bool {
+		let shown = Set(manager.workspaceStates.filter(\.isVisible).map(\.name))
+		return tracker.windows.values.contains { info in
+			info.pid == pid && !info.isMinimized && manager.state(of: info.id).workspace.map(shown.contains) == true
+		}
 	}
 
 	private func refresh() {
