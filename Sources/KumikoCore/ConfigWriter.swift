@@ -120,6 +120,14 @@ extension EntryEdit: ConfigChange {
 	public func apply(to text: String) throws(ConfigError) -> String { try ConfigWriter.apply(self, to: text) }
 }
 
+/// A whole `[table]` taken out with its keys, as a mode of the hotkeys is. The comments and blank
+/// lines before the next section stay: they are the next section's.
+public enum TableEdit: Equatable, Sendable, ConfigChange {
+	case remove(String)
+
+	public func apply(to text: String) throws(ConfigError) -> String { ConfigWriter.apply(self, to: text) }
+}
+
 /// Changes kumiko.toml the way a person would: the line of the key gets a new value and every
 /// other byte, comments and blank lines included, stays where the user put it.
 ///
@@ -257,6 +265,50 @@ public enum ConfigWriter {
 		}
 
 		return appending("[\(dotted(edit.target.name))]\n\(entry)", to: text)
+	}
+
+	/// A table the file does not have is already gone.
+	public static func apply(_ edit: TableEdit, to text: String) -> String {
+		guard case let .remove(name) = edit else { return text }
+
+		var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+		var state = ScanState()
+		var start: Int?
+		var end: Int?
+
+		for index in lines.indices {
+			var line = Array(lines[index])
+			if line.last == "\r" { line.removeLast() }
+
+			guard state.atRest else {
+				_ = scan(line, from: 0, &state)
+				if start != nil { end = index }
+				continue
+			}
+			guard let first = line.firstIndex(where: { $0 != " " && $0 != "\t" }), line[first] != "#" else { continue }
+
+			if line[first] == "[" {
+				guard start == nil else { break }
+				let array = first + 1 < line.count && line[first + 1] == "["
+				if !array, key(in: line, from: first + 1)?.parts == path(name) {
+					start = index
+					end = index
+				}
+				continue
+			}
+
+			guard start != nil else { continue }
+			if let (_, keyEnd) = key(in: line, from: first), keyEnd < line.count, line[keyEnd] == "=" {
+				_ = scan(line, from: keyEnd + 1, &state)
+			}
+			end = index
+		}
+
+		guard var start, let end else { return text }
+		// The blank line that set the table apart goes with it.
+		if start > 0, lines[start - 1].trimmingCharacters(in: .whitespaces).isEmpty { start -= 1 }
+		lines.removeSubrange(start...end)
+		return lines.joined(separator: "\n")
 	}
 
 	public static func apply(_ edit: EntryEdit, to text: String) throws(ConfigError) -> String {
