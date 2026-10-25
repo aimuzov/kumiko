@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import KumikoCore
-import KumikoMenuBar
 import SwiftUI
 
 /// The settings window, laid out the way Raycast lays out its own: a sidebar of the app's own pages
@@ -25,9 +24,7 @@ final class SettingsWindow {
 	private(set) var isOpen = false
 
 	init(app: AppDelegate) {
-		model = SettingsModel(configFile: app.paths.configFile, config: app.config, error: app.configError?.description) {
-			[weak app] in app?.menuBar?.items()
-		}
+		model = SettingsModel(configFile: app.paths.configFile, config: app.config, error: app.configError?.description)
 		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
 		tile = { [weak app] window in app?.tracker?.track(own: window) }
 		isTiled = { [weak app] window in
@@ -80,7 +77,9 @@ final class SettingsWindow {
 	@discardableResult
 	func show(pane name: String? = nil) -> Bool {
 		if let name {
-			guard let pane = Pane(rawValue: name.lowercased()) else { return false }
+			// The menu bar's settings moved to General; the old page name still finds them.
+			guard let pane = Pane(rawValue: name.lowercased()) ?? (name.lowercased() == "menubar" ? .general : nil)
+			else { return false }
 			model.pane = pane
 		}
 
@@ -253,18 +252,10 @@ final class SettingsModel: ObservableObject {
 	/// pull its cursor in from the edge of the wheel on every step of a drag.
 	@Published private(set) var pickedBorderColor: SwiftUI.Color?
 	private var pendingBorderColor: DispatchWorkItem?
-	/// The menu bar items either side of the divider, nil while menu bar hiding is off.
-	@Published private(set) var menuBarItems: (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
-	private let readMenuBar: () -> (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
-
-	init(
-		configFile: URL, config: Config, error: String?,
-		menuBar: @escaping () -> (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
-	) {
+	init(configFile: URL, config: Config, error: String?) {
 		self.configFile = configFile
 		self.config = config
 		self.error = error
-		readMenuBar = menuBar
 		screensObserver = NotificationCenter.default.addObserver(
 			forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
 		) { [weak self] _ in
@@ -405,7 +396,6 @@ final class SettingsModel: ObservableObject {
 		payloadVersion = ScriptingAddition.handshake()
 		sipAllowsPayload = ScriptingAddition.isAllowedBySIP
 		missing = Permission.missing
-		menuBarItems = readMenuBar()
 	}
 
 	func goBack() {
@@ -450,10 +440,10 @@ final class SettingsModel: ObservableObject {
 /// A page of the window. The raw value is what `kumiko settings <page>` takes.
 enum Pane: String, CaseIterable, Identifiable {
 	case general, advanced, about
-	case windows, workspaces, rules, hotkeys, bar, borders, menubar, vim
+	case windows, workspaces, rules, hotkeys, bar, borders, vim
 
 	static let app: [Pane] = [.general, .advanced, .about]
-	static let modules: [Pane] = [.windows, .workspaces, .rules, .hotkeys, .bar, .borders, .menubar, .vim]
+	static let modules: [Pane] = [.windows, .workspaces, .rules, .hotkeys, .bar, .borders, .vim]
 
 	var id: Self { self }
 
@@ -468,7 +458,6 @@ enum Pane: String, CaseIterable, Identifiable {
 		case .hotkeys: "Hotkeys"
 		case .bar: "Bar"
 		case .borders: "Borders"
-		case .menubar: "Menu Bar"
 		case .vim: "Vim"
 		}
 	}
@@ -484,7 +473,6 @@ enum Pane: String, CaseIterable, Identifiable {
 		case .hotkeys: "Key bindings, modes and remaps"
 		case .bar: "Workspaces and status along the screen edge"
 		case .borders: "A frame around the focused window"
-		case .menubar: "Hides the menu bar items you rarely need"
 		case .vim: "Vim modes in every text field"
 		}
 	}
@@ -500,7 +488,6 @@ enum Pane: String, CaseIterable, Identifiable {
 		case .hotkeys: "command"
 		case .bar: "menubar.rectangle"
 		case .borders: "square.dashed"
-		case .menubar: "menubar.arrow.up.rectangle"
 		case .vim: "character.cursor.ibeam"
 		}
 	}
@@ -514,7 +501,6 @@ enum Pane: String, CaseIterable, Identifiable {
 		case .hotkeys: .indigo
 		case .bar: .orange
 		case .borders: .pink
-		case .menubar: .teal
 		case .vim: .green
 		}
 	}
@@ -525,7 +511,7 @@ enum Pane: String, CaseIterable, Identifiable {
 		case .general: Permission.allCases
 		case .windows, .workspaces, .rules, .borders: [.accessibility]
 		case .hotkeys, .vim: [.accessibility, .inputMonitoring]
-		case .advanced, .about, .bar, .menubar: []
+		case .advanced, .about, .bar: []
 		}
 	}
 
@@ -540,7 +526,6 @@ enum Pane: String, CaseIterable, Identifiable {
 		case .hotkeys: (\.hotkeys.enabled, "hotkeys", "enabled")
 		case .bar: (\.bar.enabled, "bar", "enabled")
 		case .borders: (\.borders.enabled, "borders", "enabled")
-		case .menubar: (\.menuBar.enabled, "menubar", "enabled")
 		case .vim: (\.vim.enabled, "vim", "enabled")
 		}
 	}
@@ -824,7 +809,6 @@ private struct Page: View {
 			case .hotkeys: HotkeysPage(model: model)
 			case .bar: BarPage(model: model)
 			case .borders: BordersPage(model: model)
-			case .menubar: MenuBarPage(model: model)
 			case .vim: VimPage(vim: model.config.vim)
 			}
 		}
@@ -1121,6 +1105,31 @@ private struct GeneralPage: View {
 					.disabled(!LoginItem.isAvailable)
 			}
 		}
+
+		// Ice's one trick, not a module of its own: a switch and how long the items stay shown.
+		Card(title: "Menu Bar") {
+			SwitchRow(
+				title: "Hide menu bar items",
+				detail: "A chevron in the menu bar shows and hides the items left of its divider. "
+					+ "Cmd-drag an item across the divider to choose where it goes.",
+				on: model.binding(\.menuBar.enabled, "menubar", "enabled"),
+				last: !model.config.menuBar.enabled,
+				reset: model.reset(\.menuBar.enabled, "menubar", "enabled")
+			)
+			if model.config.menuBar.enabled {
+				StepperRow(
+					title: "Hide again after",
+					detail: "Shown items hide again on their own after this long.",
+					value: model.binding(\.menuBar.rehide, "menubar", "rehide"),
+					range: 0...120,
+					step: 5,
+					unit: "s",
+					zero: "Never",
+					last: true,
+					reset: model.reset(\.menuBar.rehide, "menubar", "rehide")
+				)
+			}
+		}
 	}
 }
 
@@ -1414,68 +1423,6 @@ private struct BordersPage: View {
 
 		Card(title: "Exceptions") {
 			Row("No border for", value: list(borders.blacklist), last: true)
-		}
-	}
-}
-
-private struct MenuBarPage: View {
-	@ObservedObject var model: SettingsModel
-
-	var body: some View {
-		if let items = model.menuBarItems {
-			ItemsCard(title: "Always Shown", items: items.shown, empty: "No items right of the divider.")
-			ItemsCard(
-				title: "Hidden",
-				items: items.hidden,
-				empty: "Cmd-drag items to the left of the divider to hide them."
-			)
-		}
-
-		Card(title: "Hiding") {
-			StepperRow(
-				title: "Hide again after",
-				detail: "Cmd-drag an item across the divider to move it between the lists.",
-				value: model.binding(\.menuBar.rehide, "menubar", "rehide"),
-				range: 0...120,
-				step: 5,
-				unit: "s",
-				zero: "Never",
-				last: true,
-				reset: model.reset(\.menuBar.rehide, "menubar", "rehide")
-			)
-		}
-	}
-}
-
-/// Menu bar items as rows, each with its app's icon.
-private struct ItemsCard: View {
-	let title: String
-	let items: [MenuBarHider.Item]
-	let empty: String
-
-	var body: some View {
-		Card(title: title) {
-			if items.isEmpty {
-				Row(title: empty, last: true) { EmptyView() }
-			}
-			ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-				VStack(spacing: 0) {
-					HStack(spacing: 8) {
-						if let icon = NSRunningApplication(processIdentifier: item.pid)?.icon {
-							Image(nsImage: icon)
-								.resizable()
-								.frame(width: 18, height: 18)
-						}
-						Text(item.name)
-						Spacer()
-					}
-					.padding(.vertical, 10)
-
-					if index < items.count - 1 {
-						Divider()
-					}
-				}
-			}
 		}
 	}
 }
