@@ -22,7 +22,7 @@ final class SettingsWindow {
 
 	init(app: AppDelegate) {
 		model = SettingsModel(configFile: app.paths.configFile, config: app.config, error: app.configError?.description) {
-			[weak app] in app?.menuBar?.items()
+			[weak app] in app?.menuBar
 		}
 		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
 		model.onRenameWorkspace = { [weak app] old, new in app?.manager?.rename(old, to: new) }
@@ -223,17 +223,21 @@ final class SettingsModel: ObservableObject {
 	@Published private(set) var pickedBorderColor: SwiftUI.Color?
 	private var pendingBorderColor: DispatchWorkItem?
 	/// The menu bar items either side of the divider, nil while menu bar hiding is off.
-	@Published private(set) var menuBarItems: (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
-	private let readMenuBar: () -> (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
+	@Published var menuBarItems: (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
+	/// The items as the menu bar draws them, by window; see `MenuBarSnapshots`.
+	@Published var menuBarSnapshots: [CGWindowID: NSImage] = [:]
+	/// Looks at the menu bar again while its page is shown, for items moved there by hand.
+	var menuBarWatch: Timer?
+	let menuBar: () -> MenuBarHider?
 
 	init(
 		configFile: URL, config: Config, error: String?,
-		menuBar: @escaping () -> (hidden: [MenuBarHider.Item], shown: [MenuBarHider.Item])?
+		menuBar: @escaping () -> MenuBarHider?
 	) {
 		self.configFile = configFile
 		self.config = config
 		self.error = error
-		readMenuBar = menuBar
+		self.menuBar = menuBar
 		screensObserver = NotificationCenter.default.addObserver(
 			forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
 		) { [weak self] _ in
@@ -374,7 +378,7 @@ final class SettingsModel: ObservableObject {
 		payloadVersion = ScriptingAddition.handshake()
 		sipAllowsPayload = ScriptingAddition.isAllowedBySIP
 		missing = Permission.missing
-		menuBarItems = readMenuBar()
+		readMenuBarItems()
 	}
 
 	func goBack() {
@@ -1003,7 +1007,7 @@ struct SwitchRow: View {
 
 /// A number typed in or set a step at a time, its unit after it. A typed number is written when
 /// the field is left or return is pressed, not with every key, and kept within the range.
-private struct StepperRow: View {
+struct StepperRow: View {
 	let title: String
 	var detail: String?
 	let value: Binding<Double>
@@ -1381,68 +1385,6 @@ private struct BordersPage: View {
 
 		Card(title: "Exceptions") {
 			Row("No border for", value: list(borders.blacklist), last: true)
-		}
-	}
-}
-
-private struct MenuBarPage: View {
-	@ObservedObject var model: SettingsModel
-
-	var body: some View {
-		if let items = model.menuBarItems {
-			ItemsCard(title: "Always Shown", items: items.shown, empty: "No items right of the divider.")
-			ItemsCard(
-				title: "Hidden",
-				items: items.hidden,
-				empty: "Cmd-drag items to the left of the divider to hide them."
-			)
-		}
-
-		Card(title: "Hiding") {
-			StepperRow(
-				title: "Hide again after",
-				detail: "Cmd-drag an item across the divider to move it between the lists.",
-				value: model.binding(\.menuBar.rehide, "menubar", "rehide"),
-				range: 0...120,
-				step: 5,
-				unit: "s",
-				zero: "Never",
-				last: true,
-				reset: model.reset(\.menuBar.rehide, "menubar", "rehide")
-			)
-		}
-	}
-}
-
-/// Menu bar items as rows, each with its app's icon.
-private struct ItemsCard: View {
-	let title: String
-	let items: [MenuBarHider.Item]
-	let empty: String
-
-	var body: some View {
-		Card(title: title) {
-			if items.isEmpty {
-				Row(title: empty, last: true) { EmptyView() }
-			}
-			ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-				VStack(spacing: 0) {
-					HStack(spacing: 8) {
-						if let icon = NSRunningApplication(processIdentifier: item.pid)?.icon {
-							Image(nsImage: icon)
-								.resizable()
-								.frame(width: 18, height: 18)
-						}
-						Text(item.name)
-						Spacer()
-					}
-					.padding(.vertical, 10)
-
-					if index < items.count - 1 {
-						Divider()
-					}
-				}
-			}
 		}
 	}
 }

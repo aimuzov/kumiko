@@ -37,6 +37,8 @@ let usage = """
 
 	  menubar show|hide|toggle
 	             show or hide the status items left of the divider
+	  menubar items
+	             list the items shown and hidden, right to left
 
 	  sa status|install|load|uninstall|sudoers
 	             the scripting addition in Dock, for window shadows;

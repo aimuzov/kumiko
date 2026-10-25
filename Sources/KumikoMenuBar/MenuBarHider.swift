@@ -66,8 +66,15 @@ public final class MenuBarHider: NSObject {
 	/// A status item of another app: the app's name, or for the system's own items (Wi-Fi, the
 	/// clock) what the item says it is.
 	public struct Item: Equatable, Sendable {
+		/// The same from one look to the next: the system item's identifier, or the app and the
+		/// item's place among the app's own.
+		public let id: String
 		public let name: String
 		public let pid: pid_t
+		/// In screen coordinates with the origin top left, as Accessibility counts.
+		public let frame: CGRect
+		/// The window server's window that draws it, for a picture of it.
+		public let windowID: CGWindowID?
 	}
 
 	/// The items in the menu bar either side of the divider, each side from left to right; nil
@@ -76,9 +83,16 @@ public final class MenuBarHider: NSObject {
 	/// can, with where its items are.
 	public func items() -> (hidden: [Item], shown: [Item])? {
 		guard let dividerMid = divider?.button?.window?.frame.midX else { return nil }
+		let sorted = Self.scan()
+		return (sorted.filter { $0.frame.midX < dividerMid }, sorted.filter { $0.frame.midX > dividerMid })
+	}
 
-		let system: Set<String> = ["com.apple.controlcenter", "com.apple.systemuiserver"]
-		var found: [(item: Item, midX: CGFloat)] = []
+	private static let systemApps: Set<String> = ["com.apple.controlcenter", "com.apple.systemuiserver"]
+
+	/// Every other app's item, left to right.
+	private static func scan() -> [Item] {
+		let windows = statusWindows()
+		var found: [Item] = []
 
 		for app in NSWorkspace.shared.runningApplications where app.processIdentifier != getpid() {
 			let element = AXUIElementCreateApplication(app.processIdentifier)
@@ -94,30 +108,56 @@ public final class MenuBarHider: NSObject {
 				let items = children as? [AXUIElement]
 			else { continue }
 
-			let isSystem = system.contains(app.bundleIdentifier ?? "")
+			let isSystem = systemApps.contains(app.bundleIdentifier ?? "")
+			let owner = app.bundleIdentifier ?? "pid \(app.processIdentifier)"
 
-			for item in items {
-				guard let frame = Self.frame(of: item) else { continue }
+			for (index, item) in items.enumerated() {
+				guard let frame = Self.frame(of: item), frame.width > 0 else { continue }
 
 				let name: String
+				let id: String
 				if isSystem {
 					// Control Center also hosts other apps' items, unnamed; those apps list them
 					// themselves, so only the system's own, named items count here.
 					guard let label = Self.label(of: item) else { continue }
 					// "Wi-Fi, connected, 3 bars" is the Wi-Fi item.
 					name = label.components(separatedBy: ",")[0]
+					id = string(item, kAXIdentifierAttribute) ?? "\(owner)#\(name)"
 				} else {
-					name = app.localizedName ?? "pid \(app.processIdentifier)"
+					name = app.localizedName ?? owner
+					id = "\(owner)#\(index)"
 				}
-				found.append((Item(name: name, pid: app.processIdentifier), frame.midX))
+				// An item with no window of its own is not in the menu bar, whatever Accessibility
+				// says: Happ lists one at the left screen edge while it shows none.
+				guard let window = windows.first(where: { $0.bounds.minX <= frame.midX && frame.midX <= $0.bounds.maxX })?.id
+				else { continue }
+				found.append(Item(id: id, name: name, pid: app.processIdentifier, frame: frame, windowID: window))
 			}
 		}
 
-		let sorted = found.sorted { $0.midX < $1.midX }
-		return (
-			sorted.filter { $0.midX < dividerMid }.map(\.item),
-			sorted.filter { $0.midX > dividerMid }.map(\.item)
-		)
+		return found.sorted { $0.frame.midX < $1.frame.midX }
+	}
+
+	/// The menu bar's item windows, at the status level. Not the wide ones at the same level:
+	/// the divider's spans the hidden items, and kumiko's bar the whole screen.
+	private static func statusWindows() -> [(id: CGWindowID, bounds: CGRect)] {
+		let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
+		return list.compactMap { window in
+			guard
+				window[kCGWindowLayer as String] as? Int == Int(CGWindowLevelForKey(.statusWindow)),
+				let id = window[kCGWindowNumber as String] as? CGWindowID,
+				let bounds = (window[kCGWindowBounds as String] as? NSDictionary)
+					.flatMap({ CGRect(dictionaryRepresentation: $0) }),
+				bounds.width < 300
+			else { return nil }
+			return (id, bounds)
+		}
+	}
+
+	private static func string(_ element: AXUIElement, _ attribute: String) -> String? {
+		var value: CFTypeRef?
+		AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+		return value as? String
 	}
 
 	private static func frame(of element: AXUIElement) -> CGRect? {
@@ -153,7 +193,12 @@ public final class MenuBarHider: NSObject {
 		case "show": show()
 		case "hide": hide()
 		case "toggle": toggleItems()
-		default: return .failure("usage: kumiko menubar show|hide|toggle")
+		case "items":
+			guard let items = items() else { return .failure("menu bar hiding is off") }
+			let line = { (item: Item) in "\(item.id)\t\(item.name)" }
+			return .success((["shown:"] + items.shown.reversed().map(line) + ["hidden:"] + items.hidden.reversed().map(line))
+				.joined(separator: "\n"))
+		default: return .failure("usage: kumiko menubar show|hide|toggle|items")
 		}
 		return .success()
 	}
