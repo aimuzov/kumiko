@@ -74,6 +74,7 @@ public final class WindowTracker {
 	public func rescan() {
 		for observer in apps.values {
 			observer.rescan()
+			updateTabs(of: observer)
 		}
 	}
 
@@ -209,6 +210,8 @@ public final class WindowTracker {
 
 		windows[id] = info
 		bus.publish(.windowCreated(info))
+		// A new tab (cmd-T) sends the tab in front behind it.
+		updateTabs(of: observer, appeared: id)
 	}
 
 	func notification(_ name: String, element: AXUIElement, in observer: AppObserver) {
@@ -216,10 +219,16 @@ public final class WindowTracker {
 		case kAXWindowCreatedNotification:
 			windowAppeared(element, in: observer)
 		case kAXFocusedWindowChangedNotification, kAXFocusedUIElementChangedNotification:
+			if name == kAXFocusedWindowChangedNotification { updateTabs(of: observer) }
 			// Background apps move their own focus around too; only the frontmost app's counts.
 			if observer.app.isActive { updateFocus() }
+		case kAXMainWindowChangedNotification:
+			updateTabs(of: observer)
 		case kAXUIElementDestroyedNotification:
-			if let id = observer.id(of: element) { untrack(id) }
+			if let id = observer.id(of: element) {
+				updateTabs(of: observer, gone: id)
+				untrack(id)
+			}
 		case kAXWindowMovedNotification, kAXWindowResizedNotification:
 			if let id = observer.id(of: element) { scheduleRefresh(id) }
 		default:
@@ -270,6 +279,29 @@ public final class WindowTracker {
 		bus.publish(.windowChanged(info))
 	}
 
+	/// Marks the app's tabs behind another, and tells which tab took whose place. The replacement
+	/// goes out first, so the layout swaps the windows before it sees the old one leave.
+	private func updateTabs(of observer: AppObserver, appeared: UInt32? = nil, gone: UInt32? = nil) {
+		let known = windows.values.filter { $0.pid == observer.pid }
+		guard !known.isEmpty, let listed = observer.listedWindows() else { return }
+
+		let changes = NativeTabs.changes(
+			windows: Dictionary(known.map { ($0.id, $0.isBackgroundTab) }, uniquingKeysWith: { first, _ in first }),
+			listed: listed.ids, showsTabs: listed.showsTabs, appeared: appeared, gone: gone
+		)
+
+		for replacement in changes.replaced {
+			bus.publish(.tabReplaced(old: replacement.old, new: replacement.new))
+		}
+
+		for (id, isBehind) in changes.background.sorted(by: { $0.key < $1.key }) {
+			guard var info = windows[id] else { continue }
+			info.isBackgroundTab = isBehind
+			windows[id] = info
+			bus.publish(.windowChanged(info))
+		}
+	}
+
 	private func untrack(_ id: UInt32) {
 		guard let info = windows.removeValue(forKey: id) else { return }
 
@@ -318,7 +350,9 @@ public final class WindowTracker {
 				app: app, title: title, identifier: identifier, isResizable: isResizable, subrole: subrole
 			),
 			identifier: identifier,
-			isResizable: isResizable
+			isResizable: isResizable,
+			// A tab goes behind or comes in front only as `updateTabs` sees it.
+			isBackgroundTab: previous?.isBackgroundTab ?? false
 		)
 	}
 

@@ -55,12 +55,14 @@ public final class WindowManager {
 		let isMinimized: Bool
 		let isHidden: Bool
 		let isFullscreen: Bool
+		let isBackgroundTab: Bool
 
 		init(_ info: WindowInfo) {
 			isManaged = info.isManaged
 			isMinimized = info.isMinimized
 			isHidden = info.isHidden
 			isFullscreen = info.isFullscreen
+			isBackgroundTab = info.isBackgroundTab
 		}
 	}
 
@@ -224,6 +226,8 @@ public final class WindowManager {
 			expected[id] = nil
 			known[id] = nil
 			scheduleSync()
+		case let .tabReplaced(old, new):
+			replaceTab(old, with: new)
 		case let .windowFocused(id):
 			guard let id else { return }
 			history.removeAll { $0 == id }
@@ -435,9 +439,24 @@ public final class WindowManager {
 		return focusedWorkspace
 	}
 
+	/// The tab in front now takes everything the one before had: its workspace, its place in the
+	/// layout and its choice of tiled or floating. The one gone behind leaves the layout on the next
+	/// pass, as a window that is not tiled.
+	private func replaceTab(_ old: UInt32, with new: UInt32) {
+		guard let workspace = assignment[old] else { return }
+
+		assignment[new] = workspace
+		workspace.tree.substitute(old, with: new)
+		if let tiled = tiledByUser[old] { tiledByUser[new] = tiled }
+		if workspace.lastFocused == old { workspace.lastFocused = new }
+		if let index = history.lastIndex(of: old) { history[index] = new }
+		scheduleSync()
+	}
+
 	private func isTiled(_ id: UInt32, in workspace: Workspace) -> Bool {
 		// A floating workspace tiles nothing, not even a window toggled into the layout by hand.
-		guard workspace.config.layout != .float, let info = tracker.windows[id], assignment[id] === workspace
+		guard workspace.config.layout != .float, let info = tracker.windows[id], assignment[id] === workspace,
+		      !info.isBackgroundTab
 		else { return false }
 		// A toggle can bring in a window the rules skip, but never a dialog or a panel.
 		let wanted = tiledByUser[id].map { $0 && info.subrole == "AXStandardWindow" } ?? info.isManaged
@@ -665,9 +684,10 @@ public final class WindowManager {
 		let others = displays.filter { $0 != workspace.display }.map(\.frame)
 
 		for id in windows(of: workspace) where hidden[id] == nil {
-			guard let info = tracker.windows[id], !info.isMinimized, !isHiddenByUser(info), !info.isFullscreen else {
-				continue
-			}
+			// A tab behind is off screen already and moves with the tab in front.
+			guard let info = tracker.windows[id], !info.isMinimized, !isHiddenByUser(info), !info.isFullscreen,
+			      !info.isBackgroundTab
+			else { continue }
 
 			hidden[id] = info.frame
 			let origin = Display.hiddenOrigin(for: info.frame.size, on: workspace.display.frame, others: others)

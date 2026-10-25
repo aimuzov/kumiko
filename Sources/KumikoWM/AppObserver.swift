@@ -60,6 +60,8 @@ final class AppObserver {
 		}
 
 		AXObserverAddNotification(observer, element, kAXFocusedWindowChangedNotification as CFString, refcon)
+		// A native tab coming in front makes its window the main one, focused or not.
+		AXObserverAddNotification(observer, element, kAXMainWindowChangedNotification as CFString, refcon)
 		// A click on Finder's desktop moves focus without changing Finder's focused window.
 		AXObserverAddNotification(observer, element, kAXFocusedUIElementChangedNotification as CFString, refcon)
 		CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
@@ -77,6 +79,19 @@ final class AppObserver {
 		for window in AX.elements(element, kAXWindowsAttribute) {
 			tracker?.windowAppeared(window, in: self)
 		}
+	}
+
+	/// The windows the app lists now: of a group of native tabs, only the one in front. Nil when the
+	/// app does not answer, which says nothing about its tabs.
+	func listedWindows() -> (ids: Set<CGWindowID>, showsTabs: Bool)? {
+		guard let windows = AX.value(element, kAXWindowsAttribute) as? [AXUIElement] else { return nil }
+		let showsTabs = windows.contains { window in
+			AX.elements(window, kAXChildrenAttribute).contains { child in
+				AX.string(child, kAXRoleAttribute) == kAXTabGroupRole as String
+					&& AX.elements(child, kAXTabsAttribute).count > 1
+			}
+		}
+		return (Set(windows.compactMap(AX.windowID)), showsTabs)
 	}
 
 	func stop() {

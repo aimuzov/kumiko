@@ -154,6 +154,17 @@ final class BSPTree {
 		replace(parent, with: sibling)
 	}
 
+	/// Puts `new` where `old` is, in its stack and with its zoom. A tab coming in front of another
+	/// takes its place like this, and nothing around it moves.
+	func substitute(_ old: UInt32, with new: UInt32) {
+		guard !contains(new), let leaf = leafByWindow.removeValue(forKey: old), let index = leaf.windows.firstIndex(of: old)
+		else { return }
+
+		leaf.windows[index] = new
+		leafByWindow[new] = leaf
+		zoomed[new] = zoomed.removeValue(forKey: old)
+	}
+
 	// MARK: - Geometry
 
 	/// Where every window goes, stacked windows included (they share their leaf's rectangle).
