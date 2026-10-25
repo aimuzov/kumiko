@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import KumikoCore
 import Testing
 
@@ -14,6 +15,12 @@ struct ShadowsTests {
 
 	@Test func standardWindowsLoseTheirShadow() {
 		#expect(Shadows.losesShadow(window("AXStandardWindow")))
+	}
+
+	@Test func kumikosOwnWindowsKeepTheirs() {
+		var settings = window("AXStandardWindow")
+		settings.pid = ProcessInfo.processInfo.processIdentifier
+		#expect(!Shadows.losesShadow(settings))
 	}
 
 	@Test func panelsAndDialogsKeepTheirs() {

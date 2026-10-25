@@ -583,11 +583,13 @@ public final class WindowManager {
 	}
 
 	/// For every app with windows: whether one of them is on a shown workspace. Minimized and
-	/// full-screen windows do not count either way, and an app with only those is left alone.
+	/// full-screen windows do not count either way, and an app with only those is left alone. So is
+	/// kumiko: hidden for its settings, it would take the bar and the border along.
 	private func appVisibility() -> [pid_t: Bool] {
 		var result: [pid_t: Bool] = [:]
+		let kumiko = ProcessInfo.processInfo.processIdentifier
 
-		for info in tracker.windows.values where !info.isMinimized && !info.isFullscreen {
+		for info in tracker.windows.values where !info.isMinimized && !info.isFullscreen && info.pid != kumiko {
 			let shown = assignment[info.id].map(isVisible) ?? true
 			result[info.pid] = (result[info.pid] ?? false) || shown
 		}

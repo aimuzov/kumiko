@@ -16,6 +16,9 @@ final class SettingsWindow {
 	private var keyObserver: (any NSObjectProtocol)?
 	private var paneObserver: AnyCancellable?
 	private let bringForward: () -> Void
+	/// Hands the window to the tracker, which lays it out with the others; and whether it did.
+	private let tile: (NSWindow) -> Void
+	private let isTiled: (NSWindow) -> Bool
 	/// From show until the window is closed, minimized and hidden included: all that time kumiko
 	/// keeps its Dock icon, the way back to the window.
 	private(set) var isOpen = false
@@ -25,6 +28,10 @@ final class SettingsWindow {
 			[weak app] in app?.menuBar?.items()
 		}
 		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
+		tile = { [weak app] window in app?.tracker?.track(own: window) }
+		isTiled = { [weak app] window in
+			app?.tracker?.windows[UInt32(max(window.windowNumber, 0))]?.isManaged == true
+		}
 		model.onRenameWorkspace = { [weak app] old, new in app?.manager?.rename(old, to: new) }
 		model.pauseHotkeys = { [weak app] paused in app?.hotkeys?.isPaused = paused }
 		// Sent before the page changes, so the window is wide enough by the time it is drawn.
@@ -39,9 +46,10 @@ final class SettingsWindow {
 
 	/// Wider for a page that needs it, once on the way in: the Workspaces page's two columns
 	/// do not fit the window's first size. Grown about its middle and kept on its screen; a
-	/// window that is wide enough already is left as the user made it.
+	/// window that is wide enough already is left as the user made it, and one in the layout as the
+	/// layout made it.
 	private func fit(_ pane: Pane) {
-		guard let window else { return }
+		guard let window, !isTiled(window) else { return }
 		let width = SettingsView.minWidth(for: pane)
 		let missing = width - window.contentLayoutRect.width
 		guard missing > 0 else { return }
@@ -120,7 +128,13 @@ final class SettingsWindow {
 		// it has one while the window is open.
 		isOpen = true
 		NSApp.setActivationPolicy(.regular)
+		// Closed on a hidden workspace, it was saved where those wait, in a corner off the screen.
+		if let window, !NSScreen.screens.contains(where: { $0.visibleFrame.contains(CGPoint(x: window.frame.midX, y: window.frame.midY)) }) {
+			window.center()
+		}
 		window?.makeKeyAndOrderFront(nil)
+		// On screen it has a window number, which the layout knows it by.
+		if let window { tile(window) }
 
 		// The new policy takes hold on the next pass of the run loop. Activated before that, kumiko
 		// stays where cmd-tab put a newcomer, last.
