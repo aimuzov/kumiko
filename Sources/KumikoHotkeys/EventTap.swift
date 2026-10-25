@@ -21,6 +21,8 @@ public final class Hotkeys {
 	/// swallows it. Vim modes sit here, behind the hotkeys.
 	public var passthrough: (@MainActor (CGEvent, Bool) -> Bool)?
 	public var isRunning: Bool { tap != nil }
+	/// Every key goes through untouched, Vim's too: the settings window records a shortcut.
+	public var isPaused = false
 
 	/// `run` executes a kumiko command, the same way the CLI does.
 	public init(bus: EventBus, config: Config.Hotkeys, run: @escaping Runner) {
@@ -105,6 +107,8 @@ public final class Hotkeys {
 		default:
 			return true
 		}
+
+		guard !isPaused else { return true }
 
 		let keyEvent = KeyEvent(
 			keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),

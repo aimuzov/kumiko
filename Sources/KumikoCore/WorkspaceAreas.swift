@@ -93,4 +93,19 @@ public enum WorkspaceAreas {
 		appended.append(workspace)
 		return [insert] + move(appended.count - 1, to: workspace.area, slot: .max, in: appended, order: order)
 	}
+
+	/// A workspace of its own: "Workspace <n>", the first name free from one past the count. On
+	/// `display` it goes to the end of that display's area; without one, on the main display at
+	/// the end of the file. What the settings window's "Add Workspace" and the bar's plus both write.
+	public static func addNew(
+		on display: String?, in workspaces: [Config.Workspace], order: [Area]? = nil
+	) -> (name: String, changes: [any ConfigChange]) {
+		let names = Set(workspaces.map(\.name))
+		let name = ((workspaces.count + 1)...).lazy.map { "Workspace \($0)" }.first { !names.contains($0) }!
+		let workspace = Config.Workspace(name: name, display: display ?? "main")
+		let changes = display == nil
+			? [EntryEdit.insert("workspace", fields: workspace.tomlFields)]
+			: add(workspace, to: workspaces, order: order)
+		return (name, changes)
+	}
 }

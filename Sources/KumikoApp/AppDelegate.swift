@@ -83,6 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		let windowServer = WindowServerEvents(bus: bus)
 		borders.onOwnWindow = { windowServer.own = $0 }
 		let bar = Bar(bus: bus, tracker: tracker, manager: manager, config: config.bar)
+		bar.onAddWorkspace = { [weak self] display in self?.addWorkspace(on: display) }
+		bar.onShowWorkspace = { [weak self] name in self?.settings.show(workspace: name) }
 		let menuBar = MenuBarHider(config: config.menuBar)
 		// Vim gets the keys the hotkeys leave alone, so a hotkey still works inside a text field.
 		let vim = Vim(bus: bus, config: config.vim)
@@ -149,6 +151,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		floatLayer?.restore()
 		tracker?.stop()
 		hotkeys?.stop()
+	}
+
+	/// The bar's plus: a workspace like the settings window's "Add Workspace" on that bar's display,
+	/// then shown, since the bar leaves out an empty workspace that is not on screen.
+	private func addWorkspace(on display: UInt32) {
+		guard let manager else { return }
+		let (name, changes) = WorkspaceAreas.addNew(on: manager.displaySetting(for: display), in: config.workspaces)
+
+		do throws(ConfigError) {
+			_ = try ConfigWriter.write(changes, to: paths.configFile)
+		} catch {
+			Log.config.error("cannot add a workspace: \(error.description, privacy: .public)")
+			return
+		}
+
+		// Now rather than when the watcher notices, so the workspace is there to show.
+		guard case .success = reloadConfig() else { return }
+		// The manager takes the new workspaces on its next pass, which is already queued.
+		DispatchQueue.main.async {
+			MainActor.assumeIsolated { _ = manager.handle(["workspace", "focus", name]) }
+		}
 	}
 
 	/// Rereads the config file. A broken file keeps the previous config: a typo while editing must

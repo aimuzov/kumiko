@@ -26,6 +26,7 @@ final class SettingsWindow {
 		}
 		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
 		model.onRenameWorkspace = { [weak app] old, new in app?.manager?.rename(old, to: new) }
+		model.pauseHotkeys = { [weak app] paused in app?.hotkeys?.isPaused = paused }
 		// Sent before the page changes, so the window is wide enough by the time it is drawn.
 		paneObserver = model.$pane.sink { [weak self] pane in self?.fit(pane) }
 
@@ -58,6 +59,12 @@ final class SettingsWindow {
 	/// without the payload, but then no other window has lost one and this would be the odd one out.
 	private func matchShadows() {
 		window?.hasShadow = model.config.wm.shadows || model.payloadVersion == nil
+	}
+
+	/// The Workspaces page with this workspace's settings: a click on an empty one in the bar.
+	func show(workspace name: String) {
+		model.pickWorkspace(name)
+		show(pane: Pane.workspaces.rawValue)
 	}
 
 	/// Shows the window, on the page named (its id, like `borders`) when one is.
@@ -186,6 +193,26 @@ final class SettingsModel: ObservableObject {
 	@Published var rulePendingRemoval: RuleSelection?
 	/// The title typed into the exceptions' last row, not yet added.
 	@Published var newExceptionTitle = ""
+	/// The mode the Hotkeys page shows; nil, or one the file no longer has, is the default mode.
+	@Published var selectedHotkeyMode: HotkeyBindings.ModeID?
+	/// The binding whose shortcut is being recorded, by its key in the file; "" for a new one.
+	/// kumiko's own hotkeys are off meanwhile, or the shortcut pressed would run instead.
+	@Published var recordingHotkey: String? {
+		didSet { if (recordingHotkey == nil) != (oldValue == nil) { pauseHotkeys(recordingHotkey != nil) } }
+	}
+	var pauseHotkeys: (Bool) -> Void = { _ in }
+	/// The shortcut just pressed in the recorder, before it is written.
+	@Published var recordedHotkey: KeyCombo?
+	/// The binding whose action popover is open, by its key in the file.
+	@Published var editingHotkeyAction: String?
+	/// Recorded shortcuts keep the side of ⌘, ⌥, ⌃ and ⇧ that was pressed.
+	@Published var recordsHotkeySide = false
+	/// The action popover waits for the key a shortcut presses instead.
+	@Published var recordingSentKey = false
+	/// The name typed for a new mode while its dialog is open.
+	@Published var newHotkeyMode: String?
+	/// The mode the Remove dialog of the Hotkeys page asks about.
+	@Published var hotkeyModePendingRemoval: String?
 	/// Tells the window manager a rename is coming, before the file has it.
 	var onRenameWorkspace: (String, String) -> Void = { _, _ in }
 	/// The bar's scale while its slider is dragged; written to the file when it is let go.
@@ -761,7 +788,7 @@ private struct Page: View {
 			case .windows: WindowsPage(model: model)
 			case .workspaces: WorkspacesPage(model: model)
 			case .rules: RulesPage(model: model)
-			case .hotkeys: HotkeysPage(hotkeys: model.config.hotkeys)
+			case .hotkeys: HotkeysPage(model: model)
 			case .bar: BarPage(model: model)
 			case .borders: BordersPage(model: model)
 			case .menubar: MenuBarPage(model: model)
@@ -1212,22 +1239,6 @@ private struct WindowsPage: View {
 				setPadding(padding)
 			}
 		)
-	}
-}
-
-private struct HotkeysPage: View {
-	let hotkeys: Config.Hotkeys
-
-	var body: some View {
-		Card(title: "Bindings") {
-			Row("Default mode", value: "\(hotkeys.bindings.count)")
-			Row("Every mode", value: "\(hotkeys.global.count)")
-			Row("Modes", value: list(hotkeys.modes.keys.sorted()), last: true)
-		}
-
-		Card(title: "Exceptions") {
-			Row("No hotkeys in", value: list(hotkeys.blacklist), last: true)
-		}
 	}
 }
 

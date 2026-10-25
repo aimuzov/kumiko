@@ -124,12 +124,10 @@ extension SettingsModel {
 	/// Into an area, at its end; without areas, at the end of the file.
 	func addWorkspace(to area: Config.Workspace.Area? = nil) {
 		endTyping()
-		let names = Set(workspaces.map(\.name))
-		let name = ((workspaces.count + 1)...).lazy.map { "Workspace \($0)" }.first { !names.contains($0) }!
-		let workspace = Config.Workspace(name: name, display: area?.display ?? "main")
-		change(area == nil
-			? [EntryEdit.insert("workspace", fields: workspace.tomlFields)]
-			: WorkspaceAreas.add(workspace, to: workspaces, order: areaOrder()))
+		let (name, changes) = WorkspaceAreas.addNew(
+			on: area?.display, in: workspaces, order: area == nil ? nil : areaOrder()
+		)
+		change(changes)
 		if writeError == nil { selectedWorkspace = name }
 	}
 

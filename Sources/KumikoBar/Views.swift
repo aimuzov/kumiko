@@ -29,6 +29,7 @@ struct BarView: View {
 		.foregroundStyle(config.colors.text.map(Color.init) ?? Color(nsColor: .labelColor))
 		.symbolRenderingMode(.monochrome)
 		.environment(\.barDisplay, display)
+		.onHover { model.hoveredBar = $0 ? display : nil }
 	}
 
 	@ViewBuilder
@@ -124,7 +125,7 @@ private struct WorkspacesItem: View {
 		}
 
 		// No view rather than an empty one: the bar's spacing would leave a gap for it.
-		if !shown.isEmpty {
+		if !shown.isEmpty || model.canAddWorkspace {
 			workspaces(shown, colors: colors)
 		}
 	}
@@ -161,7 +162,10 @@ private struct WorkspacesItem: View {
 						model.hoveredWorkspace = nil
 					}
 				}
-				.onTapGesture { model.focusWorkspace(workspace.name) }
+				// An empty workspace has nothing to go to: its settings open instead.
+				.onTapGesture {
+					workspace.apps.isEmpty ? model.showWorkspace(workspace.name) : model.focusWorkspace(workspace.name)
+				}
 				.barTooltip(model, "\(display):workspace:\(workspace.name)", raise: { [name = workspace.name] in
 					// Over icons that grow, the label goes up above the largest of them.
 					guard let workspace = model.workspaces.first(where: { $0.name == name }),
@@ -175,7 +179,43 @@ private struct WorkspacesItem: View {
 					return row.hovered.map { row.icons[$0].app.name } ?? TooltipText.workspace(workspace)
 				}
 			}
+
+			if model.canAddWorkspace {
+				AddWorkspaceButton(model: model, display: display)
+			}
 		}
+	}
+}
+
+/// A plus after the workspaces, there while the pointer is on the bar, grey like the hidden
+/// workspaces and with their hover. It adds a workspace on this bar's display and shows it.
+private struct AddWorkspaceButton: View {
+	let model: BarModel
+	let display: UInt32
+
+	var body: some View {
+		let scale = model.config.scale
+		let shown = model.hoveredBar == display
+		let hovered = model.hoveredPlus == display
+
+		Image(systemName: "plus")
+			.font(.system(size: 11 * scale, weight: .semibold))
+			.foregroundStyle(.secondary)
+			.modifier(Highlight(isOn: false, isHovered: hovered, tint: model.config.colors.active, scale: scale))
+			.contentShape(Capsule())
+			.onHover { over in
+				if over {
+					model.hoveredPlus = display
+				} else if model.hoveredPlus == display {
+					model.hoveredPlus = nil
+				}
+			}
+			.onTapGesture { model.addWorkspace(display) }
+			.barTooltip(model, "\(display):add-workspace") { "Add a workspace" }
+			// Kept in its place while hidden: the items after it would jump each time it showed.
+			.opacity(shown ? 1 : 0)
+			.allowsHitTesting(shown)
+			.animation(.easeOut(duration: 0.15), value: shown)
 	}
 }
 

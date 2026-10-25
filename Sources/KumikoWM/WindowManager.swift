@@ -159,6 +159,19 @@ public final class WindowManager {
 	/// to tell apart from.
 	public var usesWorkspaces: Bool { config.wm.useWorkspaces }
 
+	/// Whether a workspace can be added to the file. Not while the file names none: the default
+	/// "1" to "9" stand in for them, and one entry would replace all nine.
+	public var canAddWorkspace: Bool { config.wm.useWorkspaces && !config.workspaces.isEmpty }
+
+	/// What a new workspace's `display` says to land on this display, the way `Display.matching`
+	/// reads it back; nil with a single display, where every workspace is on it anyway.
+	public func displaySetting(for id: UInt32) -> String? {
+		let displays = Display.all()
+		guard displays.count > 1, let display = displays.first(where: { $0.id == id }) else { return nil }
+		let spec = ["external", "main", "builtin"].first { Display.matching($0, in: displays) == display }
+		return spec ?? display.name
+	}
+
 	public var workspaceStates: [WorkspaceState] {
 		let focused = focusedWorkspace
 		return workspaces.enumerated().map { index, workspace in
