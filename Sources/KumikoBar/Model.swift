@@ -73,6 +73,8 @@ final class BarModel {
 	var pointer: Pointer?
 	/// The workspace the pointer is over, number and icons alike.
 	var hoveredWorkspace: String?
+	/// The item on the right the pointer is over, as `ItemHover` names it.
+	var hoveredItem: String?
 	/// Where each workspace's row of icons sits in its bar, in the bar's coordinates; magnified
 	/// icons are drawn over the windows from there.
 	var iconRows: [String: CGRect] = [:]

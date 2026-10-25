@@ -18,7 +18,9 @@ struct BarView: View {
 		HStack(spacing: 14 * config.scale) {
 			ForEach(model.items(config.left), id: \.self) { item(named: $0) }
 			Spacer(minLength: 0)
-			ForEach(model.items(config.right).reversed(), id: \.self) { item(named: $0) }
+			ForEach(model.items(config.right).reversed(), id: \.self) { name in
+				item(named: name).modifier(ItemHover(model: model, id: "\(display) \(name)", scale: config.scale))
+			}
 		}
 		.padding(.horizontal, config.padding + 6)
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -43,6 +45,36 @@ struct BarView: View {
 	}
 }
 
+/// An item on the right under the pointer: the accent capsule of a hovered workspace. It is drawn
+/// past the item's edges, as is the area that follows the pointer, so it takes no room and nothing
+/// on the bar moves.
+private struct ItemHover: ViewModifier {
+	let model: BarModel
+	/// The item on this bar alone: the other bars show the same items.
+	let id: String
+	let scale: Double
+
+	func body(content: Content) -> some View {
+		let margin = 6 * scale
+		let isHovered = model.hoveredItem == id
+
+		content
+			.padding(.horizontal, margin)
+			.frame(height: 24 * scale)
+			.background(Highlight.hover(isHovered, opacity: Highlight.hoverOpacity))
+			.contentShape(Capsule())
+			.onHover { over in
+				if over {
+					model.hoveredItem = id
+				} else if model.hoveredItem == id {
+					model.hoveredItem = nil
+				}
+			}
+			.animation(.easeOut(duration: 0.15), value: isHovered)
+			.padding(.horizontal, -margin)
+	}
+}
+
 /// The capsule of a selected menu bar item: Liquid Glass on macOS 26, a translucent fill before.
 /// Under the pointer an item gets a capsule of the system accent colour, faint over one that is
 /// not selected and fainter over the selected one, as the frame of the focused window is drawn.
@@ -57,18 +89,21 @@ private struct Highlight: ViewModifier {
 
 		Group {
 			if !isOn {
-				padded.background(accent(0.3))
+				padded.background(Self.hover(isHovered, opacity: Self.hoverOpacity))
 			} else if #available(macOS 26, *) {
-				padded.glassEffect(.regular, in: .capsule).overlay(accent(0.2))
+				padded.glassEffect(.regular, in: .capsule).overlay(Self.hover(isHovered, opacity: 0.2))
 			} else {
-				padded.background(Capsule().fill(Color(tint))).overlay(accent(0.2))
+				padded.background(Capsule().fill(Color(tint))).overlay(Self.hover(isHovered, opacity: 0.2))
 			}
 		}
 		.animation(.easeOut(duration: 0.15), value: isHovered)
 	}
 
+	/// Over an item that is not selected.
+	static let hoverOpacity = 0.3
+
 	/// The colour System Settings has, picked again whenever it changes there.
-	private func accent(_ opacity: Double) -> some View {
+	static func hover(_ isHovered: Bool, opacity: Double) -> some View {
 		Capsule().fill(Color(nsColor: .controlAccentColor).opacity(isHovered ? opacity : 0)).allowsHitTesting(false)
 	}
 }
