@@ -32,6 +32,8 @@ public final class Bar {
 		self.config = config
 	}
 
+	private static let batteryPercentKey = "showsBatteryPercent"
+
 	public func start() {
 		model.focusWorkspace = { [weak self] name in
 			_ = self?.manager.handle(["workspace", "focus", name])
@@ -46,6 +48,13 @@ public final class Bar {
 		}
 		// The item follows on its own: macOS posts `InputSource.changed` for this switch too.
 		model.switchInputSource = { InputSource.selectNext() }
+		// In the defaults like caffeinate: a choice about the bar, not a setting.
+		model.showsBatteryPercent = UserDefaults.standard.bool(forKey: Self.batteryPercentKey)
+		model.toggleBatteryPercent = { [weak self] in
+			guard let self else { return }
+			self.model.showsBatteryPercent.toggle()
+			UserDefaults.standard.set(self.model.showsBatteryPercent, forKey: Self.batteryPercentKey)
+		}
 
 		bus.subscribe { [weak self] event in self?.handle(event) }
 
