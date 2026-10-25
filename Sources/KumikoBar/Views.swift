@@ -18,7 +18,9 @@ struct BarView: View {
 		HStack(spacing: 14 * config.scale) {
 			ForEach(model.items(config.left), id: \.self) { item(named: $0) }
 			Spacer(minLength: 0)
-			ForEach(model.items(config.right).reversed(), id: \.self) { item(named: $0) }
+			ForEach(model.items(config.right).reversed(), id: \.self) { name in
+				item(named: name).modifier(ItemHover(model: model, id: "\(display) \(name)", scale: config.scale))
+			}
 		}
 		.padding(.horizontal, config.padding + 6)
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -26,39 +28,86 @@ struct BarView: View {
 		.font(Font(BarFont.text(config)))
 		.foregroundStyle(config.colors.text.map(Color.init) ?? Color(nsColor: .labelColor))
 		.symbolRenderingMode(.monochrome)
+		.environment(\.barDisplay, display)
 	}
 
 	@ViewBuilder
 	private func item(named name: String) -> some View {
+		let key = "\(display):\(name)"
 		switch name {
 		case "workspaces": WorkspacesItem(model: model, display: display)
-		case "mode": ModeItem(model: model)
-		case "window": WindowItem(model: model)
-		case "datetime": DateTimeItem(model: model)
-		case "caffeinate": CaffeinateItem(model: model)
-		case "battery": BatteryItem(model: model)
-		case "input": InputItem(model: model)
-		default: ShellItemView(model: model, name: name)
+		case "mode": ModeItem(model: model).barTooltip(model, key) { TooltipText.mode(model.mode) }
+		case "window": WindowItem(model: model).barTooltip(model, key) { TooltipText.window(model.window) }
+		case "datetime": DateTimeItem(model: model).barTooltip(model, key) { TooltipText.dateTime(Date()) }
+		case "caffeinate":
+			CaffeinateItem(model: model).barTooltip(model, key) { TooltipText.caffeinate(isOn: model.isCaffeinated) }
+		case "battery": BatteryItem(model: model).barTooltip(model, key) { model.battery.map(TooltipText.battery) }
+		case "input": InputItem(model: model).barTooltip(model, key) { TooltipText.input(vimMode: model.vimMode) }
+		default: ShellItemView(model: model, name: name).barTooltip(model, key) { TooltipText.shell(name, config: model.config) }
 		}
 	}
 }
 
+/// An item on the right under the pointer: the accent capsule of a hovered workspace. It is drawn
+/// past the item's edges, as is the area that follows the pointer, so it takes no room and nothing
+/// on the bar moves.
+private struct ItemHover: ViewModifier {
+	let model: BarModel
+	/// The item on this bar alone: the other bars show the same items.
+	let id: String
+	let scale: Double
+
+	func body(content: Content) -> some View {
+		let margin = 6 * scale
+		let isHovered = model.hoveredItem == id
+
+		content
+			.padding(.horizontal, margin)
+			.frame(height: 24 * scale)
+			.background(Highlight.hover(isHovered, opacity: Highlight.hoverOpacity))
+			.contentShape(Capsule())
+			.onHover { over in
+				if over {
+					model.hoveredItem = id
+				} else if model.hoveredItem == id {
+					model.hoveredItem = nil
+				}
+			}
+			.animation(.easeOut(duration: 0.15), value: isHovered)
+			.padding(.horizontal, -margin)
+	}
+}
+
 /// The capsule of a selected menu bar item: Liquid Glass on macOS 26, a translucent fill before.
+/// Under the pointer an item gets a capsule of the system accent colour, faint over one that is
+/// not selected and fainter over the selected one, as the frame of the focused window is drawn.
 private struct Highlight: ViewModifier {
 	let isOn: Bool
+	var isHovered = false
 	let tint: KumikoCore.Color
 	let scale: Double
 
 	func body(content: Content) -> some View {
 		let padded = content.padding(.horizontal, 8 * scale).frame(height: 24 * scale)
 
-		if !isOn {
-			padded
-		} else if #available(macOS 26, *) {
-			padded.glassEffect(.regular, in: .capsule)
-		} else {
-			padded.background(Capsule().fill(Color(tint)))
+		Group {
+			if !isOn {
+				padded.background(Self.hover(isHovered, opacity: Self.hoverOpacity))
+			} else if #available(macOS 26, *) {
+				padded.glassEffect(.regular, in: .capsule).overlay(Self.hover(isHovered, opacity: 0.2))
+			} else {
+				padded.background(Capsule().fill(Color(tint))).overlay(Self.hover(isHovered, opacity: 0.2))
+			}
 		}
+		.animation(.easeOut(duration: 0.15), value: isHovered)
+	}
+
+	/// Over an item that is not selected.
+	static let hoverOpacity = 0.3
+
+	/// The colour System Settings has, picked again whenever it changes there.
+	static func hover(_ isHovered: Bool, opacity: Double) -> some View {
+		Capsule().fill(Color(nsColor: .controlAccentColor).opacity(isHovered ? opacity : 0)).allowsHitTesting(false)
 	}
 }
 
@@ -99,9 +148,32 @@ private struct WorkspacesItem: View {
 					}
 				}
 				.foregroundStyle(workspace.isVisible ? .primary : .secondary)
-				.modifier(Highlight(isOn: workspace.isVisible, tint: colors.active, scale: scale))
+				.modifier(Highlight(
+					isOn: workspace.isVisible, isHovered: model.hoveredWorkspace == workspace.name, tint: colors.active,
+					scale: scale
+				))
 				.contentShape(Capsule())
+				// The icons follow the pointer on their own too: both hovers see it, neither takes it.
+				.onHover { over in
+					if over {
+						model.hoveredWorkspace = workspace.name
+					} else if model.hoveredWorkspace == workspace.name {
+						model.hoveredWorkspace = nil
+					}
+				}
 				.onTapGesture { model.focusWorkspace(workspace.name) }
+				.barTooltip(model, "\(display):workspace:\(workspace.name)", raise: { [name = workspace.name] in
+					// Over icons that grow, the label goes up above the largest of them.
+					guard let workspace = model.workspaces.first(where: { $0.name == name }),
+					      let pointer = model.pointer, pointer.workspace == name, pointer.isOver, let largest = pointer.largest
+					else { return 0 }
+					return largest - IconRow(model: model, workspace: workspace).size
+				}) { [name = workspace.name] in
+					guard let workspace = model.workspaces.first(where: { $0.name == name }) else { return nil }
+					// Over an icon, the app's name, as its system tooltip had it.
+					let row = IconRow(model: model, workspace: workspace)
+					return row.hovered.map { row.icons[$0].app.name } ?? TooltipText.workspace(workspace)
+				}
 			}
 		}
 	}
@@ -226,7 +298,6 @@ private struct AppIcons: View {
 				model.focusWorkspace(workspace.name)
 			}
 		}
-		.help(row.hovered.map { row.icons[$0].app.name } ?? "")
 		.padding(.horizontal, -size / 2)
 		.padding(.vertical, -(model.config.height - size) / 2)
 	}
@@ -282,6 +353,16 @@ struct MagnifierView: View {
 	let lift: Double
 
 	var body: some View {
+		GeometryReader { geometry in
+			icons
+			if let tooltip = model.tooltip, tooltip.display == display {
+				TooltipBubble(model: model, tooltip: tooltip, lift: lift, width: geometry.size.width)
+			}
+		}
+		.allowsHitTesting(false)
+	}
+
+	private var icons: some View {
 		ZStack(alignment: .topLeading) {
 			if let pointer = model.pointer, pointer.largest != nil,
 			   let workspace = model.workspaces.first(where: { $0.name == pointer.workspace && $0.display == display }),
@@ -527,7 +608,6 @@ private struct InputItem: View {
 			layout
 				.contentShape(Rectangle())
 				.onTapGesture { model.switchInputSource() }
-				.help("Switch to the next input source")
 		}
 	}
 
