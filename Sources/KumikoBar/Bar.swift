@@ -32,6 +32,8 @@ public final class Bar {
 		self.config = config
 	}
 
+	private static let batteryPercentKey = "showsBatteryPercent"
+
 	public func start() {
 		model.focusWorkspace = { [weak self] name in
 			_ = self?.manager.handle(["workspace", "focus", name])
@@ -43,6 +45,13 @@ public final class Bar {
 			guard let self else { return }
 			self.caffeine.toggle()
 			self.model.isCaffeinated = self.caffeine.isOn
+		}
+		// In the defaults like caffeinate: a choice about the bar, not a setting.
+		model.showsBatteryPercent = UserDefaults.standard.bool(forKey: Self.batteryPercentKey)
+		model.toggleBatteryPercent = { [weak self] in
+			guard let self else { return }
+			self.model.showsBatteryPercent.toggle()
+			UserDefaults.standard.set(self.model.showsBatteryPercent, forKey: Self.batteryPercentKey)
 		}
 
 		bus.subscribe { [weak self] event in self?.handle(event) }

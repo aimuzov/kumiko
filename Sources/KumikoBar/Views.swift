@@ -478,17 +478,33 @@ private struct CaffeinateItem: View {
 	}
 }
 
-/// The battery the way the menu bar's own battery item shows it, without the percentage.
+/// The battery the way the menu bar's own battery item shows it, the percentage before it once a
+/// click asks for it, as "Show Percentage" does there.
 private struct BatteryItem: View {
 	let model: BarModel
 
 	var body: some View {
 		if let battery = model.battery {
 			let scale = model.config.scale
-			// Drawn at Control Center's size and scaled as a whole, so its pieces stay in register.
-			BatteryGlyph(battery: battery)
-				.scaleEffect(scale, anchor: .topLeading)
-				.frame(width: BatteryGlyph.size.width * scale, height: BatteryGlyph.size.height * scale, alignment: .topLeading)
+
+			HStack(spacing: 4 * scale) {
+				if model.showsBatteryPercent {
+					// As wide as "100%" whatever the charge, so the bar does not shift as it runs down.
+					ZStack(alignment: .trailing) {
+						Text("100%").hidden()
+						Text("\(battery.percent)%")
+					}
+					.monospacedDigit()
+				}
+				// Drawn at Control Center's size and scaled as a whole, so its pieces stay in register.
+				BatteryGlyph(battery: battery)
+					.scaleEffect(scale, anchor: .topLeading)
+					.frame(
+						width: BatteryGlyph.size.width * scale, height: BatteryGlyph.size.height * scale, alignment: .topLeading
+					)
+			}
+			.contentShape(Rectangle())
+			.onTapGesture { model.toggleBatteryPercent() }
 		}
 	}
 }
