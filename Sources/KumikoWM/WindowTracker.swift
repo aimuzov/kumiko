@@ -23,6 +23,13 @@ public final class WindowTracker {
 	private var rescanTimer: Timer?
 	private var pendingRefreshes: Set<UInt32> = []
 	private let writer = FrameWriter()
+	/// kumiko's own windows, the settings. They go through AppKit, not AX: AX asked of kumiko's
+	/// own process from its main thread waits for that same thread to answer.
+	private var own: [UInt32: NSWindow] = [:]
+	private var ownObservers: [UInt32: [any NSObjectProtocol]] = [:]
+	/// Coming forward for an empty workspace, kumiko gets back the window that was key, which may
+	/// be the settings parked on a hidden workspace; that is no reason to switch to it.
+	private var ownFocusIgnoredUntil = Date.distantPast
 
 	public init(bus: EventBus, config: Config.WM) {
 		self.bus = bus
@@ -96,6 +103,9 @@ public final class WindowTracker {
 		for pid in Array(apps.keys) {
 			remove(pid)
 		}
+		for id in Array(own.keys) {
+			untrackOwn(id)
+		}
 
 		setFocus(nil)
 	}
@@ -113,7 +123,7 @@ public final class WindowTracker {
 		start()
 
 		for id in Array(windows.keys) {
-			refresh(id)
+			own[id] == nil ? refresh(id) : refreshOwn(id)
 		}
 	}
 
@@ -157,8 +167,8 @@ public final class WindowTracker {
 		workspaceObservers.append(token)
 	}
 
-	/// Only regular apps — the ones with a Dock icon — have windows worth arranging. Agents and
-	/// kumiko itself are left alone.
+	/// Only regular apps — the ones with a Dock icon — have windows worth arranging. Agents are
+	/// left alone, and kumiko's own windows come through `track(own:)`.
 	private func add(_ app: NSRunningApplication) {
 		let pid = app.processIdentifier
 		guard
@@ -356,12 +366,107 @@ public final class WindowTracker {
 		)
 	}
 
+	// MARK: - Own windows
+
+	/// A window of kumiko's own, shown again: it joins the layout like any other until it closes.
+	public func track(own window: NSWindow) {
+		guard isRunning, window.windowNumber > 0 else { return }
+		let id = UInt32(window.windowNumber)
+
+		guard own[id] == nil else {
+			refreshOwn(id)
+			updateFocus()
+			return
+		}
+
+		own[id] = window
+		let center = NotificationCenter.default
+		func on(_ name: Notification.Name, _ action: @escaping @MainActor (WindowTracker) -> Void) -> any NSObjectProtocol {
+			center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+				MainActor.assumeIsolated { self.map(action) }
+			}
+		}
+		let changes: [Notification.Name] = [
+			NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didMiniaturizeNotification,
+			NSWindow.didDeminiaturizeNotification, NSWindow.didEnterFullScreenNotification,
+			NSWindow.didExitFullScreenNotification,
+		]
+		ownObservers[id] = changes.map { on($0) { $0.refreshOwn(id) } } + [
+			on(NSWindow.willCloseNotification) { $0.untrackOwn(id) },
+			on(NSWindow.didBecomeKeyNotification) { $0.updateFocus() },
+			on(NSWindow.didResignKeyNotification) { $0.updateFocus() },
+		]
+
+		let info = describe(own: window, id: id)
+		windows[id] = info
+		bus.publish(.windowCreated(info))
+		updateFocus()
+	}
+
+	private func refreshOwn(_ id: UInt32) {
+		guard let window = own[id], let old = windows[id] else { return }
+		let info = describe(own: window, id: id)
+		guard info != old else { return }
+		windows[id] = info
+		bus.publish(.windowChanged(info))
+	}
+
+	private func untrackOwn(_ id: UInt32) {
+		ownObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
+		own[id] = nil
+		untrack(id)
+	}
+
+	/// What AX would tell about the window, read from AppKit. No identifier: the settings window is
+	/// told apart by its app, and must not pass for another app's settings, which float.
+	private func describe(own window: NSWindow, id: UInt32) -> WindowInfo {
+		let app = NSRunningApplication.current.localizedName ?? "Kumiko"
+		let subrole = kAXStandardWindowSubrole as String
+		let isResizable = window.styleMask.contains(.resizable)
+
+		return WindowInfo(
+			id: id,
+			pid: getpid(),
+			app: app,
+			bundleID: Bundle.main.bundleIdentifier,
+			title: window.title,
+			subrole: subrole,
+			frame: Self.topLeft(window.frame),
+			isMinimized: window.isMiniaturized,
+			isHidden: NSApp.isHidden,
+			isFullscreen: window.styleMask.contains(.fullScreen),
+			isManaged: rules.isManaged(
+				app: app, title: window.title, isResizable: isResizable, subrole: subrole, fallback: false
+			),
+			isResizable: isResizable
+		)
+	}
+
+	/// AppKit counts from the bottom left of the main screen, AX and the layout from its top left.
+	private static func topLeft(_ frame: CGRect) -> CGRect {
+		let height = NSScreen.screens.first?.frame.height ?? 0
+		return CGRect(x: frame.minX, y: height - frame.maxY, width: frame.width, height: frame.height)
+	}
+
+	/// Never smaller than the window allows: its page would be cut off instead.
+	private func setOwnFrame(_ window: NSWindow, _ frame: CGRect) {
+		var size = frame.size
+		size.width = max(size.width, window.minSize.width)
+		size.height = max(size.height, window.minSize.height)
+		let height = NSScreen.screens.first?.frame.height ?? 0
+		window.setFrame(CGRect(x: frame.minX, y: height - frame.minY - size.height, width: size.width, height: size.height), display: true)
+	}
+
 	// MARK: - Acting on windows
 
 	/// Moves a window without waiting for its app: each app has its own queue for these, since an
 	/// app busy redrawing answers slowly and the main thread has everything else to do. Only the
 	/// latest frame asked for a window is applied.
 	public func setFrame(_ id: UInt32, _ frame: CGRect) {
+		if let window = own[id] {
+			setOwnFrame(window, frame)
+			return
+		}
 		guard let (element, _) = elements(of: id), let pid = windows[id]?.pid else { return }
 		writer.setFrame(element, id: id, pid: pid, frame: frame)
 	}
@@ -372,12 +477,21 @@ public final class WindowTracker {
 	}
 
 	public func focus(_ id: UInt32) {
+		if let window = own[id] {
+			bringKumikoForward()
+			window.makeKeyAndOrderFront(nil)
+			return
+		}
 		guard let (element, app) = elements(of: id), let pid = windows[id]?.pid else { return }
 		AX.focus(element, app: app, pid: pid, id: id)
 	}
 
 	@discardableResult
 	public func close(_ id: UInt32) -> Bool {
+		if let window = own[id] {
+			window.performClose(nil)
+			return true
+		}
 		guard let (element, _) = elements(of: id) else { return false }
 		return AX.close(element)
 	}
@@ -392,6 +506,13 @@ public final class WindowTracker {
 	// MARK: - Focus
 
 	private func updateFocus() {
+		if NSApp.isActive, Date() > ownFocusIgnoredUntil, let key = NSApp.keyWindow,
+		   let id = own.first(where: { $0.value === key })?.key
+		{
+			setFocus(id)
+			return
+		}
+
 		// Finder in front with its desktop focused (a click on the desktop, an empty workspace) has
 		// no window in focus, whatever window it last had.
 		if let frontmost = NSWorkspace.shared.frontmostApplication, frontmost.bundleIdentifier == Self.finder,
@@ -433,6 +554,7 @@ public final class WindowTracker {
 	public func focusNothing() {
 		// macOS gives the menu bar only to apps with a Dock icon; kumiko has one while in front.
 		NSApp.setActivationPolicy(.regular)
+		ownFocusIgnoredUntil = Date().addingTimeInterval(1)
 		bringKumikoForward()
 		setFocus(nil)
 	}

@@ -37,14 +37,18 @@ struct Rules {
 
 	/// Only standard windows are ever managed: dialogs, sheets, panels and popovers float no matter
 	/// what the rules say, otherwise a "Save as…" sheet would be tiled like a document.
+	///
+	/// `fallback` stands in for `[wm] manage` when given: kumiko's own settings float until a rule
+	/// tiles them, whatever other apps do.
 	func isManaged(
-		app: String, title: String, identifier: String? = nil, isResizable: Bool = true, subrole: String?
+		app: String, title: String, identifier: String? = nil, isResizable: Bool = true, subrole: String?,
+		fallback: Bool? = nil
 	) -> Bool {
 		guard subrole == kAXStandardWindowSubrole as String else { return false }
 		guard !floatFixedSize || isResizable else { return false }
 		guard !floatSettings || !Self.isSettings(title: title, identifier: identifier) else { return false }
 
-		var manage = fallback
+		var manage = fallback ?? self.fallback
 
 		for rule in rules
 		where matches(rule.app, app) && matches(rule.title, title) && matches(rule.id, identifier ?? "") {

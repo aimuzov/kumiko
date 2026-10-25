@@ -96,6 +96,14 @@ struct RulesTests {
 		#expect(Rules(config).isManaged(app: "Dia", title: "", identifier: "preferencesWindow", subrole: standard))
 	}
 
+	/// kumiko's settings float by default, tiled only when a rule asks for it.
+	@Test func aFallbackOfItsOwnGivesWayToRules() {
+		#expect(!Rules(.init(manage: true)).isManaged(app: "Kumiko", title: "kumiko Settings", subrole: standard, fallback: false))
+
+		let tiled = Rules(.init(manage: true, rules: [WindowRule(app: "Kumiko", manage: true)]))
+		#expect(tiled.isManaged(app: "Kumiko", title: "kumiko Settings", subrole: standard, fallback: false))
+	}
+
 	@Test func alternativesInAppPatternAreAllAnchored() {
 		let rules = Rules(.init(manage: false, rules: [WindowRule(app: "Arc|Dia", manage: true)]))
 		#expect(rules.isManaged(app: "Dia", title: "", subrole: standard))
