@@ -525,6 +525,9 @@ private struct InputItem: View {
 		HStack(spacing: 14) {
 			vimMode
 			layout
+				.contentShape(Rectangle())
+				.onTapGesture { model.switchInputSource() }
+				.help("Switch to the next input source")
 		}
 	}
 

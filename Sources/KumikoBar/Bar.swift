@@ -44,6 +44,8 @@ public final class Bar {
 			self.caffeine.toggle()
 			self.model.isCaffeinated = self.caffeine.isOn
 		}
+		// The item follows on its own: macOS posts `InputSource.changed` for this switch too.
+		model.switchInputSource = { InputSource.selectNext() }
 
 		bus.subscribe { [weak self] event in self?.handle(event) }
 
