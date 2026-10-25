@@ -33,5 +33,26 @@ private func appMenu() -> NSMenu {
 	item.submenu?.addItem(.separator())
 	item.submenu?.addItem(withTitle: "Quit kumiko", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
 	menu.addItem(item)
+
+	// AppKit hands Cmd-W and the editing keys only to menu items that carry them, so the settings
+	// window needs these two menus for them to work in it.
+	let edit = NSMenuItem()
+	edit.submenu = NSMenu(title: "Edit")
+	edit.submenu?.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+	edit.submenu?.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+	edit.submenu?.addItem(.separator())
+	edit.submenu?.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+	edit.submenu?.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+	edit.submenu?.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+	edit.submenu?.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+	menu.addItem(edit)
+
+	let window = NSMenuItem()
+	window.submenu = NSMenu(title: "Window")
+	window.submenu?.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+	window.submenu?.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+	menu.addItem(window)
+	NSApplication.shared.windowsMenu = window.submenu
+
 	return menu
 }
