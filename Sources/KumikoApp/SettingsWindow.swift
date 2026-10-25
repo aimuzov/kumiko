@@ -60,6 +60,12 @@ final class SettingsWindow {
 		window?.hasShadow = model.config.wm.shadows || model.payloadVersion == nil
 	}
 
+	/// The Workspaces page with this workspace's settings: a click on an empty one in the bar.
+	func show(workspace name: String) {
+		model.pickWorkspace(name)
+		show(pane: Pane.workspaces.rawValue)
+	}
+
 	/// Shows the window, on the page named (its id, like `borders`) when one is.
 	@discardableResult
 	func show(pane name: String? = nil) -> Bool {

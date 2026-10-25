@@ -24,6 +24,11 @@ public final class Bar {
 	private var refreshScheduled = false
 	/// The menu bar's look, the fallback when the desktop cannot be read.
 	private var menuBarIsDark = true
+	/// A plus was clicked on the bar of this display. The app writes the new workspace: kumiko.toml
+	/// is not the bar's to reach.
+	public var onAddWorkspace: @MainActor (UInt32) -> Void = { _ in }
+	/// An empty workspace was clicked: there is nothing on it to go to, so its settings open.
+	public var onShowWorkspace: @MainActor (String) -> Void = { _ in }
 
 	public init(bus: EventBus, tracker: WindowTracker, manager: WindowManager, config: Config.Bar) {
 		self.bus = bus
@@ -38,6 +43,12 @@ public final class Bar {
 		}
 		model.focusApp = { [weak self] pid, workspace in
 			self?.manager.focus(app: pid, on: workspace)
+		}
+		model.addWorkspace = { [weak self] display in
+			self?.onAddWorkspace(display)
+		}
+		model.showWorkspace = { [weak self] name in
+			self?.onShowWorkspace(name)
 		}
 		model.toggleCaffeine = { [weak self] in
 			guard let self else { return }
@@ -203,6 +214,7 @@ public final class Bar {
 
 	private func refresh() {
 		model.showsNumbers = manager.usesWorkspaces
+		model.canAddWorkspace = manager.canAddWorkspace
 		model.workspaces = manager.workspaceStates.map { state in
 			var apps: [BarModel.App] = []
 			for id in state.windows {

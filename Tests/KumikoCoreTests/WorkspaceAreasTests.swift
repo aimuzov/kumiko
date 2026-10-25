@@ -111,6 +111,28 @@ struct WorkspaceAreasTests {
 		#expect(try written(main, to: grouped).last == "new@main")
 	}
 
+	@Test func addsANewWorkspaceUnderTheFirstFreeName() throws {
+		let (name, changes) = WorkspaceAreas.addNew(on: "external", in: grouped)
+		#expect(name == "Workspace 13")
+		#expect(try written(changes, to: grouped)[6] == "Workspace 13@external")
+
+		let taken = [Workspace(name: "Workspace 2"), Workspace(name: "Workspace 3")]
+		#expect(WorkspaceAreas.addNew(on: nil, in: taken).name == "Workspace 4")
+	}
+
+	/// The bar's plus on a builtin screen while a monitor is the main one: what the bar asks for is
+	/// written as it is, within the Main area.
+	@Test func addsOnTheDisplayItIsGiven() throws {
+		let (_, changes) = WorkspaceAreas.addNew(on: "builtin", in: grouped)
+		#expect(try written(changes, to: grouped).last == "Workspace 13@builtin")
+	}
+
+	@Test func addsAtTheEndOfTheFileWithoutADisplay() throws {
+		let (_, changes) = WorkspaceAreas.addNew(on: nil, in: interleaved)
+		#expect(changes.count == 1)
+		#expect(try written(changes, to: interleaved).last == "Workspace 6@main")
+	}
+
 	@Test func keepsTheAreasOrderOnceShown() {
 		let mains = (1...3).map { Workspace(name: "m\($0)") }
 		// The top area emptied: it stays on top rather than swapping under the pointer.
