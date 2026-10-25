@@ -79,4 +79,14 @@ final class BarModel {
 	/// Called when an app's icon is clicked, with the workspace it was clicked in.
 	var focusApp: (pid_t, String) -> Void = { _, _ in }
 	var toggleCaffeine: () -> Void = {}
+	/// The label over the bar for the item under the pointer.
+	var tooltip: Tooltip?
+	/// What each item's label says, made afresh each time the label is drawn.
+	var tooltipTexts: [String: @MainActor () -> String?] = [:]
+	/// How far each item's label goes up above its usual place.
+	var tooltipRaises: [String: @MainActor () -> Double] = [:]
+	/// Where each item with a tooltip sits in its bar, by the item's key.
+	var itemFrames: [String: CGRect] = [:]
+	/// The label's own width, to keep it inside the screen.
+	var tooltipWidth = 0.0
 }
