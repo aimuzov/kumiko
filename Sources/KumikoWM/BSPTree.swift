@@ -253,6 +253,35 @@ final class BSPTree {
 		leafByWindow[b] = leafA
 	}
 
+	/// Every window in one stack over the whole area, in the order the leaves had them, with
+	/// `active` in front, else the stack's first. For a workspace switched to the stack layout;
+	/// a zoom has nothing left to cover and is dropped.
+	func collapse(active: UInt32?) {
+		let windows = allWindows
+		guard !windows.isEmpty else { return }
+		let leaf = Node(windows: windows)
+		leaf.active = active.flatMap(windows.firstIndex) ?? 0
+		root = leaf
+		leafByWindow = Dictionary(uniqueKeysWithValues: windows.map { ($0, leaf) })
+		zoomed = [:]
+	}
+
+	/// Moves whole leaves, a stack with all its windows and the one in front: leaf `i` gets
+	/// what leaf `order[i]` held. The splits and their ratios stay where they are. Anything but
+	/// a reordering of every leaf is ignored.
+	func permuteLeaves(_ order: [Int]) {
+		let leaves = leaves
+		guard order.count == leaves.count, Set(order) == Set(leaves.indices) else { return }
+		let held = leaves.map { (windows: $0.windows, active: $0.active) }
+		for (leaf, source) in zip(leaves, order) {
+			leaf.windows = held[source].windows
+			leaf.active = held[source].active
+			for id in leaf.windows {
+				leafByWindow[id] = leaf
+			}
+		}
+	}
+
 	// MARK: - Sizes
 
 	/// Moves one edge of a window by `delta` points (positive is right or down). Fails when that
@@ -278,11 +307,12 @@ final class BSPTree {
 		return false
 	}
 
-	/// Gives a window `share` of the split it is in.
+	/// Gives a window `size` of the split it is in: its part of the area it shares with its
+	/// neighbour, not of the screen.
 	@discardableResult
-	func setShare(_ id: UInt32, _ share: Double) -> Bool {
+	func setSize(_ id: UInt32, _ size: Double) -> Bool {
 		guard let leaf = leafByWindow[id], let parent = leaf.parent else { return false }
-		parent.ratio = clamp(parent.first === leaf ? share : 1 - share)
+		parent.ratio = clamp(parent.first === leaf ? size : 1 - size)
 		return true
 	}
 

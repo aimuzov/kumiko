@@ -34,6 +34,9 @@ public final class WindowManager {
 	private var expected: [UInt32: CGRect] = [:]
 	private var placement = Placement([])
 	private var previousWorkspace: String?
+	/// New name to old, from the settings window before it writes a rename. The hint waits for the
+	/// pass that brings the new name, and that pass keeps the workspace's layout and windows.
+	private var renames: [String: String] = [:]
 	private var hasShownFocusedWorkspace = false
 
 	/// Focused windows, oldest first, for `focus recent`.
@@ -313,9 +316,19 @@ public final class WindowManager {
 		}
 
 		for workspace in workspaces {
+			guard let previous = workspace.changedLayout else { continue }
+			workspace.changedLayout = nil
+			relayout(workspace, from: previous)
+		}
+
+		for workspace in workspaces {
 			for id in workspace.tree.allWindows where !isTiled(id, in: workspace) {
 				workspace.tree.remove(id)
 			}
+		}
+
+		for workspace in workspaces {
+			workspace.seen = workspace.seen.filter { assignment[$0] === workspace }
 		}
 
 		for info in tracker.sortedWindows {
@@ -324,16 +337,28 @@ public final class WindowManager {
 			add(info, to: workspace)
 		}
 
+		// A reload that changed a workspace's apps or sizes applies them to the windows it has
+		// already, once they are all in: the order and sizes change in front of the user.
+		for workspace in workspaces {
+			guard let previous = workspace.changedRules else { continue }
+			workspace.changedRules = nil
+			// Only what says the order reorders: a size moved leaves a layout arranged by hand as
+			// it is. A layout switched rebuilds the tree, whose windows then need the order.
+			let rules = workspace.config
+			let reorder = previous.apps != rules.apps || previous.last != rules.last || previous.layout != rules.layout
+			applyLayoutRules(workspace, reorder: reorder, previous: previous)
+		}
+
 		arrange(displays)
 	}
 
 	/// Rebuilds the workspace list from the config, keeping the layout of every workspace whose
-	/// name stays, and makes sure each display shows one.
+	/// name stays or whose rename the settings window told about, and makes sure each display shows one.
 	private func updateWorkspaces(_ displays: [Display]) {
 		// With workspaces off nothing comes from the config, and the loop below gives every display
 		// the one workspace it then has.
 		var configs = !config.wm.useWorkspaces ? []
-			: config.workspaces.isEmpty ? (1...9).map { Config.Workspace(name: String($0)) }
+			: config.workspaces.isEmpty ? Config.Workspace.builtIn
 			: config.workspaces
 
 		// A display no workspace is meant for still gets one, or it could show nothing at all.
@@ -345,11 +370,24 @@ public final class WindowManager {
 		}
 
 		let old = Dictionary(workspaces.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+		let names = Set(configs.map(\.name))
 
 		workspaces = configs.map { config in
 			let display = Display.matching(config.display, in: displays) ?? displays[0]
+			// The old name must be gone from the file too: one still there was not renamed after all.
+			let renamed = renames[config.name].flatMap { names.contains($0) ? nil : old[$0] }
 
-			if let workspace = old[config.name] {
+			if let workspace = old[config.name] ?? renamed {
+				if renamed != nil, previousWorkspace == workspace.name { previousWorkspace = config.name }
+				let previous = workspace.config
+				if previous.apps != config.apps || previous.last != config.last || previous.size != config.size
+					|| previous.layout != config.layout
+				{
+					workspace.changedRules = workspace.changedRules ?? previous
+				}
+				if previous.layout != config.layout {
+					workspace.changedLayout = workspace.changedLayout ?? previous.layout
+				}
 				workspace.config = config
 				workspace.display = display
 				return workspace
@@ -359,8 +397,8 @@ public final class WindowManager {
 		}
 
 		// Windows of a workspace that is gone are placed again, like new ones.
-		let names = Set(workspaces.map(\.name))
-		for (id, workspace) in assignment where !names.contains(workspace.name) {
+		let kept = Set(workspaces.map(\.name))
+		for (id, workspace) in assignment where !kept.contains(workspace.name) {
 			assignment[id] = nil
 		}
 
@@ -372,6 +410,14 @@ public final class WindowManager {
 
 		for id in visible.keys where !displays.contains(where: { $0.id == id }) {
 			visible[id] = nil
+		}
+
+		// A hint is used up once the file has the new name; until then, passes that come before the
+		// reload leave it for the one that brings it.
+		let arrived = renames.keys.filter(names.contains)
+		if !arrived.isEmpty {
+			arrived.forEach { renames[$0] = nil }
+			if hasShownFocusedWorkspace { saveVisible() }
 		}
 	}
 
@@ -390,7 +436,9 @@ public final class WindowManager {
 	}
 
 	private func isTiled(_ id: UInt32, in workspace: Workspace) -> Bool {
-		guard let info = tracker.windows[id], assignment[id] === workspace else { return false }
+		// A floating workspace tiles nothing, not even a window toggled into the layout by hand.
+		guard workspace.config.layout != .float, let info = tracker.windows[id], assignment[id] === workspace
+		else { return false }
 		// A toggle can bring in a window the rules skip, but never a dialog or a panel.
 		let wanted = tiledByUser[id].map { $0 && info.subrole == "AXStandardWindow" } ?? info.isManaged
 		return wanted && !info.isMinimized && !isHiddenByUser(info) && !info.isFullscreen
@@ -402,34 +450,70 @@ public final class WindowManager {
 	}
 
 	/// Puts a window into its workspace's layout, then applies the workspace's layout rules.
-	private func add(_ info: WindowInfo, to workspace: Workspace) {
+	/// `near` is the window it goes next to, the focused one when none is given.
+	private func add(_ info: WindowInfo, to workspace: Workspace, near anchor: UInt32? = nil) {
 		let tree = workspace.tree
-		let near = [tracker.focusedWindowID, workspace.lastFocused].compactMap(\.self).first { tree.contains($0) }
+		let near = [anchor, tracker.focusedWindowID, workspace.lastFocused].compactMap(\.self)
+			.first { tree.contains($0) }
 		tree.insert(info.id, near: near, in: area(of: workspace.display), gap: gap)
 
 		let rules = workspace.config
 
-		if rules.stack.contains(info.app),
+		// The stack layout has one leaf, and every newcomer goes in front in it.
+		if rules.layout == .stack, let other = tree.visibleWindows.first(where: { $0 != info.id }) {
+			tree.stack(info.id, onto: other)
+		} else if rules.stack.contains(info.app),
 		   let other = tree.allWindows.first(where: { $0 != info.id && rules.stack.contains(tracker.windows[$0]?.app ?? "") })
 		{
 			tree.stack(info.id, onto: other)
 		}
 
-		// Pinned-last apps go back to the end every time anything joins, not only when they do.
-		if let pinned = tree.visibleWindows.first(where: { rules.last.contains(tracker.windows[$0]?.app ?? "") }),
-		   let last = tree.visibleWindows.last, pinned != last
-		{
-			tree.swap(pinned, last)
+		// Only a window new to the workspace reorders it. One coming back, unminimized, shown
+		// again or tiled again, leaves the layout as the user made it.
+		applyLayoutRules(workspace, reorder: workspace.seen.insert(info.id).inserted)
+	}
+
+	/// Makes the tree over for a layout a reload switched to. Into a stack the windows go as
+	/// one, the focused one in front. Out of one they are taken out, and the pass puts them back
+	/// one by one with the `stack` rule, then in the apps' order with their sizes. Into and out
+	/// of float needs nothing here: `isTiled` takes the windows out, or lets them back in.
+	private func relayout(_ workspace: Workspace, from previous: Config.Workspace.Layout) {
+		let tree = workspace.tree
+		switch workspace.config.layout {
+		case .stack:
+			let active = [tracker.focusedWindowID, workspace.lastFocused].compactMap(\.self).first { tree.contains($0) }
+			tree.collapse(active: active)
+		case .bsp where previous == .stack:
+			tree.allWindows.forEach(tree.remove)
+		case .bsp, .float:
+			break
+		}
+	}
+
+	/// The workspace's apps put its windows in their order, and their sizes set: whole leaves
+	/// move, so a stack stays one. Sizes go to every window, not only a newcomer's: the window
+	/// that has a size may have joined first, when it had no split to take a part of.
+	/// `previous` is the config before a reload changed it: an app whose size is gone splits
+	/// evenly again.
+	private func applyLayoutRules(_ workspace: Workspace, reorder: Bool, previous: Config.Workspace? = nil) {
+		let tree = workspace.tree
+		let rules = workspace.config
+
+		if reorder {
+			tree.permuteLeaves(rules.layoutOrder(of: tree.leaves.map { $0.windows.map(app) }))
 		}
 
-		// After the swap, and for every window with a share, not only the newcomer: the window that
-		// has a share may have joined first, when it had no split to take a share of.
 		for id in tree.visibleWindows {
-			if let app = tracker.windows[id]?.app, let share = rules.share[app] {
-				tree.setShare(id, share)
+			let app = app(of: id)
+			if let size = rules.size[app] {
+				tree.setSize(id, size)
+			} else if previous?.size[app] != nil {
+				tree.setSize(id, 0.5)
 			}
 		}
 	}
+
+	private func app(of id: UInt32) -> String { tracker.windows[id]?.app ?? "" }
 
 	// MARK: - Arranging
 
@@ -666,6 +750,16 @@ public final class WindowManager {
 			?? windows(of: workspace).first { tracker.windows[$0]?.isMinimized == false }
 	}
 
+	/// Says a workspace is about to be renamed in the file. The settings window tells it before the
+	/// file is checked, so a hint for a name that never arrives is simply never used. A rename typed
+	/// by hand is not told, and stays what it always was: one workspace gone and another one new.
+	public func rename(_ old: String, to new: String) {
+		// A to B and then B to C before a reload is one rename, C from A.
+		let origin = renames.removeValue(forKey: old) ?? old
+		renames = renames.filter { $0.value != origin }
+		renames[new] = origin
+	}
+
 	/// Brings forward the window of an app on a workspace, showing the workspace first when it is
 	/// hidden: a click on the app's icon in the bar. Of several windows the app has there, the one
 	/// used last wins.
@@ -796,9 +890,7 @@ public final class WindowManager {
 			workspace.tree.swap(id, target)
 		} else {
 			// Dropped on a window on another display: the window moves to that workspace.
-			workspace.tree.remove(id)
-			assignment[id] = targetWorkspace
-			targetWorkspace.tree.insert(id, near: target, in: self.area(of: targetWorkspace.display), gap: gap)
+			transfer(id, from: workspace, to: targetWorkspace, near: target)
 		}
 	}
 
@@ -950,9 +1042,7 @@ public final class WindowManager {
 				tree.warp(id, to: other, direction: direction)
 			} else {
 				// Across displays: the window joins the workspace shown there, next to `other`.
-				tree.remove(id)
-				assignment[id] = otherWorkspace
-				otherWorkspace.tree.insert(id, near: other, in: area(of: otherWorkspace.display), gap: gap)
+				transfer(id, from: workspace, to: otherWorkspace, near: other)
 			}
 		default:
 			return .failure("usage: kumiko window warp west|east|north|south|first|last")
@@ -969,13 +1059,7 @@ public final class WindowManager {
 		}
 		guard destination !== current else { return .failure("the window is already on \(destination.name)") }
 
-		current.tree.remove(id)
-		assignment[id] = destination
-		if current.lastFocused == id { current.lastFocused = nil }
-
-		if let info = tracker.windows[id], isTiled(id, in: destination) {
-			add(info, to: destination)
-		}
+		transfer(id, from: current, to: destination)
 
 		if follow {
 			destination.lastFocused = id
@@ -1009,10 +1093,10 @@ public final class WindowManager {
 	}
 
 	private func ratio(_ id: UInt32, _ value: String?) -> Response {
-		guard let share = value.flatMap(Double.init), share > 0, share < 1 else {
-			return .failure("usage: kumiko window ratio <0…1>, the window's share of its split")
+		guard let size = value.flatMap(Double.init), size > 0, size < 1 else {
+			return .failure("usage: kumiko window ratio <0…1>, the window's part of its split")
 		}
-		guard let tree = assignment[id]?.tree, tree.setShare(id, share) else {
+		guard let tree = assignment[id]?.tree, tree.setSize(id, size) else {
 			return .failure("the window is not in a split")
 		}
 
@@ -1020,10 +1104,40 @@ public final class WindowManager {
 		return .success()
 	}
 
+	/// Takes a window from one workspace to another the way a new one joins: the destination's
+	/// layout and rules place it, a stack keeps it in its one leaf, and it counts as new there,
+	/// so the apps' order takes it in. The workspace it leaves forgets it.
+	private func transfer(_ id: UInt32, from current: Workspace, to destination: Workspace, near: UInt32? = nil) {
+		current.tree.remove(id)
+		current.seen.remove(id)
+		if current.lastFocused == id { current.lastFocused = nil }
+		assignment[id] = destination
+		// Coming back to the workspace finds it in front, a stack's newcomer included.
+		if tracker.focusedWindowID == id { destination.lastFocused = id }
+		guard let info = tracker.windows[id] else { return }
+		if isTiled(id, in: destination) {
+			add(info, to: destination, near: near)
+		} else if destination.display != current.display {
+			// A window the layout leaves alone would stay over the old display, and a hidden
+			// workspace would bring it back there: it goes to the middle of the new one.
+			let frame = Self.centered(info.frame.size, in: destination.display.visibleFrame)
+			if visible[destination.display.id] === destination {
+				tracker.setFrame(id, frame)
+			} else {
+				hidden[id] = frame
+			}
+		}
+	}
+
 	/// Toggles floating, the way yabai does: a window in the layout floats, and any other window
 	/// joins the layout, also one the rules leave out. `--grid rows:cols:x:y:width:height` places a
 	/// window that starts floating on that cell of a grid laid over its display.
 	private func float(_ id: UInt32, _ args: [String]) -> Response {
+		// Nothing to toggle there, and a window marked tiled would be pulled into the layout the
+		// day the workspace tiles again, though no rule asks for it.
+		if let workspace = assignment[id], workspace.config.layout == .float {
+			return .failure("workspace \(workspace.name) floats every window")
+		}
 		guard assignment[id]?.tree.contains(id) == true else {
 			guard tracker.windows[id]?.subrole == "AXStandardWindow" else {
 				return .failure("only standard windows can join the layout")
@@ -1123,7 +1237,8 @@ public final class WindowManager {
 			current.tree.mirror(.rows)
 		default:
 			return .failure(
-				"usage: kumiko workspace focus <name>|<n>|next|prev|recent|balance|rotate 90|180|270|mirror horizontal|vertical"
+				"usage: kumiko workspace focus <name>|<n>|next|prev|recent|balance|rotate 90|180|270"
+					+ "|mirror horizontal|vertical|layout bsp|stack|float [<name>]"
 			)
 		}
 

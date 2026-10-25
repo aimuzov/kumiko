@@ -225,4 +225,353 @@ struct ConfigWriterTests {
 	@Test func refusesToRemoveAKeyWrittenAnotherWay() {
 		#expect(throws: ConfigError.self) { try remove("wm", "gap", from: "wm = { gap = 4 }") }
 	}
+
+	@Test func writesArrays() throws {
+		let changed = try apply("vim", "blacklist", .array([.string("Code"), .string("Ghostty")]), to: "[vim]")
+		#expect(changed == "[vim]\nblacklist = [\"Code\", \"Ghostty\"]")
+		#expect(try Config.parse(changed).vim.blacklist == ["Code", "Ghostty"])
+		#expect(try apply("vim", "commands", .array([]), to: "[vim]") == "[vim]\ncommands = []")
+	}
+
+	@Test func workspaceFieldsLeaveDefaultsOut() {
+		#expect(
+			Config.Workspace(name: "A").tomlFields == [.init("name", .string("A")), .init("display", .string("main"))])
+	}
+
+	@Test func sizeKeepsTheAppsOrderThenNames() {
+		let value = Config.Workspace.sizeValue(["B": 0.3, "A": 0.6, "C": 0.1], order: ["C", "C", "B"])
+		#expect(value == .table([.init("C", .double(0.1)), .init("B", .double(0.3)), .init("A", .double(0.6))]))
+	}
+
+	// Shaped like the user's own config: rules before, a comment above the first entry and one
+	// right on top of the last, an inline table, a key with a comment of its own.
+	private let code = """
+		[[workspace]]
+		name = "Code"
+		display = "external"
+		apps = ["Ghostty", "Code"]
+		"""
+	private let plan = """
+		[[workspace]]
+		name = "Plan"
+		display = "builtin"
+		apps = ["Things", "Mail"] # the day
+		stack = ["Things", "Mail"]
+		"""
+	private let chat = """
+		[[workspace]]
+		name = "Chat"
+		apps = ["Time", "Telegram"]
+		size = { Time = 0.7 }
+		"""
+
+	private func file(_ first: String, _ second: String, _ third: String) -> String {
+		"[[wm.rule]]\napp = \"Finder\"\nmanage = true\n\n# Numbers follow alt-1 ... alt-=.\n\n" + first + "\n\n"
+			+ second + "\n\n# Chats last.\n" + third + "\n\n[hotkeys]\nenabled = true"
+	}
+
+	private func entry(_ index: Int, _ key: String, _ value: TOMLValue?, in text: String) throws -> String {
+		try ConfigWriter.apply(ConfigEdit(target: .entry("workspace", index), key: key, value: value), to: text)
+	}
+
+	@Test func setsAKeyOfTheNthEntryOnly() throws {
+		let changed = try entry(1, "display", .string("external"), in: file(code, plan, chat))
+		#expect(changed == file(code, plan.replacingOccurrences(of: "builtin", with: "external"), chat))
+	}
+
+	@Test func keepsTheCommentOfAnEntrysKey() throws {
+		let changed = try entry(1, "apps", .array([.string("Things")]), in: file(code, plan, chat))
+		let narrowed = plan.replacingOccurrences(of: "[\"Things\", \"Mail\"] #", with: "[\"Things\"] #")
+		#expect(changed == file(code, narrowed, chat))
+	}
+
+	@Test func addsAKeyAfterTheEntrysLastKey() throws {
+		let before = file(code, plan, chat)
+		#expect(try entry(2, "default", .bool(true), in: before) == file(code, plan, chat + "\ndefault = true"))
+		#expect(try entry(0, "default", .bool(true), in: before) == file(code + "\ndefault = true", plan, chat))
+	}
+
+	@Test func removesAKeyOfAnEntry() throws {
+		let changed = try entry(2, "size", nil, in: file(code, plan, chat))
+		#expect(changed == file(code, plan, chat.replacingOccurrences(of: "\nsize = { Time = 0.7 }", with: "")))
+		#expect(try Config.parse(changed).workspaces[2].size.isEmpty)
+	}
+
+	@Test func refusesAnEntryThatIsNotThere() {
+		#expect(throws: ConfigError.invalid("there is no workspace #4")) {
+			try entry(3, "display", .string("main"), in: file(code, plan, chat))
+		}
+	}
+
+	@Test func refusesADottedKeyInAnEntry() {
+		#expect(throws: ConfigError.self) {
+			try entry(
+				0, "size", .table([.init("Time", .double(0.5))]), in: "[[workspace]]\nname = \"A\"\nsize.Time = 0.7")
+		}
+	}
+
+	@Test func ignoresTheSubTableOfAnotherEntry() throws {
+		let text = "[[workspace]]\nname = \"A\"\nsize = { Time = 0.5 }\n\n"
+			+ "[[workspace]]\nname = \"B\"\n\n[workspace.size]\nTime = 0.7"
+		let changed = try entry(0, "size", .table([.init("Time", .double(0.6))]), in: text)
+		#expect(changed == text.replacingOccurrences(of: "0.5", with: "0.6"))
+	}
+
+	@Test func refusesAKeyWrittenAsTheSubTableOfItsEntry() {
+		let text = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n[workspace.size]\nTime = 0.7"
+		#expect(throws: ConfigError.invalid(
+			"size of workspace #2 is written in a way the settings window cannot change; change it in kumiko.toml"
+		)) {
+			try entry(1, "size", .table([.init("Time", .double(0.6))]), in: text)
+		}
+	}
+
+	@Test func leavesTheFileAloneWhenAnEntryLacksTheKeyToRemove() throws {
+		#expect(try entry(0, "last", nil, in: file(code, plan, chat)) == file(code, plan, chat))
+	}
+
+	@Test func readsPastAMultilineArrayOfAnEarlierEntry() throws {
+		let text = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\n\n[[workspace]]\nname = \"B\""
+		#expect(try entry(1, "display", .string("main"), in: text) == text + "\ndisplay = \"main\"")
+	}
+
+	@Test func addsAKeyAfterAnEntrysMultilineArray() throws {
+		let text = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\n\n[hotkeys]\nenabled = true"
+		let expected =
+			"[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]\ndisplay = \"main\"\n\n[hotkeys]\nenabled = true"
+		#expect(try entry(0, "display", .string("main"), in: text) == expected)
+	}
+
+	@Test func addsAKeyBeforeTheEntrysSubTable() throws {
+		let text = "[[workspace]]\nname = \"A\"\n\n[workspace.size]\nTime = 0.7"
+		#expect(try entry(0, "display", .string("main"), in: text)
+			== "[[workspace]]\nname = \"A\"\ndisplay = \"main\"\n\n[workspace.size]\nTime = 0.7")
+	}
+
+	private let media = Config.Workspace(name: "Media", display: "builtin")
+
+	private func size(_ value: TOMLValue?, in text: String) throws -> String {
+		try ConfigWriter.apply(
+			ConfigEdit(target: .entry("workspace", 0), key: "size", value: value, replacing: "share"), to: text
+		)
+	}
+
+	@Test func writesSizeInPlaceOfShareOnItsLine() throws {
+		let text = "[[workspace]]\nname = \"Chat\"\nshare = { Time = 0.6 }  # roomy\ndisplay = \"main\"\n"
+		let changed = try size(.table([.init("Time", .double(0.7))]), in: text)
+		#expect(changed == "[[workspace]]\nname = \"Chat\"\nsize = { Time = 0.7 }  # roomy\ndisplay = \"main\"\n")
+		#expect(try Config.parse(changed).workspaces[0].size == ["Time": 0.7])
+	}
+
+	@Test func takesShareOutForNoSize() throws {
+		let changed = try size(nil, in: "[[workspace]]\nname = \"Chat\"\nshare = { Time = 0.6 }\n")
+		#expect(changed == "[[workspace]]\nname = \"Chat\"\n")
+	}
+
+	@Test func writesSizeWhereThereIsNoShare() throws {
+		let changed = try size(.table([.init("Time", .double(0.7))]), in: "[[workspace]]\nname = \"Chat\"\n")
+		#expect(changed == "[[workspace]]\nname = \"Chat\"\nsize = { Time = 0.7 }\n")
+	}
+
+	@Test func refusesShareWrittenAsASubTable() {
+		#expect(throws: ConfigError.self) {
+			let text = "[[workspace]]\nname = \"A\"\n\n[workspace.share]\nTime = 0.6"
+			return try size(.table([.init("Time", .double(0.7))]), in: text)
+		}
+	}
+
+	@Test func workspaceLayoutIsWrittenOnlyWhenNotBSP() throws {
+		#expect(!Config.Workspace(name: "A").tomlFields.contains { $0.key == "layout" })
+		let workspace = Config.Workspace(name: "A", layout: .float)
+		let text = try ConfigWriter.apply(EntryEdit.insert("workspace", fields: workspace.tomlFields), to: "")
+		#expect(try Config.parse(text).workspaces == [workspace])
+	}
+
+	@Test func workspaceFieldsReadBackAsTheWorkspace() throws {
+		let workspace = Config.Workspace(
+			name: "Chat", display: "builtin", apps: ["Time", "Telegram"], isDefault: true, last: ["Telegram"],
+			size: ["Time": 0.7]
+		)
+		let text = try ConfigWriter.apply(EntryEdit.insert("workspace", fields: workspace.tomlFields), to: "")
+
+		#expect(text == """
+			[[workspace]]
+			name = "Chat"
+			display = "builtin"
+			apps = ["Time", "Telegram"]
+			default = true
+			last = ["Telegram"]
+			size = { Time = 0.7 }
+
+			""")
+		#expect(try Config.parse(text).workspaces == [workspace])
+	}
+
+	@Test func insertsAnEntryAfterTheLastOne() throws {
+		let insert = EntryEdit.insert("workspace", fields: media.tomlFields)
+		let changed = try ConfigWriter.apply(insert, to: file(code, plan, chat))
+		#expect(changed == file(code, plan, chat + "\n\n[[workspace]]\nname = \"Media\"\ndisplay = \"builtin\""))
+	}
+
+	@Test func insertsTheFirstEntryAtTheEnd() throws {
+		let insert = EntryEdit.insert("workspace", fields: media.tomlFields)
+		let changed = try ConfigWriter.apply(insert, to: "[wm]\ngap = 4")
+		#expect(changed == "[wm]\ngap = 4\n\n[[workspace]]\nname = \"Media\"\ndisplay = \"builtin\"\n")
+	}
+
+	@Test func removesAnEntryAndOneBlankLine() throws {
+		let tail = "\n\n# Chats last.\n"
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: file(code, plan, chat))
+			== file(code, plan, chat).replacingOccurrences(of: code + "\n\n", with: ""))
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 1), to: file(code, plan, chat))
+			== file(code, plan, chat).replacingOccurrences(of: "\n\n" + plan + tail, with: tail))
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 2), to: file(code, plan, chat))
+			== file(code, plan, chat).replacingOccurrences(of: chat + "\n\n", with: ""))
+	}
+
+	@Test func movesEntriesAndLeavesCommentsWhereTheyAre() throws {
+		let down = try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 2), to: file(code, plan, chat))
+		let up = try ConfigWriter.apply(EntryEdit.move("workspace", from: 2, to: 0), to: file(code, plan, chat))
+
+		#expect(down == file(plan, chat, code))
+		#expect(up == file(chat, code, plan))
+		#expect(try Config.parse(down).workspaces.map(\.name) == ["Plan", "Chat", "Code"])
+	}
+
+	@Test func refusesEntriesThatAreNotThere() {
+		#expect(throws: ConfigError.invalid("there is no workspace #4")) {
+			try ConfigWriter.apply(EntryEdit.remove("workspace", 3), to: file(code, plan, chat))
+		}
+		#expect(throws: ConfigError.invalid("there is no workspace #4")) {
+			try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 3), to: file(code, plan, chat))
+		}
+	}
+
+	private let sub = "[[workspace]]\nname = \"A\"\n\n[workspace.size]\nTime = 0.7"
+
+	@Test func insertsAfterTheLastEntrysSubTable() throws {
+		let insert = EntryEdit.insert("workspace", fields: media.tomlFields)
+		#expect(try ConfigWriter.apply(insert, to: sub + "\n")
+			== sub + "\n\n[[workspace]]\nname = \"Media\"\ndisplay = \"builtin\"\n")
+	}
+
+	@Test func removesAnEntryWithItsSubTable() throws {
+		let text = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n[workspace.size]\nTime = 0.7"
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 1), to: text) == "[[workspace]]\nname = \"A\"")
+
+		let first = sub + "\n\n[[workspace]]\nname = \"B\""
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: first) == "[[workspace]]\nname = \"B\"")
+	}
+
+	@Test func movesAnEntryWithItsSubTable() throws {
+		let text = sub + "\n\n[[workspace]]\nname = \"B\""
+		let moved = try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 1), to: text)
+
+		#expect(moved == "[[workspace]]\nname = \"B\"\n\n" + sub)
+		#expect(try Config.parse(moved).workspaces.map(\.name) == ["B", "A"])
+		#expect(try Config.parse(moved).workspaces[1].size == ["Time": 0.7])
+	}
+
+	@Test func refusesAnArrayWrittenInline() {
+		let text = "workspace = [{ name = \"A\" }]\n\n[wm]\ngap = 4"
+		let refusal = ConfigError.invalid(
+			"workspace is written in a way the settings window cannot change; change it in kumiko.toml"
+		)
+		#expect(throws: refusal) {
+			try ConfigWriter.apply(EntryEdit.insert("workspace", fields: media.tomlFields), to: text)
+		}
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: text) }
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 0), to: text) }
+	}
+
+	@Test func removesTheOnlyEntry() throws {
+		#expect(try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: "[[workspace]]\nname = \"A\"\n") == "")
+	}
+
+	@Test func movesAnEntryOntoItselfAsNothing() throws {
+		let text = file(code, plan, chat)
+		#expect(try ConfigWriter.apply(EntryEdit.move("workspace", from: 1, to: 1), to: text) == text)
+	}
+
+	@Test func movesAMultilineEntryWhole() throws {
+		let multi = "[[workspace]]\nname = \"A\"\napps = [\n\t\"X\",\n]"
+		let other = "[[workspace]]\nname = \"B\""
+		#expect(try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 1), to: multi + "\n\n" + other)
+			== other + "\n\n" + multi)
+	}
+
+	@Test func refusesAMoveFromAnEntryThatIsNotThere() {
+		#expect(throws: ConfigError.invalid("there is no workspace #4")) {
+			try ConfigWriter.apply(EntryEdit.move("workspace", from: 3, to: 0), to: file(code, plan, chat))
+		}
+	}
+
+	@Test func refusesASubTableThatStandsApart() {
+		let refusal = ConfigError.invalid(
+			"workspace is written in a way the settings window cannot change; change it in kumiko.toml"
+		)
+		let apart = "[[workspace]]\nname = \"A\"\n\n[[workspace]]\nname = \"B\"\n\n"
+			+ "[hotkeys]\nenabled = true\n\n[workspace.size]\nTime = 0.7"
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: apart) }
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.move("workspace", from: 0, to: 1), to: apart) }
+
+		let first = "[workspace.size]\nTime = 0.7\n\n[wm]\ngap = 4"
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: first) }
+	}
+
+	@Test func refusesAPlainTableOfTheArraysName() {
+		let text = "[workspace]\nname = \"A\"\n"
+		let refusal = ConfigError.invalid(
+			"workspace is written in a way the settings window cannot change; change it in kumiko.toml"
+		)
+		#expect(throws: refusal) {
+			try ConfigWriter.apply(EntryEdit.insert("workspace", fields: media.tomlFields), to: text)
+		}
+		#expect(throws: refusal) { try ConfigWriter.apply(EntryEdit.remove("workspace", 0), to: text) }
+	}
+
+	@Test func appliesChangesInOrder() throws {
+		let changes: [any ConfigChange] = [
+			EntryEdit.move("workspace", from: 0, to: 2),
+			ConfigEdit(target: .entry("workspace", 2), key: "display", value: .string("main")),
+		]
+		let changed = try ConfigWriter.apply(changes, to: file(code, plan, chat))
+		#expect(changed == file(plan, chat, code.replacingOccurrences(of: "external", with: "main")))
+	}
+
+	@Test func appliesEntryAndKeyChangesInOneBatch() throws {
+		let changes: [any ConfigChange] = [
+			EntryEdit.insert("workspace", fields: media.tomlFields),
+			ConfigEdit(target: .entry("workspace", 3), key: "display", value: .string("external")),
+		]
+		let original = file(code, plan, chat)
+		let changed = try ConfigWriter.apply(changes, to: original)
+		let inserted = try ConfigWriter.apply(EntryEdit.insert("workspace", fields: media.tomlFields), to: original)
+		#expect(changed == (try entry(3, "display", .string("external"), in: inserted)))
+	}
+
+	@Test func writesNoneOfTheChangesWhenOneFails() throws {
+		let url = FileManager.default.temporaryDirectory.appending(path: "kumiko-\(UUID()).toml")
+		defer { try? FileManager.default.removeItem(at: url) }
+		try file(code, plan, chat).write(to: url, atomically: true, encoding: .utf8)
+
+		#expect(throws: ConfigError.invalid("workspace \"Code\" is defined twice")) {
+			try ConfigWriter.write([
+				ConfigEdit(target: .entry("workspace", 2), key: "display", value: .string("main")),
+				ConfigEdit(target: .entry("workspace", 1), key: "name", value: .string("Code")),
+			], to: url)
+		}
+		#expect(try String(contentsOf: url, encoding: .utf8) == file(code, plan, chat))
+	}
+
+	@Test func leavesTheFileAloneWhenNothingChanges() throws {
+		let url = FileManager.default.temporaryDirectory.appending(path: "kumiko-\(UUID()).toml")
+		defer { try? FileManager.default.removeItem(at: url) }
+
+		_ = try ConfigWriter.write([], to: url)
+		#expect(!FileManager.default.fileExists(atPath: url.path(percentEncoded: false)))
+
+		_ = try ConfigWriter.write(ConfigEdit(target: .table("wm"), key: "gap", value: nil), to: url)
+		#expect(!FileManager.default.fileExists(atPath: url.path(percentEncoded: false)))
+	}
 }

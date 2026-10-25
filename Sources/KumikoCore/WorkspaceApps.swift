@@ -1,0 +1,108 @@
+import Foundation
+import os
+
+/// `apps` holds patterns while `stack`, `last` and `size` hold exact app names, so the same app
+/// is written two ways. These helpers carry a name between the two.
+extension Config.Workspace {
+	/// The pattern that matches exactly this name, so `Foo (Beta)` is not read as a group.
+	public static func pattern(for name: String) -> String {
+		NSRegularExpression.escapedPattern(for: name)
+	}
+
+	/// The name a pattern spells out, or nil when it is a real pattern like `Arc|Dia`: one that
+	/// matches more than the one name has no name to show. A dot matches itself, so `zoom.us` is
+	/// a name even unescaped.
+	public static func name(of pattern: String) -> String? {
+		var name = ""
+		var characters = pattern.makeIterator()
+		while let character = characters.next() {
+			if character == "\\" {
+				guard let escaped = characters.next() else { return nil }
+				name.append(escaped)
+			} else {
+				name.append(character)
+			}
+		}
+		if Self.pattern(for: name) == pattern { return name }
+		let dotsOnly = Self.pattern(for: pattern) == pattern.replacingOccurrences(of: ".", with: "\\.")
+		return dotsOnly ? pattern : nil
+	}
+
+	/// Whether an `apps` pattern matches the whole app name, like `[[wm.rule]]` patterns do: "Code" is
+	/// not "Xcode".
+	public static func matcher(for pattern: String) -> NSRegularExpression? {
+		if let cached = matchers.withLock({ $0[pattern] }) { return cached }
+		let matcher = try? NSRegularExpression(pattern: "^(?:\(pattern))$")
+		matchers.withLock { $0[pattern] = matcher }
+		return matcher
+	}
+
+	/// The settings window asks for every row on every draw. A pattern that does not compile is
+	/// kept too, as nil, so it is not tried again.
+	private static let matchers = OSAllocatedUnfairLock<[String: NSRegularExpression?]>(initialState: [:])
+
+	public func opens(_ app: String) -> Bool {
+		let range = NSRange(app.startIndex..., in: app)
+		return apps.contains { Self.matcher(for: $0)?.firstMatch(in: app, range: range) != nil }
+	}
+
+	/// The `apps` entries in the order their windows are laid out: as written, except the ones
+	/// an older file pins with `last`, which go after the rest.
+	public var orderedApps: [String] {
+		apps.filter { !isPinnedLast($0) } + apps.filter(isPinnedLast)
+	}
+
+	private func isPinnedLast(_ entry: String) -> Bool { last.contains(Self.name(of: entry) ?? entry) }
+
+	/// Where a window of `app` goes in the layout, lower first: the place of the first entry
+	/// that matches it, then the apps no entry matches, then the ones `last` pins.
+	public func layoutRank(of app: String) -> Int {
+		if last.contains(app) { return apps.count + 1 }
+		let range = NSRange(app.startIndex..., in: app)
+		return orderedApps.firstIndex { Self.matcher(for: $0)?.firstMatch(in: app, range: range) != nil } ?? apps.count
+	}
+
+	/// The layout's places put in order, each place given by the apps of its windows (a stack
+	/// has several): `result[i]` is the place whose windows go to place `i`. A place ranks by its
+	/// best window. Only places a listed app holds move, among the places they hold, so a window
+	/// no entry names stays where it is when another one opens. The places of `last` apps take
+	/// the very last places, as many as there are, as they always did, and what was there moves
+	/// up into the order.
+	public func layoutOrder(of places: [[String]]) -> [Int] {
+		let unranked = apps.count
+		let pinned = apps.count + 1
+		let ranks = places.map { $0.map(layoutRank).min() ?? unranked }
+		let ranked = ranks.indices.filter { ranks[$0] != unranked }
+		let ends = ranks.indices.suffix(ranks.count { $0 == pinned })
+		let moving = Array(Set(ranked).union(ends)).sorted()
+		var order = Array(places.indices)
+		for (place, source) in zip(moving, moving.sorted { (ranks[$0], $0) < (ranks[$1], $1) }) {
+			order[place] = source
+		}
+		return order
+	}
+
+	/// What a settings row calls an `apps` entry: the name it spells, else the pattern as written.
+	/// In layout order, which the rows are dragged to change.
+	public var appRows: [String] {
+		var seen: [String] = []
+		let named = orderedApps.map { Self.name(of: $0) ?? $0 }
+		for app in named + stack + last + size.keys.sorted() where !seen.contains(app) {
+			seen.append(app)
+		}
+		return seen
+	}
+
+	/// Whether `row` is in `apps` as a real pattern. Such a row only says where windows open: the
+	/// other lists compare exact names, which a pattern never equals. A string already in one of
+	/// them is a name there, whatever `apps` makes of it.
+	public func isPattern(_ row: String) -> Bool {
+		apps.contains { $0 == row && Self.name(of: $0) == nil }
+			&& !stack.contains(row) && !last.contains(row) && size[row] == nil
+	}
+
+	/// Whether `row` is in `apps`, as its name or as the pattern it is.
+	public func listsInApps(_ row: String) -> Bool {
+		apps.contains { (Self.name(of: $0) ?? $0) == row }
+	}
+}

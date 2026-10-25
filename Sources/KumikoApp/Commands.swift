@@ -32,6 +32,8 @@ struct Commands {
 		case "menubar":
 			guard let menuBar = app.menuBar else { return .failure("menu bar hiding is not running") }
 			return menuBar.handle(args)
+		case "workspace" where args.dropFirst().first == "layout":
+			return workspaceLayout(Array(args.dropFirst(2)))
 		case "window", "workspace":
 			guard let manager = app.manager else { return .failure("window management is not running") }
 			return manager.handle(args)
@@ -39,6 +41,47 @@ struct Commands {
 			return .failure("unknown command: \(command)")
 		case nil:
 			return .failure("no command given")
+		}
+	}
+
+	/// `workspace layout bsp|stack|float [<name>]`, the focused workspace's without a name. Written
+	/// to kumiko.toml the way the settings window writes it, so the file stays what decides, and
+	/// reloaded at once rather than when the watcher gets to it.
+	private func workspaceLayout(_ args: [String]) -> Response {
+		guard (1...2).contains(args.count), let layout = Config.Workspace.Layout(rawValue: args[0]) else {
+			return .failure("usage: kumiko workspace layout bsp|stack|float [<name>]")
+		}
+		// The file as it is now, not as last loaded: an entry added or moved by hand since would
+		// put the index on another workspace.
+		let config: Config
+		do throws(ConfigError) {
+			config = try Config.load(from: app.paths.configFile)
+		} catch {
+			return .failure(error.description)
+		}
+		guard config.wm.useWorkspaces else {
+			return .failure("workspaces are off: [wm] workspaces = false in kumiko.toml")
+		}
+		let workspaces = config.workspaces
+		guard !workspaces.isEmpty else {
+			return .failure("the workspaces are the built-in ones: customize them in Settings first")
+		}
+		let name = args.count > 1 ? args[1] : app.manager?.workspaceStates.first(where: \.isFocused)?.name
+		guard let name, let index = workspaces.firstIndex(where: { $0.name == name }) else {
+			return .failure("no workspace \(name ?? "here")")
+		}
+
+		let edit = ConfigEdit(
+			target: .entry("workspace", index), key: "layout", value: layout == .bsp ? nil : .string(layout.rawValue)
+		)
+		do throws(ConfigError) {
+			_ = try ConfigWriter.write(edit, to: app.paths.configFile)
+		} catch {
+			return .failure(error.description)
+		}
+		switch app.reloadConfig() {
+		case .success: return .success()
+		case let .failure(error): return .failure(error.description)
 		}
 	}
 

@@ -140,18 +140,40 @@ struct ConfigTests {
 			name = "Social"
 			apps = ["Time", "Telegram"]
 			last = ["Telegram"]
-			share = { Time = 0.7 }
+			size = { Time = 0.7 }
 			""")
 
 		#expect(config.workspaces == [
 			Config.Workspace(name: "Code", display: "external", apps: ["Ghostty", "Code"]),
-			Config.Workspace(name: "Social", apps: ["Time", "Telegram"], last: ["Telegram"], share: ["Time": 0.7]),
+			Config.Workspace(name: "Social", apps: ["Time", "Telegram"], last: ["Telegram"], size: ["Time": 0.7]),
 		])
 	}
 
 	@Test func duplicateWorkspaceNameIsAnError() {
 		#expect(throws: ConfigError.invalid("workspace \"Code\" is defined twice")) {
 			try Config.parse("[[workspace]]\nname = \"Code\"\n[[workspace]]\nname = \"Code\"")
+		}
+	}
+
+	@Test func olderFilesSayShareForSize() throws {
+		let config = try Config.parse("[[workspace]]\nname = \"Chat\"\nshare = { Time = 0.6 }")
+		#expect(config.workspaces[0].size == ["Time": 0.6])
+	}
+
+	@Test func sizeAndShareTogetherAreAnError() {
+		#expect(throws: ConfigError.invalid("workspace \"Chat\": use size, not both size and share")) {
+			try Config.parse("[[workspace]]\nname = \"Chat\"\nsize = { Time = 0.6 }\nshare = { Time = 0.7 }")
+		}
+	}
+
+	@Test func workspaceLayoutIsBSPUnlessSaid() throws {
+		let config = try Config.parse("[[workspace]]\nname = \"A\"\n[[workspace]]\nname = \"B\"\nlayout = \"stack\"")
+		#expect(config.workspaces.map(\.layout) == [.bsp, .stack])
+	}
+
+	@Test func unknownWorkspaceLayoutIsAnError() {
+		#expect(throws: ConfigError.invalid("workspace \"A\": layout must be bsp, stack or float, not \"grid\"")) {
+			try Config.parse("[[workspace]]\nname = \"A\"\nlayout = \"grid\"")
 		}
 	}
 

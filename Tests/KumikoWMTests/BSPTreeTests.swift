@@ -140,9 +140,9 @@ struct BSPTreeSizeTests {
 		#expect(tree.frames(in: area, gap: 0)[1] == rect(0, 0, 900, 600))
 	}
 
-	@Test func shareIsTheWindowsOwnPart() {
+	@Test func sizeIsTheWindowsOwnPart() {
 		let tree = tree(1, 2)
-		tree.setShare(2, 0.7)
+		tree.setSize(2, 0.7)
 		#expect(tree.frames(in: area, gap: 0)[2] == rect(300, 0, 700, 600))
 	}
 
@@ -150,7 +150,7 @@ struct BSPTreeSizeTests {
 		let tree = tree(1, 2)
 		tree.insert(3, near: 2, in: area, gap: 0)
 		tree.insert(4, near: 1, in: area, gap: 0)
-		tree.setShare(1, 0.2)
+		tree.setSize(1, 0.2)
 		tree.resize(2, edge: .east, by: 200, in: area, gap: 0)
 		tree.balance()
 
@@ -182,7 +182,7 @@ struct BSPTreeTransformTests {
 
 	@Test func fourQuarterTurnsAreTheSameLayout() {
 		let tree = tree(1, 2, 3)
-		tree.setShare(1, 0.3)
+		tree.setSize(1, 0.3)
 		let before = tree.frames(in: area, gap: 0)
 
 		tree.rotate(270)
@@ -192,7 +192,7 @@ struct BSPTreeTransformTests {
 
 	@Test func mirrorColumnsSwapsLeftAndRight() {
 		let tree = tree(1, 2)
-		tree.setShare(1, 0.3)
+		tree.setSize(1, 0.3)
 		tree.mirror(.columns)
 
 		let frames = tree.frames(in: area, gap: 0)
@@ -302,5 +302,64 @@ struct BSPTreeStackTests {
 		tree.stack(2, onto: 1)
 		tree.activate(1)
 		#expect(tree.visibleWindows == [1])
+	}
+}
+
+struct BSPTreePermuteTests {
+	@Test func movesAStackWhole() {
+		// Two Slack windows stacked on the left, Code on the right; Code goes first.
+		let tree = tree(1, 3)
+		tree.insert(2, near: nil, in: area, gap: 0)
+		tree.stack(2, onto: 1)
+		#expect(tree.leaves.map(\.windows) == [[1, 2], [3]])
+
+		tree.permuteLeaves([1, 0])
+		#expect(tree.leaves.map(\.windows) == [[3], [1, 2]])
+		#expect(tree.visibleWindows == [3, 2])
+		#expect(tree.stackIndex(of: 1) == 1)
+		let frames = tree.frames(in: area, gap: 0)
+		#expect(frames[3] == rect(0, 0, 500, 600))
+		#expect(frames[2] == rect(500, 0, 500, 600))
+	}
+
+	@Test func takesAnyOrderAndKeepsTheSplits() {
+		let tree = tree(1, 2, 3, 4)
+		let before = tree.frames(in: area, gap: 0)
+		tree.permuteLeaves([2, 3, 0, 1])
+		#expect(tree.visibleWindows == [3, 4, 1, 2])
+		let after = tree.frames(in: area, gap: 0)
+		#expect(after[3] == before[1])
+		#expect(after[1] == before[3])
+		tree.remove(1)
+		#expect(!tree.contains(1))
+		#expect(tree.visibleWindows == [3, 4, 2])
+	}
+
+	@Test func ignoresAnOrderThatIsNotAPermutation() {
+		let tree = tree(1, 2)
+		tree.permuteLeaves([0, 0])
+		#expect(tree.visibleWindows == [1, 2])
+	}
+}
+
+struct BSPTreeCollapseTests {
+	@Test func putsEveryWindowInOneStackOverTheArea() {
+		let tree = tree(1, 2, 3)
+		tree.stack(3, onto: 2)
+		tree.collapse(active: 2)
+		#expect(tree.leaves.map(\.windows) == [[1, 2, 3]])
+		#expect(tree.visibleWindows == [2])
+		#expect(tree.frames(in: area, gap: 0) == [1: area, 2: area, 3: area])
+	}
+
+	@Test func keepsWorkingAsAStackAfterwards() {
+		let tree = tree(1, 2)
+		tree.collapse(active: nil)
+		#expect(tree.visibleWindows == [1])
+		tree.remove(1)
+		#expect(tree.visibleWindows == [2])
+		tree.insert(3, near: nil, in: area, gap: 0)
+		tree.stack(3, onto: 2)
+		#expect(tree.leaves.map(\.windows) == [[2, 3]])
 	}
 }

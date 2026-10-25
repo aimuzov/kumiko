@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import KumikoCore
 import KumikoMenuBar
 import SwiftUI
@@ -13,6 +14,7 @@ final class SettingsWindow {
 	private var window: NSWindow?
 	private var closeObserver: (any NSObjectProtocol)?
 	private var keyObserver: (any NSObjectProtocol)?
+	private var paneObserver: AnyCancellable?
 	private let bringForward: () -> Void
 	/// From show until the window is closed, minimized and hidden included: all that time kumiko
 	/// keeps its Dock icon, the way back to the window.
@@ -23,12 +25,33 @@ final class SettingsWindow {
 			[weak app] in app?.menuBar?.items()
 		}
 		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
+		model.onRenameWorkspace = { [weak app] old, new in app?.manager?.rename(old, to: new) }
+		// Sent before the page changes, so the window is wide enough by the time it is drawn.
+		paneObserver = model.$pane.sink { [weak self] pane in self?.fit(pane) }
 
 		app.bus.subscribe { [weak self, unowned app] event in
 			guard case .configReloaded = event else { return }
 			self?.model.update(app.config, error: app.configError?.description)
 			self?.matchShadows()
 		}
+	}
+
+	/// Wider for a page that needs it, once on the way in: the Workspaces page's two columns
+	/// do not fit the window's first size. Grown about its middle and kept on its screen; a
+	/// window that is wide enough already is left as the user made it.
+	private func fit(_ pane: Pane) {
+		guard let window else { return }
+		let width = SettingsView.minWidth(for: pane)
+		let missing = width - window.contentLayoutRect.width
+		guard missing > 0 else { return }
+		var frame = window.frame
+		frame.origin.x -= missing / 2
+		frame.size.width += missing
+		if let screen = window.screen?.visibleFrame {
+			frame.size.width = min(frame.width, screen.width)
+			frame.origin.x = min(max(frame.origin.x, screen.minX), screen.maxX - frame.width)
+		}
+		window.setFrame(frame, display: true, animate: window.isVisible)
 	}
 
 	/// Without a shadow like every other window while shadows are off. kumiko may take its own away
@@ -52,15 +75,17 @@ final class SettingsWindow {
 			window.titleVisibility = .hidden
 			window.titlebarAppearsTransparent = true
 			// A window with a toolbar gets the larger corner radius Raycast's has, and its traffic
-			// lights come down into the sidebar's corner. The toolbar itself stays empty.
+			// lights come down into the sidebar's corner. The toolbar itself stays empty, and it is
+			// what moves the window: moved by its background, the window would take every drag on
+			// the page, a workspace row's among them.
 			window.toolbar = NSToolbar(identifier: "kumiko.settings")
 			window.toolbarStyle = .unified
-			window.isMovableByWindowBackground = true
 			window.isReleasedWhenClosed = false
 			window.setContentSize(NSSize(width: 860, height: 600))
 			window.center()
 			window.setFrameAutosaveName("kumiko.settings")
 			self.window = window
+			fit(model.pane)
 
 			closeObserver = NotificationCenter.default.addObserver(
 				forName: NSWindow.willCloseNotification, object: window, queue: .main
@@ -133,6 +158,30 @@ final class SettingsModel: ObservableObject {
 	@Published var search = ""
 	/// The padding's sides are set one by one even while they are all the same.
 	@Published var paddingPerSide = false
+	/// The workspace the Workspaces page shows the settings of, by name: a rename takes its name
+	/// along, a removal hands it to a neighbour. Nil, or a name the file no longer has, is the first.
+	@Published var selectedWorkspace: String?
+	/// An identity per workspace that outlives its name, so a rename does not rebuild its row and
+	/// detail and take the keyboard from the field it was typed in. Not published: the list adds
+	/// ids while it draws, which sends no change.
+	private var workspaceIDs: [String: UUID] = [:]
+	/// Not published: a dragged row moves with the pointer, and only the list follows it.
+	let islandDrag = IslandDrag()
+	/// The same for the shown workspace's app rows, which touch: a divider is part of each.
+	let appDrag = IslandDrag(spacing: 0)
+	/// An app's size while the edge of its split is dragged; written to the file when it is let go.
+	@Published var draggedSize: DraggedSize?
+	/// The screens behind the Workspaces page's areas. Without a monitor there are no areas,
+	/// and the page says nothing about displays.
+	@Published private(set) var screens = AreaScreens.current()
+	private var screensObserver: (any NSObjectProtocol)?
+	/// The order the areas were last shown in, kept while the page is open so a drop never
+	/// swaps them under the pointer. Not published: the list sets it while it draws.
+	var shownAreaOrder: [Config.Workspace.Area]?
+	/// The workspace the Remove dialog asks about, named when it opened.
+	@Published var workspacePendingRemoval: String?
+	/// Tells the window manager a rename is coming, before the file has it.
+	var onRenameWorkspace: (String, String) -> Void = { _, _ in }
 	/// The bar's scale while its slider is dragged; written to the file when it is let go.
 	@Published var draggedBarScale: Double?
 	/// The colour panel's own last pick, kept while the file holds it. The panel works in the
@@ -152,12 +201,49 @@ final class SettingsModel: ObservableObject {
 		self.config = config
 		self.error = error
 		readMenuBar = menuBar
+		screensObserver = NotificationCenter.default.addObserver(
+			forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+		) { [weak self] _ in
+			MainActor.assumeIsolated {
+				guard let self else { return }
+				let screens = AreaScreens.current()
+				guard screens != self.screens else { return }
+				self.screens = screens
+				self.shownAreaOrder = nil
+			}
+		}
+	}
+
+	/// Called from the list's `body`, so a name seen for the first time gets its id there.
+	func workspaceID(for name: String) -> UUID {
+		if let id = workspaceIDs[name] { return id }
+		let id = UUID()
+		workspaceIDs[name] = id
+		return id
+	}
+
+	/// Moves the identity and what is kept by name to the new name, once the file has it.
+	func carryWorkspace(from name: String, to new: String, id: UUID) {
+		workspaceIDs[name] = nil
+		workspaceIDs[new] = id
+		if selectedWorkspace == name { selectedWorkspace = new }
+		if let frame = islandDrag.frames.removeValue(forKey: name) { islandDrag.frames[new] = frame }
+	}
+
+	private func forgetGoneWorkspaces() {
+		let names = Set(config.workspaces.map(\.name))
+		workspaceIDs = workspaceIDs.filter { names.contains($0.key) }
 	}
 
 	func update(_ config: Config, error: String?) {
 		self.config = config
 		self.error = error
 		writeError = nil
+		// A broken file may come back with none of its workspaces: the selection waits for a good one.
+		if error == nil, let selected = selectedWorkspace, !config.workspaces.contains(where: { $0.name == selected }) {
+			selectedWorkspace = nil
+		}
+		forgetGoneWorkspaces()
 
 		// A colour changed in the file by hand is no longer the panel's pick.
 		if let picked = pickedBorderColor, pendingBorderColor == nil,
@@ -170,9 +256,16 @@ final class SettingsModel: ObservableObject {
 	/// Writes one key to kumiko.toml. The page shows the new value at once: the reload that applies
 	/// it to the modules comes after the watcher's pause and brings back the same config.
 	func set(_ table: String, _ key: String, _ value: TOMLValue?) {
+		change([ConfigEdit(table: table, key: key, value: value)])
+	}
+
+	/// Writes several changes as one, so a control that touches more than one key never lands halfway.
+	func change(_ changes: [any ConfigChange]) {
+		guard !changes.isEmpty else { return }
 		do throws(ConfigError) {
-			config = try ConfigWriter.write(ConfigEdit(table: table, key: key, value: value), to: configFile)
+			config = try ConfigWriter.write(changes, to: configFile)
 			writeError = nil
+			forgetGoneWorkspaces()
 		} catch {
 			writeError = error.description
 		}
@@ -243,6 +336,7 @@ final class SettingsModel: ObservableObject {
 
 	/// What lives outside the config and may have changed while the window was closed.
 	func refresh() {
+		AppIcon.forgetMissing()
 		opensAtLogin = LoginItem.isEnabled
 		payloadVersion = ScriptingAddition.handshake()
 		sipAllowsPayload = ScriptingAddition.isAllowedBySIP
@@ -397,6 +491,11 @@ enum Pane: String, CaseIterable, Identifiable {
 private struct SettingsView: View {
 	@ObservedObject var model: SettingsModel
 
+	/// The Workspaces page's list and detail side by side, with the apps table's name column
+	/// still readable: 248 of sidebar, 48 of margins, 210 of list, 16 between and about 380 of
+	/// detail.
+	static func minWidth(for pane: Pane) -> Double { pane == .workspaces ? 900 : 780 }
+
 	var body: some View {
 		HStack(spacing: 0) {
 			Sidebar(model: model)
@@ -408,12 +507,13 @@ private struct SettingsView: View {
 					.padding(.horizontal, 24)
 					.padding(.top, PageBar.height + 8)
 					.padding(.bottom, 24)
-					.frame(maxWidth: 600)
+					// The workspaces' list and the settings beside it need the room of two columns.
+					.frame(maxWidth: model.pane == .workspaces ? 880 : 600)
 					.frame(maxWidth: .infinity)
 			}
 			.overlay(alignment: .top) { PageBar(model: model) }
 		}
-		.frame(minWidth: 780, minHeight: 500)
+		.frame(minWidth: Self.minWidth(for: model.pane), minHeight: 500)
 		.background(SwiftUI.Color(nsColor: .textBackgroundColor))
 		// Up under the transparent title bar, so the traffic lights sit inside the sidebar.
 		.ignoresSafeArea()
@@ -653,7 +753,7 @@ private struct Page: View {
 			case .advanced: AdvancedPage(model: model)
 			case .about: AboutPage()
 			case .windows: WindowsPage(model: model)
-			case .workspaces: WorkspacesPage(workspaces: model.config.workspaces)
+			case .workspaces: WorkspacesPage(model: model)
 			case .rules: RulesPage(model: model)
 			case .hotkeys: HotkeysPage(hotkeys: model.config.hotkeys)
 			case .bar: BarPage(model: model)
@@ -768,8 +868,15 @@ private struct SIPNote: View {
 	}
 }
 
+/// How a card sits its rows: a row that reaches the card's edges, like one lifted by a drag, needs
+/// both.
+enum CardMetrics {
+	static let inset = 12.0
+	static let radius = 10.0
+}
+
 /// A rounded group of rows, Raycast's way of grouping settings.
-private struct Card<Content: View>: View {
+struct Card<Content: View>: View {
 	var title: String?
 	@ViewBuilder var content: Content
 
@@ -785,14 +892,16 @@ private struct Card<Content: View>: View {
 			VStack(spacing: 0) {
 				content
 			}
-			.padding(.horizontal, 12)
-			.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.02)))
+			.padding(.horizontal, CardMetrics.inset)
+			.background(
+				RoundedRectangle(cornerRadius: CardMetrics.radius, style: .continuous).fill(.primary.opacity(0.02))
+			)
 		}
 	}
 }
 
 /// One line of a card: a title on the left, its value or control on the right.
-private struct Row<Trailing: View>: View {
+struct Row<Trailing: View>: View {
 	let title: String
 	var detail: String?
 	var last = false
@@ -841,7 +950,7 @@ extension Row where Trailing == Text {
 	}
 }
 
-private struct SwitchRow: View {
+struct SwitchRow: View {
 	let title: String
 	var detail: String?
 	let on: Binding<Bool>
@@ -1080,35 +1189,6 @@ private struct WindowsPage: View {
 				setPadding(padding)
 			}
 		)
-	}
-}
-
-private struct WorkspacesPage: View {
-	let workspaces: [Config.Workspace]
-
-	var body: some View {
-		if workspaces.isEmpty {
-			Card {
-				Row("Workspaces", value: "1…9 on the main display", last: true)
-			}
-		}
-
-		ForEach(Array(workspaces.enumerated()), id: \.offset) { index, workspace in
-			Card(title: "\(index + 1). \(workspace.name)") {
-				Row("Display", value: workspace.display.capitalized)
-				Row(
-					"Apps",
-					value: workspace.isDefault ? list(workspace.apps + ["every other app"]) : list(workspace.apps),
-					last: workspace.stack.isEmpty && workspace.last.isEmpty
-				)
-				if !workspace.stack.isEmpty {
-					Row("Kept in one stack", value: list(workspace.stack), last: workspace.last.isEmpty)
-				}
-				if !workspace.last.isEmpty {
-					Row("Always last", value: list(workspace.last), last: true)
-				}
-			}
-		}
 	}
 }
 

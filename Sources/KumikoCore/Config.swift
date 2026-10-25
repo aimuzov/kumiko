@@ -17,26 +17,52 @@ public struct Config: Equatable, Sendable {
 
 	/// One `[[workspace]]`: a virtual desktop with its own layout, shown on one display at a time.
 	public struct Workspace: Equatable, Sendable, Decodable {
+		/// How a workspace arranges the windows the rules manage, yabai's `layout`.
+		public enum Layout: String, CaseIterable, Sendable {
+			/// Windows split the area between them, the binary tree kumiko has always had.
+			case bsp
+			/// Every window fills the area, in one stack, one window in front at a time.
+			case stack
+			/// Nothing is tiled: the windows keep the frames they are given.
+			case float
+		}
+
 		public var name: String
 		/// Which screen it lives on: `main`, `builtin`, `external`, or part of a screen's name.
 		/// A screen that is not attached falls back to the main one.
 		public var display: String
 		/// Patterns for app names (whole name, like `[[wm.rule]]`) whose windows open here. When
-		/// several workspaces match an app, the first one in the file wins.
+		/// several workspaces match an app, the first one in the file wins. Their order is the
+		/// order of their windows in the layout, among the places those windows hold: windows of
+		/// apps not listed keep theirs. It is put back when a window new to the workspace joins it
+		/// and when the list changes, not when a window comes back from being minimized or hidden.
 		public var apps: [String]
 		/// Windows of apps no workspace names open here. Without a default workspace they open on
 		/// the workspace shown where they appear.
 		public var isDefault: Bool
 		/// Apps whose windows on this workspace are always kept in one stack.
 		public var stack: [String]
-		/// Apps whose window is always moved to the last place of the layout.
+		/// Apps whose windows go after the listed apps' windows and take the very last places of
+		/// the layout, as many as they have. Still read from older files. Reordering the apps in the settings window
+		/// moves such an app to the end of `apps` and out of here: from then on it takes the last
+		/// of the listed apps' places, which need not be the last place.
 		public var last: [String]
-		/// The share of its split a window of the app gets when it joins the layout.
-		public var share: [String: Double]
+		/// How much of the split it shares with its neighbour a window of the app takes, 0.1 to
+		/// 0.9, when it joins the layout or when this changes: one split, not the screen. An app
+		/// without one splits evenly. `size` in the file; older files say `share`, which is read
+		/// the same and becomes `size` the first time the settings window writes it.
+		public var size: [String: Double]
+		/// `bsp` unless the file says otherwise. The order of `apps` and `size` size the splits of
+		/// `bsp` only: a stack and floating windows have no splits. Window rules still decide which
+		/// windows are managed at all; in `float` none is tiled.
+		public var layout: Layout
+
+		/// What a file with no `[[workspace]]` gets: "1"…"9" on the main display.
+		public static let builtIn = (1...9).map { Workspace(name: String($0)) }
 
 		public init(
 			name: String, display: String = "main", apps: [String] = [], isDefault: Bool = false, stack: [String] = [],
-			last: [String] = [], share: [String: Double] = [:]
+			last: [String] = [], size: [String: Double] = [:], layout: Layout = .bsp
 		) {
 			self.name = name
 			self.display = display
@@ -44,7 +70,8 @@ public struct Config: Equatable, Sendable {
 			self.isDefault = isDefault
 			self.stack = stack
 			self.last = last
-			self.share = share
+			self.size = size
+			self.layout = layout
 		}
 
 		public init(from decoder: any Decoder) throws {
@@ -55,11 +82,27 @@ public struct Config: Equatable, Sendable {
 			isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
 			stack = try container.decodeIfPresent([String].self, forKey: .stack) ?? []
 			last = try container.decodeIfPresent([String].self, forKey: .last) ?? []
-			share = try container.decodeIfPresent([String: Double].self, forKey: .share) ?? [:]
+			let size = try container.decodeIfPresent([String: Double].self, forKey: .size)
+			let share = try container.decodeIfPresent([String: Double].self, forKey: .share)
+			if size != nil, share != nil {
+				throw DecodingError.dataCorruptedError(
+					forKey: .size, in: container,
+					debugDescription: "workspace \"\(name)\": use size, not both size and share"
+				)
+			}
+			self.size = size ?? share ?? [:]
+			let layout = try container.decodeIfPresent(String.self, forKey: .layout) ?? Layout.bsp.rawValue
+			guard let known = Layout(rawValue: layout) else {
+				throw DecodingError.dataCorruptedError(
+					forKey: .layout, in: container,
+					debugDescription: "workspace \"\(name)\": layout must be bsp, stack or float, not \"\(layout)\""
+				)
+			}
+			self.layout = known
 		}
 
 		private enum CodingKeys: String, CodingKey {
-			case name, display, apps, stack, last, share
+			case name, display, apps, stack, last, size, share, layout
 			case isDefault = "default"
 		}
 	}
