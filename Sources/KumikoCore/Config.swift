@@ -404,6 +404,12 @@ public struct Config: Equatable, Sendable {
 		/// Windows left floating stay above the tiled ones, so a click on the layout does not bury
 		/// them. Needs the scripting addition too, for the same reason as `shadows`.
 		public var floatOnTop = true
+		/// The settings and preferences windows of every app float, whatever the rules say: one rule
+		/// per app would be needed otherwise, and many of these windows have no title to write it for.
+		public var floatSettings = true
+		/// Windows that cannot be resized float, whatever the rules say: no layout can fit a window
+		/// of one size. Most settings windows are such, Calendar's among them.
+		public var floatFixedSize = true
 		/// `[[workspace]]` in use. Off, every display has a single workspace of its own and all its
 		/// windows are tiled there together.
 		public var useWorkspaces = true
@@ -432,6 +438,8 @@ public struct Config: Equatable, Sendable {
 			hideApps = try container.decodeIfPresent(Bool.self, forKey: .hideApps) ?? true
 			shadows = try container.decodeIfPresent(Bool.self, forKey: .shadows) ?? true
 			floatOnTop = try container.decodeIfPresent(Bool.self, forKey: .floatOnTop) ?? true
+			floatSettings = try container.decodeIfPresent(Bool.self, forKey: .floatSettings) ?? true
+			floatFixedSize = try container.decodeIfPresent(Bool.self, forKey: .floatFixedSize) ?? true
 			useWorkspaces = try container.decodeIfPresent(Bool.self, forKey: .useWorkspaces) ?? true
 			useRules = try container.decodeIfPresent(Bool.self, forKey: .useRules) ?? true
 			rules = try container.decodeIfPresent([WindowRule].self, forKey: .rules) ?? []
@@ -441,6 +449,8 @@ public struct Config: Equatable, Sendable {
 			case enabled, manage, gap, padding, shadows
 			case hideApps = "hide_apps"
 			case floatOnTop = "float_on_top"
+			case floatSettings = "float_settings"
+			case floatFixedSize = "float_fixed_size"
 			case useWorkspaces = "workspaces"
 			case useRules = "rules"
 			case rules = "rule"
@@ -459,7 +469,7 @@ public struct Config: Equatable, Sendable {
 		// Patterns are checked here, not when a window shows up, so a typo in one is reported on save
 		// instead of silently never matching.
 		for (index, rule) in config.wm.rules.enumerated() {
-			try checkPatterns([rule.app, rule.title].compactMap(\.self), in: "wm.rule #\(index + 1)")
+			try checkPatterns([rule.app, rule.title, rule.id].compactMap(\.self), in: "wm.rule #\(index + 1)")
 		}
 
 		let modes = Set(config.hotkeys.modes.keys).union(["default"])
@@ -608,11 +618,15 @@ public struct WindowRule: Equatable, Sendable, Decodable {
 	public var app: String?
 	/// Regular expression searched anywhere in the window title.
 	public var title: String?
+	/// Regular expression searched anywhere in the window's identifier, which a window with no
+	/// title still has: Dia's settings window is `preferencesWindow`.
+	public var id: String?
 	public var manage: Bool
 
-	public init(app: String? = nil, title: String? = nil, manage: Bool) {
+	public init(app: String? = nil, title: String? = nil, id: String? = nil, manage: Bool) {
 		self.app = app
 		self.title = title
+		self.id = id
 		self.manage = manage
 	}
 }

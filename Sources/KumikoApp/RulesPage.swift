@@ -57,12 +57,22 @@ extension SettingsModel {
 		if writeError == nil { newExceptionTitle = "" }
 	}
 
+	func setIDExceptions(_ ids: [String], of app: String) {
+		change(appRules.setIDExceptions(app, ids))
+	}
+
+	/// A window picked from the app's open windows by what the app calls it.
+	func addIDException(_ id: String, to app: String) {
+		guard let current = appRules.app(named: app)?.idExceptions else { return }
+		setIDExceptions(current + [id], of: app)
+	}
+
 	/// An empty field takes the key out: no app pattern matches every app.
-	func setPattern(_ index: Int, app: String?, title: String?, tiles: Bool) {
+	func setPattern(_ index: Int, app: String?, title: String?, id: String?, tiles: Bool) {
 		func clean(_ text: String?) -> String? {
 			text.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
 		}
-		change(appRules.setPattern(index, app: clean(app), title: clean(title), tiles: tiles))
+		change(appRules.setPattern(index, app: clean(app), title: clean(title), id: clean(id), tiles: tiles))
 	}
 
 	/// The workspaces that keep the app's windows in one stack, by name.
@@ -96,10 +106,28 @@ struct RulesPage: View {
 				Row(
 					title: "Other apps",
 					detail: "Windows of the apps the list does not name.",
-					last: true,
 					reset: model.reset(\.wm.manage, "wm", "manage")
 				) {
 					TilePicker(tiles: Binding(get: { model.config.wm.manage }, set: { model.set("wm", "manage", .bool($0)) }))
+				}
+				Row(
+					title: "Float settings windows",
+					detail: "Windows that call themselves settings or preferences, whatever the rules below say.",
+					reset: model.reset(\.wm.floatSettings, "wm", "float_settings")
+				) {
+					Toggle("", isOn: model.binding(\.wm.floatSettings, "wm", "float_settings"))
+						.toggleStyle(.switch)
+						.labelsHidden()
+				}
+				Row(
+					title: "Float windows that cannot be resized",
+					detail: "A window of one size fits no layout. Most settings windows are such.",
+					last: true,
+					reset: model.reset(\.wm.floatFixedSize, "wm", "float_fixed_size")
+				) {
+					Toggle("", isOn: model.binding(\.wm.floatFixedSize, "wm", "float_fixed_size"))
+						.toggleStyle(.switch)
+						.labelsHidden()
 				}
 			}
 
@@ -335,20 +363,18 @@ private struct AppRuleDetail: View {
 				}
 			}
 
-			Card(title: "Except windows titled") {
-				ForEach(Array(app.exceptions.enumerated()), id: \.element) { _, title in
+			Card(title: "Except these windows") {
+				ForEach(app.exceptions, id: \.self) { title in
 					Row(title: title) {
-						Button {
-							model.setExceptions(app.exceptions.filter { $0 != title }, of: app.name)
-						} label: {
-							Image(systemName: "minus.circle.fill")
-								.symbolRenderingMode(.palette)
-								.foregroundStyle(.white, .red)
-								.accessibilityLabel("Remove \(title)")
-						}
-						.buttonStyle(.borderless)
-						.help("These windows go \(app.tiles ? "tiled" : "floating") again")
+						removeButton(title) { model.setExceptions(app.exceptions.filter { $0 != title }, of: app.name) }
 					}
+				}
+				// A window with no title is known by what the app calls it.
+				ForEach(app.idExceptions, id: \.self) { id in
+					Row(title: id, detail: "Window ID") {
+						removeButton(id) { model.setIDExceptions(app.idExceptions.filter { $0 != id }, of: app.name) }
+					}
+					.font(.system(.body, design: .monospaced))
 				}
 				HStack(spacing: 8) {
 					TextField("Add title", text: $model.newExceptionTitle)
@@ -356,14 +382,19 @@ private struct AppRuleDetail: View {
 						.onSubmit { model.addException(to: app.name) }
 					Button("Add") { model.addException(to: app.name) }
 						.disabled(model.newExceptionTitle.trimmingCharacters(in: .whitespaces).isEmpty)
-					OpenWindowsMenu(app: app) { model.addException($0, to: app.name) }
+					OpenWindowsMenu(app: app) { window in
+						switch window {
+						case let .title(title): model.addException(title, to: app.name)
+						case let .id(id): model.addIDException(id, to: app.name)
+						}
+					}
 				}
 				.padding(.vertical, 10)
 			}
 
 			Text(
-				"Windows whose title has one of these in it \(app.tiles ? "float" : "are tiled"), "
-					+ "like settings windows of an app that is otherwise tiled."
+				"Windows whose title or window ID has one of these in it \(app.tiles ? "float" : "are tiled"), "
+					+ "like settings windows of an app that is otherwise tiled. Pick a window you have open to see its ID."
 			)
 			.font(.system(size: 11))
 			.foregroundStyle(.secondary)
@@ -382,6 +413,17 @@ private struct AppRuleDetail: View {
 
 	/// Only with workspaces to keep a stack on.
 	private var stackable: Bool { !model.config.workspaces.isEmpty }
+
+	private func removeButton(_ name: String, remove: @escaping () -> Void) -> some View {
+		Button(action: remove) {
+			Image(systemName: "minus.circle.fill")
+				.symbolRenderingMode(.palette)
+				.foregroundStyle(.white, .red)
+				.accessibilityLabel("Remove \(name)")
+		}
+		.buttonStyle(.borderless)
+		.help("These windows go \(app.tiles ? "tiled" : "floating") again")
+	}
 }
 
 /// The workspaces on which the app's windows are kept in one stack, picked in a menu.
@@ -418,9 +460,10 @@ private struct PatternDetail: View {
 	@ObservedObject var model: SettingsModel
 	let pattern: AppRules.Pattern
 
-	/// How the list names a pattern: its app pattern, or "Any app", and its title pattern.
+	/// How the list names a pattern: its app pattern, or "Any app", its title pattern and its ID pattern.
 	static func summary(_ rule: WindowRule) -> String {
-		[rule.app ?? "Any app", rule.title.map { "“\($0)”" }].compactMap(\.self).joined(separator: " · ")
+		[rule.app ?? "Any app", rule.title.map { "“\($0)”" }, rule.id.map { "ID \($0)" }]
+			.compactMap(\.self).joined(separator: " · ")
 	}
 
 	var body: some View {
@@ -428,15 +471,18 @@ private struct PatternDetail: View {
 		VStack(alignment: .leading, spacing: 20) {
 			Card {
 				Row(title: "App", detail: "A regular expression for the whole app name. Empty is any app.") {
-					field(rule.app) { model.setPattern(pattern.index, app: $0, title: rule.title, tiles: rule.manage) }
+					field(rule.app) { model.setPattern(pattern.index, app: $0, title: rule.title, id: rule.id, tiles: rule.manage) }
 				}
 				Row(title: "Title", detail: "A regular expression found anywhere in the window title. Empty is any title.") {
-					field(rule.title) { model.setPattern(pattern.index, app: rule.app, title: $0, tiles: rule.manage) }
+					field(rule.title) { model.setPattern(pattern.index, app: rule.app, title: $0, id: rule.id, tiles: rule.manage) }
+				}
+				Row(title: "Window ID", detail: "The same, for what the app calls the window. Empty is any window.") {
+					field(rule.id) { model.setPattern(pattern.index, app: rule.app, title: rule.title, id: $0, tiles: rule.manage) }
 				}
 				Row(title: "Windows", last: true) {
 					TilePicker(tiles: Binding(
 						get: { rule.manage },
-						set: { model.setPattern(pattern.index, app: rule.app, title: rule.title, tiles: $0) }
+						set: { model.setPattern(pattern.index, app: rule.app, title: rule.title, id: rule.id, tiles: $0) }
 					))
 				}
 			}

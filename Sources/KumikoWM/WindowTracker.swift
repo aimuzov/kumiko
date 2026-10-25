@@ -293,9 +293,15 @@ public final class WindowTracker {
 
 		let app = observer.app.localizedName ?? ""
 		let title = AX.string(element, kAXTitleAttribute) ?? ""
+		let identifier = AX.string(element, kAXIdentifierAttribute)
 		let subrole = observer.app.isHidden && previous != nil
 			? previous?.subrole
 			: AX.string(element, kAXSubroleAttribute)
+		// The same distrust of a hidden app; and a window that does not answer is taken as resizable,
+		// so a busy app does not see its windows leave the layout.
+		let isResizable = observer.app.isHidden && previous != nil
+			? previous?.isResizable ?? true
+			: AX.isSettable(element, kAXSizeAttribute) ?? true
 
 		return WindowInfo(
 			id: id,
@@ -308,7 +314,11 @@ public final class WindowTracker {
 			isMinimized: AX.bool(element, kAXMinimizedAttribute) ?? false,
 			isHidden: observer.app.isHidden,
 			isFullscreen: AX.bool(element, "AXFullScreen") ?? false,
-			isManaged: rules.isManaged(app: app, title: title, subrole: subrole)
+			isManaged: rules.isManaged(
+				app: app, title: title, identifier: identifier, isResizable: isResizable, subrole: subrole
+			),
+			identifier: identifier,
+			isResizable: isResizable
 		)
 	}
 
