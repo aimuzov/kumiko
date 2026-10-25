@@ -530,6 +530,24 @@ public final class WindowManager {
 		}
 
 		scheduleHiding(displays, after: unhidden)
+		onArrange()
+	}
+
+	/// Told after every pass that lays the windows out, so what goes by which windows float keeps up.
+	public var onArrange: () -> Void = {}
+
+	/// Standard windows a workspace leaves out of its layout: by a rule, by `window float`, or as
+	/// an app that is not tiled. None from a floating workspace, where nothing is tiled to keep
+	/// above, and none while the window manager is off.
+	public var floatingWindows: Set<UInt32> {
+		guard config.wm.enabled else { return [] }
+		var result = Set<UInt32>()
+		for (id, workspace) in assignment where workspace.config.layout != .float && !workspace.tree.contains(id) {
+			guard let info = tracker.windows[id], info.subrole == "AXStandardWindow", !info.isMinimized, !info.isFullscreen
+			else { continue }
+			result.insert(id)
+		}
+		return result
 	}
 
 	/// For every app with windows: whether one of them is on a shown workspace. Minimized and

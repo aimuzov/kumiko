@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var hotkeys: Hotkeys?
 	private var borders: Borders?
 	private(set) var shadows: Shadows?
+	private var floatLayer: FloatLayer?
 	private(set) var bar: Bar?
 	private(set) var menuBar: MenuBarHider?
 	private var vim: Vim?
@@ -77,6 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		let borders = Borders(bus: bus, config: config.borders, focused: nil) { tracker.windows[$0] }
 		let shadows = Shadows(bus: bus, tracker: tracker, config: config.wm)
 		self.shadows = shadows
+		let floatLayer = FloatLayer(bus: bus, manager: manager, config: config.wm)
+		self.floatLayer = floatLayer
 		let windowServer = WindowServerEvents(bus: bus)
 		borders.onOwnWindow = { windowServer.own = $0 }
 		let bar = Bar(bus: bus, tracker: tracker, manager: manager, config: config.bar)
@@ -98,6 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 				hotkeys.apply(config.hotkeys)
 				borders.apply(config.borders)
 				shadows.apply(config.wm)
+				// After the manager, which has the new layouts and rules by then.
+				floatLayer.apply(config.wm)
 				bar.apply(config.bar)
 				menuBar.apply(config.menuBar)
 				vim.apply(config.vim)
@@ -108,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		manager.start()
 		borders.start()
 		shadows.start()
+		floatLayer.start()
 		windowServer.start()
 		bar.start()
 		menuBar.start()
@@ -140,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		// Windows of hidden workspaces sit in a screen corner; quitting must not leave them there.
 		manager?.showEverything()
 		shadows?.restore()
+		floatLayer?.restore()
 		tracker?.stop()
 		hotkeys?.stop()
 	}
