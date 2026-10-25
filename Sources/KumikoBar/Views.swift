@@ -28,19 +28,22 @@ struct BarView: View {
 		.font(Font(BarFont.text(config)))
 		.foregroundStyle(config.colors.text.map(Color.init) ?? Color(nsColor: .labelColor))
 		.symbolRenderingMode(.monochrome)
+		.environment(\.barDisplay, display)
 	}
 
 	@ViewBuilder
 	private func item(named name: String) -> some View {
+		let key = "\(display):\(name)"
 		switch name {
 		case "workspaces": WorkspacesItem(model: model, display: display)
-		case "mode": ModeItem(model: model)
-		case "window": WindowItem(model: model)
-		case "datetime": DateTimeItem(model: model)
-		case "caffeinate": CaffeinateItem(model: model)
-		case "battery": BatteryItem(model: model)
-		case "input": InputItem(model: model)
-		default: ShellItemView(model: model, name: name)
+		case "mode": ModeItem(model: model).barTooltip(model, key) { TooltipText.mode(model.mode) }
+		case "window": WindowItem(model: model).barTooltip(model, key) { TooltipText.window(model.window) }
+		case "datetime": DateTimeItem(model: model).barTooltip(model, key) { TooltipText.dateTime(Date()) }
+		case "caffeinate":
+			CaffeinateItem(model: model).barTooltip(model, key) { TooltipText.caffeinate(isOn: model.isCaffeinated) }
+		case "battery": BatteryItem(model: model).barTooltip(model, key) { model.battery.map(TooltipText.battery) }
+		case "input": InputItem(model: model).barTooltip(model, key) { TooltipText.input(vimMode: model.vimMode) }
+		default: ShellItemView(model: model, name: name).barTooltip(model, key) { TooltipText.shell(name, config: model.config) }
 		}
 	}
 }
@@ -159,6 +162,18 @@ private struct WorkspacesItem: View {
 					}
 				}
 				.onTapGesture { model.focusWorkspace(workspace.name) }
+				.barTooltip(model, "\(display):workspace:\(workspace.name)", raise: { [name = workspace.name] in
+					// Over icons that grow, the label goes up above the largest of them.
+					guard let workspace = model.workspaces.first(where: { $0.name == name }),
+					      let pointer = model.pointer, pointer.workspace == name, pointer.isOver, let largest = pointer.largest
+					else { return 0 }
+					return largest - IconRow(model: model, workspace: workspace).size
+				}) { [name = workspace.name] in
+					guard let workspace = model.workspaces.first(where: { $0.name == name }) else { return nil }
+					// Over an icon, the app's name, as its system tooltip had it.
+					let row = IconRow(model: model, workspace: workspace)
+					return row.hovered.map { row.icons[$0].app.name } ?? TooltipText.workspace(workspace)
+				}
 			}
 		}
 	}
@@ -283,7 +298,6 @@ private struct AppIcons: View {
 				model.focusWorkspace(workspace.name)
 			}
 		}
-		.help(row.hovered.map { row.icons[$0].app.name } ?? "")
 		.padding(.horizontal, -size / 2)
 		.padding(.vertical, -(model.config.height - size) / 2)
 	}
@@ -339,6 +353,16 @@ struct MagnifierView: View {
 	let lift: Double
 
 	var body: some View {
+		GeometryReader { geometry in
+			icons
+			if let tooltip = model.tooltip, tooltip.display == display {
+				TooltipBubble(model: model, tooltip: tooltip, lift: lift, width: geometry.size.width)
+			}
+		}
+		.allowsHitTesting(false)
+	}
+
+	private var icons: some View {
 		ZStack(alignment: .topLeading) {
 			if let pointer = model.pointer, pointer.largest != nil,
 			   let workspace = model.workspaces.first(where: { $0.name == pointer.workspace && $0.display == display }),
