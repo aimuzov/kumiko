@@ -14,8 +14,12 @@ final class SettingsWindow {
 	private var window: NSWindow?
 	private var closeObserver: (any NSObjectProtocol)?
 	private var keyObserver: (any NSObjectProtocol)?
+	private var fullScreenObservers: [any NSObjectProtocol] = []
 	private var paneObserver: AnyCancellable?
 	private let bringForward: () -> Void
+	/// Hands the window to the tracker, which lays it out with the others; and whether it did.
+	private let tile: (NSWindow) -> Void
+	private let isTiled: (NSWindow) -> Bool
 	/// From show until the window is closed, minimized and hidden included: all that time kumiko
 	/// keeps its Dock icon, the way back to the window.
 	private(set) var isOpen = false
@@ -25,6 +29,10 @@ final class SettingsWindow {
 			[weak app] in app?.menuBar
 		}
 		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
+		tile = { [weak app] window in app?.tracker?.track(own: window) }
+		isTiled = { [weak app] window in
+			app?.tracker?.windows[UInt32(max(window.windowNumber, 0))]?.isManaged == true
+		}
 		model.onRenameWorkspace = { [weak app] old, new in app?.manager?.rename(old, to: new) }
 		model.pauseHotkeys = { [weak app] paused in app?.hotkeys?.isPaused = paused }
 		// Sent before the page changes, so the window is wide enough by the time it is drawn.
@@ -39,9 +47,10 @@ final class SettingsWindow {
 
 	/// Wider for a page that needs it, once on the way in: the Workspaces page's two columns
 	/// do not fit the window's first size. Grown about its middle and kept on its screen; a
-	/// window that is wide enough already is left as the user made it.
+	/// window that is wide enough already is left as the user made it, and one in the layout as the
+	/// layout made it.
 	private func fit(_ pane: Pane) {
-		guard let window else { return }
+		guard let window, !isTiled(window) else { return }
 		let width = SettingsView.minWidth(for: pane)
 		let missing = width - window.contentLayoutRect.width
 		guard missing > 0 else { return }
@@ -102,6 +111,20 @@ final class SettingsWindow {
 					_ = NSApp.setActivationPolicy(.accessory)
 				}
 			}
+			// In full screen the empty toolbar would stand over the page as a bar of its own, and
+			// there are no traffic lights to make room for.
+			for (name, on) in [
+				(NSWindow.willEnterFullScreenNotification, true), (NSWindow.willExitFullScreenNotification, false),
+			] {
+				fullScreenObservers.append(NotificationCenter.default.addObserver(
+					forName: name, object: window, queue: .main
+				) { [weak self, weak window] _ in
+					MainActor.assumeIsolated {
+						window?.toolbar?.isVisible = !on
+						self?.model.isFullScreen = on
+					}
+				})
+			}
 			// Coming back from System Settings with a permission granted: the warning goes away.
 			keyObserver = NotificationCenter.default.addObserver(
 				forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
@@ -120,7 +143,13 @@ final class SettingsWindow {
 		// it has one while the window is open.
 		isOpen = true
 		NSApp.setActivationPolicy(.regular)
+		// Closed on a hidden workspace, it was saved where those wait, in a corner off the screen.
+		if let window, !NSScreen.screens.contains(where: { $0.visibleFrame.contains(CGPoint(x: window.frame.midX, y: window.frame.midY)) }) {
+			window.center()
+		}
 		window?.makeKeyAndOrderFront(nil)
+		// On screen it has a window number, which the layout knows it by.
+		if let window { tile(window) }
 
 		// The new policy takes hold on the next pass of the run loop. Activated before that, kumiko
 		// stays where cmd-tab put a newcomer, last.
@@ -158,6 +187,8 @@ final class SettingsModel: ObservableObject {
 	private var walking = false
 	/// The header's info button shows what the page's module does.
 	@Published var showsPaneInfo = false
+	/// The window in native full screen: no traffic lights, and a whole screen of width.
+	@Published var isFullScreen = false
 	@Published private(set) var opensAtLogin = LoginItem.isEnabled
 	@Published private(set) var payloadVersion: String?
 	@Published private(set) var sipAllowsPayload = ScriptingAddition.isAllowedBySIP
@@ -544,8 +575,9 @@ private struct SettingsView: View {
 					.padding(.horizontal, 24)
 					.padding(.top, PageBar.height + 8)
 					.padding(.bottom, 24)
-					// The workspaces' list and the settings beside it need the room of two columns.
-					.frame(maxWidth: model.pane == .workspaces ? 880 : 600)
+					// The workspaces' list and the settings beside it need the room of two columns. A
+					// full screen gives a little more, short of rows too long to read across.
+					.frame(maxWidth: (model.pane == .workspaces ? 880 : 600) + (model.isFullScreen ? 160 : 0))
 					.frame(maxWidth: .infinity)
 			}
 			.overlay(alignment: .top) { PageBar(model: model) }
@@ -668,7 +700,8 @@ private struct Sidebar: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 1) {
-			Spacer().frame(height: 40)
+			// Room for the traffic lights, which full screen has none of.
+			Spacer().frame(height: model.isFullScreen ? 12 : 40)
 
 			HStack(spacing: 6) {
 				Image(systemName: "magnifyingglass")

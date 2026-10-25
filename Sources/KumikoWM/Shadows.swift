@@ -121,8 +121,9 @@ public final class Shadows {
 		}
 	}
 
+	/// kumiko's own windows see to their shadow themselves, through AppKit.
 	nonisolated static func losesShadow(_ info: WindowInfo) -> Bool {
-		info.subrole == kAXStandardWindowSubrole as String
+		info.subrole == kAXStandardWindowSubrole as String && info.pid != ProcessInfo.processInfo.processIdentifier
 	}
 
 	private func take(from ids: [UInt32]) {
