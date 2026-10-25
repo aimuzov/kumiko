@@ -156,7 +156,7 @@ extension SettingsModel {
 
 	/// Only while a field editor has the keyboard: taken from anything else, it would take the
 	/// list's focus, and the arrow keys with it.
-	private func endTyping() {
+	func endTyping() {
 		guard let window = NSApp.keyWindow, window.firstResponder is NSText else { return }
 		window.makeFirstResponder(nil)
 	}
@@ -901,7 +901,7 @@ private struct AppTable: View {
 
 /// A bordered pull-down with its own words, so it reads as the button it is: the running apps,
 /// and a way to pick one in /Applications.
-private struct AddAppButton: View {
+struct AddAppButton: View {
 	@ObservedObject var model: SettingsModel
 	let workspace: Config.Workspace
 
@@ -1238,7 +1238,7 @@ enum AppIcon {
 
 /// Text kept as typed until the field is left or return is pressed, the way the number fields
 /// hold their numbers, so a rename is written once and not with every key.
-private struct Verbatim: ParseableFormatStyle {
+struct Verbatim: ParseableFormatStyle {
 	var parseStrategy: Strategy { Strategy() }
 
 	func format(_ value: String) -> String { value }
