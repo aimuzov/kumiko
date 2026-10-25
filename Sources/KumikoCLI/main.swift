@@ -12,7 +12,7 @@ let usage = """
 	  ping       check that kumiko is running
 	  status     show modules and permissions
 	  reload     reread kumiko.toml
-	  settings [general|advanced|about|windows|workspaces|rules|hotkeys|bar|borders|menubar|vim]
+	  settings [general|advanced|about|windows|workspaces|rules|hotkeys|bar|borders|vim]
 	             open the settings window
 	  query windows|focused|workspaces|displays
 	             print state as JSON
@@ -37,8 +37,6 @@ let usage = """
 
 	  menubar show|hide|toggle
 	             show or hide the status items left of the divider
-	  menubar items
-	             list the items shown and hidden, right to left
 
 	  sa status|install|load|uninstall|sudoers
 	             the scripting addition in Dock, for window shadows;
