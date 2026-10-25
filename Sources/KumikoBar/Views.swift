@@ -503,6 +503,8 @@ private struct DateTimeItem: View {
 
 	var body: some View {
 		Text(Self.formatter.string(from: model.now)).monospacedDigit()
+			.contentShape(Rectangle())
+			.onTapGesture { model.openCalendar() }
 	}
 }
 

@@ -46,6 +46,9 @@ public final class Bar {
 		model.focusApp = { [weak self] pid, workspace in
 			self?.manager.focus(app: pid, on: workspace)
 		}
+		model.openCalendar = { [weak self] in
+			self?.toggleCalendar()
+		}
 		model.addWorkspace = { [weak self] display in
 			self?.onAddWorkspace(display)
 		}
@@ -221,6 +224,31 @@ public final class Bar {
 				self?.refresh()
 			}
 		}
+	}
+
+	private static let calendar = "com.apple.iCal"
+
+	/// The clock's click, as in the macOS menu bar: Calendar. Brought forward on the workspace its
+	/// window is on, or opened; already in front, the workspace shown before comes back.
+	private func toggleCalendar() {
+		let running = NSRunningApplication.runningApplications(withBundleIdentifier: Self.calendar).first
+
+		if let running, running.isActive {
+			_ = manager.handle(["workspace", "focus", "recent"])
+			return
+		}
+
+		if let running {
+			let pid = running.processIdentifier
+			let workspace = tracker.windows.values
+				.filter { $0.pid == pid && !$0.isMinimized }
+				.lazy.compactMap { self.manager.state(of: $0.id).workspace }.first
+			if let workspace, manager.focus(app: pid, on: workspace) { return }
+		}
+
+		// Not running, or with no window kumiko knows of: macOS opens one.
+		guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.calendar) else { return }
+		NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
 	}
 
 	private func refresh() {
