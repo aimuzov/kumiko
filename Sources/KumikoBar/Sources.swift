@@ -90,6 +90,29 @@ enum InputSource {
 	/// Distributed notification macOS posts when the input source changes.
 	static let changed = Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String)
 
+	/// Selects the source after the current one among those the input menu offers, round to the
+	/// first after the last: with two, back and forth.
+	static func selectNext() {
+		let filter = [
+			kTISPropertyInputSourceCategory as String: kTISCategoryKeyboardInputSource as String,
+			kTISPropertyInputSourceIsSelectCapable as String: true,
+			kTISPropertyInputSourceIsEnabled as String: true,
+		] as CFDictionary
+		guard
+			let sources = TISCreateInputSourceList(filter, false)?.takeRetainedValue() as? [TISInputSource],
+			sources.count > 1
+		else { return }
+
+		let current = Self.current()
+		let index = sources.firstIndex { id(of: $0) == current } ?? -1
+		TISSelectInputSource(sources[(index + 1) % sources.count])
+	}
+
+	private static func id(of source: TISInputSource) -> String? {
+		TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
+			.map { Unmanaged<CFString>.fromOpaque($0).takeUnretainedValue() as String }
+	}
+
 	/// The badge the input menu shows in the menu bar for the selected source, "US" or "Ру" in a
 	/// rounded frame, as a template image. It comes from the private icon manager the input menu
 	/// uses, so it is the system's own picture; nil when that is not there.

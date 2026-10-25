@@ -46,6 +46,8 @@ public final class Bar {
 			self.caffeine.toggle()
 			self.model.isCaffeinated = self.caffeine.isOn
 		}
+		// The item follows on its own: macOS posts `InputSource.changed` for this switch too.
+		model.switchInputSource = { InputSource.selectNext() }
 		// In the defaults like caffeinate: a choice about the bar, not a setting.
 		model.showsBatteryPercent = UserDefaults.standard.bool(forKey: Self.batteryPercentKey)
 		model.toggleBatteryPercent = { [weak self] in
