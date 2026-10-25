@@ -136,8 +136,8 @@ public enum ConfigWriter {
 	}
 
 	public static func apply(_ edit: ConfigEdit, to text: String) throws(ConfigError) -> String {
-		let target = [edit.target.name, edit.key]
-		let legacy = edit.replacing.map { [edit.target.name, $0] }
+		let target = path(edit.target.name) + [edit.key]
+		let legacy = edit.replacing.map { path(edit.target.name) + [$0] }
 		func spelled(_ path: [String]) -> Bool { path == target || path == legacy }
 		func overlaps(_ path: [String]) -> Bool {
 			[target, legacy].compactMap(\.self).contains { path.starts(with: $0) || $0.starts(with: path) }
@@ -187,11 +187,11 @@ public enum ConfigWriter {
 
 				switch edit.target {
 				case let .table(name):
-					inSection = !array && table == [name]
+					inSection = !array && table == path(name)
 					inOtherEntry = false
 				case let .entry(name, position):
-					let isEntry = array && table == [name]
-					let isSub = table.count > 1 && table[0] == name
+					let isEntry = array && table == path(name)
+					let isSub = table.count > path(name).count && table.starts(with: path(name))
 					if isEntry { entries += 1 }
 					ofTarget = !isSub || entries == position + 1
 					inSection = isEntry && entries == position + 1
@@ -256,7 +256,7 @@ public enum ConfigWriter {
 			return lines.joined(separator: "\n")
 		}
 
-		return appending("[\(bare(edit.target.name))]\n\(entry)", to: text)
+		return appending("[\(dotted(edit.target.name))]\n\(entry)", to: text)
 	}
 
 	public static func apply(_ edit: EntryEdit, to text: String) throws(ConfigError) -> String {
@@ -268,7 +268,7 @@ public enum ConfigWriter {
 
 		switch edit {
 		case let .insert(name, fields):
-			let entry = ["[[\(bare(name))]]"] + fields.map { "\(bare($0.key)) = \($0.value.literal)" }
+			let entry = ["[[\(dotted(name))]]"] + fields.map { "\(bare($0.key)) = \($0.value.literal)" }
 
 			if let last = try entries(of: name, in: lines).last {
 				lines.insert(contentsOf: [""] + entry, at: last.upperBound + 1)
@@ -323,12 +323,13 @@ public enum ConfigWriter {
 	/// is refused: the array written inline or dotted at the top, a plain `[name]` table, and a
 	/// sub-table that stands apart from its entry.
 	private static func entries(of name: String, in lines: [String]) throws(ConfigError) -> [ClosedRange<Int>] {
+		let name = path(name)
 		var spans: [ClosedRange<Int>] = []
 		var current: ClosedRange<Int>?
 		var inSection = false
 		var state = ScanState()
 		let unchangeable = ConfigError.invalid(
-			"\(name) is written in a way the settings window cannot change; change it in kumiko.toml"
+			"\(name.joined(separator: ".")) is written in a way the settings window cannot change; change it in kumiko.toml"
 		)
 
 		for index in lines.indices {
@@ -347,21 +348,22 @@ public enum ConfigWriter {
 				inSection = true
 				let array = first + 1 < line.count && line[first + 1] == "["
 				let table = key(in: line, from: first + (array ? 2 : 1))?.parts ?? []
-				if table.count > 1, table[0] == name {
+				if table.count > name.count, table.starts(with: name) {
 					// A sub-table that is not right behind its entry cannot be told from the
 					// entry's own without reading the whole file as TOML.
 					guard let start = current?.lowerBound else { throw unchangeable }
 					current = start...index
 					continue
 				}
-				if !array && table == [name] { throw unchangeable }
+				if !array && table == name { throw unchangeable }
 				if let previous = current { spans.append(previous) }
-				current = array && table == [name] ? index...index : nil
+				current = array && table == name ? index...index : nil
 				continue
 			}
 
 			if let (parts, end) = key(in: line, from: first), end < line.count, line[end] == "=" {
-				if !inSection && parts[0] == name {
+				// Above every header: `workspace = [...]`, `wm = { rule = ... }` or `wm.rule = ...`.
+				if !inSection && (parts.starts(with: name) || name.starts(with: parts)) {
 					throw unchangeable
 				}
 				_ = scan(line, from: end + 1, &state)
@@ -517,6 +519,16 @@ public enum ConfigWriter {
 	/// A key as written: bare when TOML allows it, quoted otherwise.
 	fileprivate static func bare(_ key: String) -> String {
 		!key.isEmpty && key.allSatisfy(isBare) ? key : TOMLValue.string(key).literal
+	}
+
+	/// A table's or an array's name as the parts of its path: `wm.rule` is `rule` under `wm`.
+	private static func path(_ name: String) -> [String] {
+		name.split(separator: ".").map(String.init)
+	}
+
+	/// The name as a header spells it, each part bare when it can be.
+	private static func dotted(_ name: String) -> String {
+		path(name).map(bare).joined(separator: ".")
 	}
 }
 

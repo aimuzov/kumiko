@@ -180,6 +180,12 @@ final class SettingsModel: ObservableObject {
 	var shownAreaOrder: [Config.Workspace.Area]?
 	/// The workspace the Remove dialog asks about, named when it opened.
 	@Published var workspacePendingRemoval: String?
+	/// The app or pattern the Window Rules page shows; nil, or one the file no longer has, is the first.
+	@Published var selectedRule: RuleSelection?
+	/// The app or pattern the Remove dialog of the Window Rules page asks about.
+	@Published var rulePendingRemoval: RuleSelection?
+	/// The title typed into the exceptions' last row, not yet added.
+	@Published var newExceptionTitle = ""
 	/// Tells the window manager a rename is coming, before the file has it.
 	var onRenameWorkspace: (String, String) -> Void = { _, _ in }
 	/// The bar's scale while its slider is dragged; written to the file when it is let go.
@@ -1206,43 +1212,6 @@ private struct WindowsPage: View {
 				setPadding(padding)
 			}
 		)
-	}
-}
-
-private struct RulesPage: View {
-	@ObservedObject var model: SettingsModel
-
-	private var wm: Config.WM { model.config.wm }
-
-	var body: some View {
-		Card {
-			SwitchRow(
-				title: "Manage windows by default",
-				detail: "For windows no rule below speaks about.",
-				on: model.binding(\.wm.manage, "wm", "manage"),
-				last: true,
-				reset: model.reset(\.wm.manage, "wm", "manage")
-			)
-		}
-
-		Card(title: "Rules") {
-			if wm.rules.isEmpty {
-				Row("Rules", value: "None", last: true)
-			}
-			ForEach(Array(wm.rules.enumerated()), id: \.offset) { index, rule in
-				Row(
-					rule.app.map(Self.readable) ?? "Any app",
-					value: rule.manage ? "Managed" : "Left alone",
-					detail: rule.title.map { "Title: \(Self.readable($0))" },
-					last: index == wm.rules.count - 1
-				)
-			}
-		}
-	}
-
-	/// `Arc|Claude|Code` written the way people write a list.
-	private static func readable(_ pattern: String) -> String {
-		pattern.replacingOccurrences(of: "|", with: ", ")
 	}
 }
 
