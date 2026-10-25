@@ -21,14 +21,18 @@ public struct WindowInfo: Codable, Equatable, Sendable {
 	/// In macOS native full screen: the window has a native Space of its own and is left alone.
 	public var isFullscreen: Bool
 	public var isManaged: Bool
+	/// A native tab behind the one in front. Each tab is a window of its own, but only the one in
+	/// front is on screen, and the group takes a single place in the layout.
+	public var isBackgroundTab: Bool
 
 	public init(
 		id: UInt32, pid: Int32, app: String, bundleID: String?, title: String, subrole: String?,
 		frame: CGRect, isMinimized: Bool, isHidden: Bool, isFullscreen: Bool, isManaged: Bool, identifier: String? = nil,
-		isResizable: Bool = true
+		isResizable: Bool = true, isBackgroundTab: Bool = false
 	) {
 		self.identifier = identifier
 		self.isResizable = isResizable
+		self.isBackgroundTab = isBackgroundTab
 		self.id = id
 		self.pid = pid
 		self.app = app

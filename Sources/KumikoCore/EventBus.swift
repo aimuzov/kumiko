@@ -8,6 +8,10 @@ public enum Event: Sendable, Equatable {
 	/// Title, frame, minimized, hidden or managed state changed.
 	case windowChanged(WindowInfo)
 	case windowDestroyed(id: UInt32)
+	/// Another native tab came in front of `old`, which went behind or closed. The new one takes
+	/// the old one's place, so a tab switch moves nothing. Comes before the `windowChanged` or
+	/// `windowDestroyed` of `old`.
+	case tabReplaced(old: UInt32, new: UInt32)
 	/// `nil` when no window has focus: the desktop, or an app with no windows.
 	case windowFocused(id: UInt32?)
 	/// The focused window moved or changed size, as the WindowServer reports it the moment it
