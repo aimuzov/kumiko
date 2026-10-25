@@ -874,13 +874,18 @@ private struct AppTable: View {
 	/// Its divider goes with it, so the rows touch and a gap is a row's height.
 	private func row(_ app: String, movable: Bool) -> some View {
 		let lifted = drag.dragged == app
-		let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+		let shape = RoundedRectangle(cornerRadius: CardMetrics.radius, style: .continuous)
 		return VStack(spacing: 0) {
 			Divider().opacity(lifted ? 0 : 1)
 			AppRow(model: model, workspace: workspace, app: app, movable: movable)
 		}
-		// The page under the lifted row, or the rows it passes would show through.
-		.background(shape.fill(SwiftUI.Color(nsColor: .textBackgroundColor)).opacity(lifted ? 1 : 0))
+		// The page under the lifted row, or the rows it passes would show through. Out to the card's
+		// edges: inside its inset the row looks like something pulled out of the row, not the row.
+		.background(
+			shape.fill(SwiftUI.Color(nsColor: .textBackgroundColor))
+				.padding(.horizontal, -CardMetrics.inset)
+				.opacity(lifted ? 1 : 0)
+		)
 		.shadow(color: .black.opacity(lifted ? 0.15 : 0), radius: lifted ? 6 : 0, y: lifted ? 2 : 0)
 		.offset(y: lifted ? 0 : drag.shift(of: app))
 		.animation(IslandDrag.spring, value: drag.target)

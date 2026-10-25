@@ -868,6 +868,13 @@ private struct SIPNote: View {
 	}
 }
 
+/// How a card sits its rows: a row that reaches the card's edges, like one lifted by a drag, needs
+/// both.
+enum CardMetrics {
+	static let inset = 12.0
+	static let radius = 10.0
+}
+
 /// A rounded group of rows, Raycast's way of grouping settings.
 struct Card<Content: View>: View {
 	var title: String?
@@ -885,8 +892,10 @@ struct Card<Content: View>: View {
 			VStack(spacing: 0) {
 				content
 			}
-			.padding(.horizontal, 12)
-			.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.02)))
+			.padding(.horizontal, CardMetrics.inset)
+			.background(
+				RoundedRectangle(cornerRadius: CardMetrics.radius, style: .continuous).fill(.primary.opacity(0.02))
+			)
 		}
 	}
 }
