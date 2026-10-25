@@ -57,6 +57,16 @@ final class BarModel {
 
 	/// Called when a workspace entry is clicked.
 	var focusWorkspace: (String) -> Void = { _ in }
+	/// Whether the bar offers a plus after the workspaces; see `WindowManager.canAddWorkspace`.
+	var canAddWorkspace = false
+	/// The display whose plus is under the pointer. Here and not in @State, as `pointer` is.
+	var hoveredPlus: UInt32?
+	/// The display whose bar is under the pointer: the plus shows only there.
+	var hoveredBar: UInt32?
+	/// Called with the bar's display when its plus is clicked.
+	var addWorkspace: (UInt32) -> Void = { _ in }
+	/// Called when an empty workspace is clicked.
+	var showWorkspace: (String) -> Void = { _ in }
 	/// The pointer over a workspace's icons. The icon under it shows in colour on a hidden workspace
 	/// too. Here and not in @State, which needs a plugin only Xcode ships.
 	struct Pointer: Equatable {
