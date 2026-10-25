@@ -14,6 +14,7 @@ final class SettingsWindow {
 	private var window: NSWindow?
 	private var closeObserver: (any NSObjectProtocol)?
 	private var keyObserver: (any NSObjectProtocol)?
+	private var fullScreenObservers: [any NSObjectProtocol] = []
 	private var paneObserver: AnyCancellable?
 	private let bringForward: () -> Void
 	/// Hands the window to the tracker, which lays it out with the others; and whether it did.
@@ -110,6 +111,20 @@ final class SettingsWindow {
 					_ = NSApp.setActivationPolicy(.accessory)
 				}
 			}
+			// In full screen the empty toolbar would stand over the page as a bar of its own, and
+			// there are no traffic lights to make room for.
+			for (name, on) in [
+				(NSWindow.willEnterFullScreenNotification, true), (NSWindow.willExitFullScreenNotification, false),
+			] {
+				fullScreenObservers.append(NotificationCenter.default.addObserver(
+					forName: name, object: window, queue: .main
+				) { [weak self, weak window] _ in
+					MainActor.assumeIsolated {
+						window?.toolbar?.isVisible = !on
+						self?.model.isFullScreen = on
+					}
+				})
+			}
 			// Coming back from System Settings with a permission granted: the warning goes away.
 			keyObserver = NotificationCenter.default.addObserver(
 				forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
@@ -172,6 +187,8 @@ final class SettingsModel: ObservableObject {
 	private var walking = false
 	/// The header's info button shows what the page's module does.
 	@Published var showsPaneInfo = false
+	/// The window in native full screen: no traffic lights, and a whole screen of width.
+	@Published var isFullScreen = false
 	@Published private(set) var opensAtLogin = LoginItem.isEnabled
 	@Published private(set) var payloadVersion: String?
 	@Published private(set) var sipAllowsPayload = ScriptingAddition.isAllowedBySIP
@@ -554,8 +571,9 @@ private struct SettingsView: View {
 					.padding(.horizontal, 24)
 					.padding(.top, PageBar.height + 8)
 					.padding(.bottom, 24)
-					// The workspaces' list and the settings beside it need the room of two columns.
-					.frame(maxWidth: model.pane == .workspaces ? 880 : 600)
+					// The workspaces' list and the settings beside it need the room of two columns. A
+					// full screen gives a little more, short of rows too long to read across.
+					.frame(maxWidth: (model.pane == .workspaces ? 880 : 600) + (model.isFullScreen ? 160 : 0))
 					.frame(maxWidth: .infinity)
 			}
 			.overlay(alignment: .top) { PageBar(model: model) }
@@ -678,7 +696,8 @@ private struct Sidebar: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 1) {
-			Spacer().frame(height: 40)
+			// Room for the traffic lights, which full screen has none of.
+			Spacer().frame(height: model.isFullScreen ? 12 : 40)
 
 			HStack(spacing: 6) {
 				Image(systemName: "magnifyingglass")
