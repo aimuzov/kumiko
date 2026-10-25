@@ -44,21 +44,32 @@ struct BarView: View {
 }
 
 /// The capsule of a selected menu bar item: Liquid Glass on macOS 26, a translucent fill before.
+/// Under the pointer an item gets a capsule of the system accent colour, faint over one that is
+/// not selected and fainter over the selected one, as the frame of the focused window is drawn.
 private struct Highlight: ViewModifier {
 	let isOn: Bool
+	var isHovered = false
 	let tint: KumikoCore.Color
 	let scale: Double
 
 	func body(content: Content) -> some View {
 		let padded = content.padding(.horizontal, 8 * scale).frame(height: 24 * scale)
 
-		if !isOn {
-			padded
-		} else if #available(macOS 26, *) {
-			padded.glassEffect(.regular, in: .capsule)
-		} else {
-			padded.background(Capsule().fill(Color(tint)))
+		Group {
+			if !isOn {
+				padded.background(accent(0.3))
+			} else if #available(macOS 26, *) {
+				padded.glassEffect(.regular, in: .capsule).overlay(accent(0.2))
+			} else {
+				padded.background(Capsule().fill(Color(tint))).overlay(accent(0.2))
+			}
 		}
+		.animation(.easeOut(duration: 0.15), value: isHovered)
+	}
+
+	/// The colour System Settings has, picked again whenever it changes there.
+	private func accent(_ opacity: Double) -> some View {
+		Capsule().fill(Color(nsColor: .controlAccentColor).opacity(isHovered ? opacity : 0)).allowsHitTesting(false)
 	}
 }
 
@@ -99,8 +110,19 @@ private struct WorkspacesItem: View {
 					}
 				}
 				.foregroundStyle(workspace.isVisible ? .primary : .secondary)
-				.modifier(Highlight(isOn: workspace.isVisible, tint: colors.active, scale: scale))
+				.modifier(Highlight(
+					isOn: workspace.isVisible, isHovered: model.hoveredWorkspace == workspace.name, tint: colors.active,
+					scale: scale
+				))
 				.contentShape(Capsule())
+				// The icons follow the pointer on their own too: both hovers see it, neither takes it.
+				.onHover { over in
+					if over {
+						model.hoveredWorkspace = workspace.name
+					} else if model.hoveredWorkspace == workspace.name {
+						model.hoveredWorkspace = nil
+					}
+				}
 				.onTapGesture { model.focusWorkspace(workspace.name) }
 			}
 		}
