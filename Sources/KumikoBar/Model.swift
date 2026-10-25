@@ -91,6 +91,11 @@ final class BarModel {
 	/// Called when an app's icon is clicked, with the workspace it was clicked in.
 	var focusApp: (pid_t, String) -> Void = { _, _ in }
 	var toggleCaffeine: () -> Void = {}
+	/// Called when the input source item is clicked.
+	var switchInputSource: () -> Void = {}
+	/// The battery's percentage shown next to it.
+	var showsBatteryPercent = false
+	var toggleBatteryPercent: () -> Void = {}
 	/// The label over the bar for the item under the pointer.
 	var tooltip: Tooltip?
 	/// What each item's label says, made afresh each time the label is drawn.
