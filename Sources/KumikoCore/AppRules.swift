@@ -12,10 +12,14 @@ public struct AppRules: Equatable, Sendable {
 		public var tiles: Bool
 		/// Windows whose title has one of these in it go the other way.
 		public var exceptions: [String]
+		/// Windows whose identifier has one of these in it go the other way: those with no title.
+		public var idExceptions: [String]
 		/// The rule that names the app, alone or with others.
 		var rule: Int
 		/// Its rules with titles, in file order.
 		var exceptionRules: [Int]
+		/// Its rules with identifiers, in file order.
+		var idExceptionRules: [Int]
 	}
 
 	public struct Pattern: Equatable, Sendable {
@@ -40,32 +44,40 @@ public struct AppRules: Equatable, Sendable {
 		// The last rule that names an app decides for it, as when the rules are applied.
 		var owners: [String: Int] = [:]
 		var names: [String] = []
-		for (index, rule) in rules.enumerated() where rule.title == nil {
+		for (index, rule) in rules.enumerated() where rule.title == nil && rule.id == nil {
 			for name in rule.app.flatMap(Self.names) ?? [] {
 				if owners[name] == nil { names.append(name) }
 				owners[name] = index
 			}
 		}
 
+		// By title or by identifier, never both: a rule that asks for both is a pattern.
 		var exceptions: [String: (titles: [String], rules: [Int])] = [:]
+		var idExceptions: [String: (ids: [String], rules: [Int])] = [:]
 		var used = Set(owners.values)
 
-		for (index, rule) in rules.enumerated() where rule.title != nil {
+		for (index, rule) in rules.enumerated() where (rule.title == nil) != (rule.id == nil) {
 			guard
 				let names = rule.app.flatMap(Self.names), names.count == 1, let name = names.first,
 				let owner = owners[name], owner < index, rules[owner].manage != rule.manage,
-				let titles = rule.title.flatMap(Self.names)
+				let values = (rule.title ?? rule.id).flatMap(Self.names)
 			else { continue }
-			exceptions[name, default: ([], [])].titles += titles
-			exceptions[name, default: ([], [])].rules.append(index)
+			if rule.title != nil {
+				exceptions[name, default: ([], [])].titles += values
+				exceptions[name, default: ([], [])].rules.append(index)
+			} else {
+				idExceptions[name, default: ([], [])].ids += values
+				idExceptions[name, default: ([], [])].rules.append(index)
+			}
 			used.insert(index)
 		}
 
 		apps = names.map { name in
 			let owner = owners[name]!
 			return App(
-				name: name, tiles: rules[owner].manage, exceptions: exceptions[name]?.titles ?? [], rule: owner,
-				exceptionRules: exceptions[name]?.rules ?? []
+				name: name, tiles: rules[owner].manage, exceptions: exceptions[name]?.titles ?? [],
+				idExceptions: idExceptions[name]?.ids ?? [], rule: owner, exceptionRules: exceptions[name]?.rules ?? [],
+				idExceptionRules: idExceptions[name]?.rules ?? []
 			)
 		}
 		.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -83,7 +95,7 @@ public struct AppRules: Equatable, Sendable {
 	public func setTiles(_ name: String, _ tiles: Bool) -> [any ConfigChange] {
 		guard let app = app(named: name), app.tiles != tiles else { return [] }
 
-		var changes: [any ConfigChange] = app.exceptionRules.map { edit($0, "manage", .bool(!tiles)) }
+		var changes: [any ConfigChange] = (app.exceptionRules + app.idExceptionRules).map { edit($0, "manage", .bool(!tiles)) }
 		let shared = Self.names(in: rules[app.rule].app ?? "") ?? []
 
 		if shared == [name] {
@@ -106,7 +118,9 @@ public struct AppRules: Equatable, Sendable {
 		guard let app = app(named: name) else { return [] }
 
 		// The exceptions come after the app's rule: taken out first, from the end, they leave its place as it is.
-		var changes: [any ConfigChange] = app.exceptionRules.reversed().map { EntryEdit.remove(Self.array, $0) }
+		var changes: [any ConfigChange] = (app.exceptionRules + app.idExceptionRules).sorted(by: >).map {
+			EntryEdit.remove(Self.array, $0)
+		}
 		let shared = Self.names(in: rules[app.rule].app ?? "") ?? []
 
 		if shared == [name] {
@@ -120,31 +134,43 @@ public struct AppRules: Equatable, Sendable {
 	/// The titles go into the app's first rule with titles, and the others go. None left, no rule.
 	public func setExceptions(_ name: String, _ titles: [String]) -> [any ConfigChange] {
 		guard let app = app(named: name) else { return [] }
+		return setExceptions(of: app, "title", titles, current: app.exceptions, rules: app.exceptionRules)
+	}
 
+	/// As `setExceptions`, for windows told apart by their identifier.
+	public func setIDExceptions(_ name: String, _ ids: [String]) -> [any ConfigChange] {
+		guard let app = app(named: name) else { return [] }
+		return setExceptions(of: app, "id", ids, current: app.idExceptions, rules: app.idExceptionRules)
+	}
+
+	private func setExceptions(
+		of app: App, _ key: String, _ values: [String], current: [String], rules indices: [Int]
+	) -> [any ConfigChange] {
 		var seen = Set<String>()
-		let titles = titles.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && seen.insert($0).inserted }
-		guard titles != app.exceptions else { return [] }
+		let values = values.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && seen.insert($0).inserted }
+		guard values != current else { return [] }
 
-		guard let first = app.exceptionRules.first else {
-			guard !titles.isEmpty else { return [] }
+		guard let first = indices.first else {
+			guard !values.isEmpty else { return [] }
 			return insert([
-				.init("app", .string(Self.pattern([name]))), .init("title", .string(Self.pattern(titles))),
+				.init("app", .string(Self.pattern([app.name]))), .init(key, .string(Self.pattern(values))),
 				.init("manage", .bool(!app.tiles)),
 			], after: app.rule)
 		}
 
-		let others: [any ConfigChange] = app.exceptionRules.dropFirst().reversed().map { EntryEdit.remove(Self.array, $0) }
-		guard !titles.isEmpty else { return others + [EntryEdit.remove(Self.array, first)] }
-		return others + [edit(first, "title", .string(Self.pattern(titles)))]
+		let others: [any ConfigChange] = indices.dropFirst().reversed().map { EntryEdit.remove(Self.array, $0) }
+		guard !values.isEmpty else { return others + [EntryEdit.remove(Self.array, first)] }
+		return others + [edit(first, key, .string(Self.pattern(values)))]
 	}
 
 	/// A pattern as written: nil takes the key out.
-	public func setPattern(_ index: Int, app: String?, title: String?, tiles: Bool) -> [any ConfigChange] {
+	public func setPattern(_ index: Int, app: String?, title: String?, id: String? = nil, tiles: Bool) -> [any ConfigChange] {
 		guard rules.indices.contains(index) else { return [] }
 		let rule = rules[index]
 		var changes: [any ConfigChange] = []
 		if app != rule.app { changes.append(edit(index, "app", app.map(TOMLValue.string))) }
 		if title != rule.title { changes.append(edit(index, "title", title.map(TOMLValue.string))) }
+		if id != rule.id { changes.append(edit(index, "id", id.map(TOMLValue.string))) }
 		if tiles != rule.manage { changes.append(edit(index, "manage", .bool(tiles))) }
 		return changes
 	}

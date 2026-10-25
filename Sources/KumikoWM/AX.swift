@@ -30,6 +30,13 @@ enum AX {
 		(value(element, attribute) as? NSNumber)?.boolValue
 	}
 
+	/// Nil when the element does not answer, which is not the same as no.
+	static func isSettable(_ element: AXUIElement, _ attribute: String) -> Bool? {
+		var settable = DarwinBoolean(false)
+		guard AXUIElementIsAttributeSettable(element, attribute as CFString, &settable) == .success else { return nil }
+		return settable.boolValue
+	}
+
 	static func element(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
 		guard let value = value(element, attribute), CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
 		return (value as! AXUIElement)

@@ -224,6 +224,27 @@ struct ConfigTests {
 		#expect(try Config.parse("[wm]\nfloat_on_top = false").wm.floatOnTop == false)
 	}
 
+	@Test func settingsWindowsFloatUnlessTurnedOff() throws {
+		#expect(try Config.parse("").wm.floatSettings)
+		#expect(try Config.parse("[wm]\nfloat_settings = false").wm.floatSettings == false)
+	}
+
+	@Test func windowsOfOneSizeFloatUnlessTurnedOff() throws {
+		#expect(try Config.parse("").wm.floatFixedSize)
+		#expect(try Config.parse("[wm]\nfloat_fixed_size = false").wm.floatFixedSize == false)
+	}
+
+	@Test func ruleReadsAWindowID() throws {
+		let config = try Config.parse("[[wm.rule]]\napp = \"Dia\"\nid = \"preferencesWindow\"\nmanage = false")
+		#expect(config.wm.rules == [WindowRule(app: "Dia", id: "preferencesWindow", manage: false)])
+	}
+
+	@Test func badWindowIDPatternIsAnError() {
+		#expect(throws: ConfigError.invalid("wm.rule #1: bad pattern \"pref(\"")) {
+			try Config.parse("[[wm.rule]]\nid = \"pref(\"\nmanage = false")
+		}
+	}
+
 	@Test func workspacesAndRulesAreOnUnlessTurnedOff() throws {
 		let defaults = try Config.parse("").wm
 		#expect(defaults.useWorkspaces && defaults.useRules)

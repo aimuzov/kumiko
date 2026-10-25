@@ -160,6 +160,55 @@ struct AppRulesTests {
 		#expect(try read(changed).app(named: "Calendar")?.exceptions == [])
 	}
 
+	@Test func readsWindowIDExceptionsApartFromTitles() throws {
+		let text = """
+			[[wm.rule]]
+			app = "Dia"
+			manage = true
+
+			[[wm.rule]]
+			app = "Dia"
+			title = "Settings"
+			manage = false
+
+			[[wm.rule]]
+			app = "Dia"
+			id = "preferencesWindow"
+			manage = false
+			"""
+		let dia = try read(text).app(named: "Dia")
+
+		#expect(dia?.exceptions == ["Settings"])
+		#expect(dia?.idExceptions == ["preferencesWindow"])
+		#expect(try read(text).patterns.isEmpty)
+	}
+
+	@Test func addsAWindowIDExceptionRightAfterTheApp() throws {
+		let changed = try apply(try read(text).setIDExceptions("Code", ["preferencesWindow"]))
+		let rules = try Config.parse(changed).wm.rules
+
+		#expect(rules[1] == WindowRule(app: "Code", id: "preferencesWindow", manage: false))
+		#expect(try read(changed).app(named: "Code")?.idExceptions == ["preferencesWindow"])
+		#expect(try read(changed).app(named: "Code")?.exceptions == [])
+	}
+
+	@Test func windowIDExceptionsTurnAndGoWithTheirApp() throws {
+		let withID = try apply(try read(text).setIDExceptions("Finder", ["infoWindow"]))
+		let turned = try ConfigWriter.apply(try read(withID).setTiles("Finder", false), to: withID)
+		let finder = try Config.parse(turned).wm.rules.filter { $0.app == "Finder" }
+		#expect(finder.map(\.manage) == [false, true, true])
+
+		let removed = try ConfigWriter.apply(try read(withID).removeApp("Finder"), to: withID)
+		#expect(try Config.parse(removed).wm.rules.allSatisfy { $0.app != "Finder" })
+	}
+
+	@Test func aRuleWithTitleAndIDStaysAPattern() throws {
+		let text = "[[wm.rule]]\napp = \"Dia\"\nmanage = true\n\n[[wm.rule]]\napp = \"Dia\"\ntitle = \"A\"\nid = \"b\"\nmanage = false\n"
+		let rules = try read(text)
+		#expect(rules.app(named: "Dia")?.exceptions == [])
+		#expect(rules.patterns.map(\.index) == [1])
+	}
+
 	@Test func editsAndRemovesAPattern() throws {
 		let text = "[[wm.rule]]\napp = \"Code.*\"\nmanage = true\n"
 		let rules = AppRules(try Config.parse(text).wm.rules)

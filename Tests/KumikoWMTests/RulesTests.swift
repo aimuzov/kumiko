@@ -57,6 +57,45 @@ struct RulesTests {
 		#expect(!rules.isManaged(app: "Mail", title: "Accounts", subrole: standard))
 	}
 
+	/// Dia's settings window has no title, only an identifier.
+	@Test func idPatternMatchesTheWindowsIdentifier() {
+		var config = Config.WM(manage: false, rules: [
+			WindowRule(app: "Dia", manage: true),
+			WindowRule(app: "Dia", id: "preferencesWindow", manage: false),
+		])
+		config.floatSettings = false
+		let rules = Rules(config)
+
+		#expect(!rules.isManaged(app: "Dia", title: "", identifier: "preferencesWindow", subrole: standard))
+		#expect(rules.isManaged(app: "Dia", title: "GitHub", identifier: "bigBrowserWindow_1", subrole: standard))
+		#expect(rules.isManaged(app: "Dia", title: "GitHub", subrole: standard))
+	}
+
+	@Test func settingsWindowsFloatWhateverTheRulesSay() {
+		let rules = Rules(.init(manage: true, rules: [WindowRule(app: "Dia", manage: true)]))
+		#expect(!rules.isManaged(app: "Dia", title: "", identifier: "preferencesWindow", subrole: standard))
+		#expect(!rules.isManaged(app: "Ghostty", title: "", identifier: "com_apple_SwiftUI_Settings_window", subrole: standard))
+		#expect(!rules.isManaged(app: "Mail", title: "Settings", subrole: standard))
+		// A title that only has the word in it names a document as often as a settings window.
+		#expect(rules.isManaged(app: "Code", title: "Project Settings", subrole: standard))
+	}
+
+	/// Calendar's settings window is titled by its tab and has no identifier.
+	@Test func windowsOfOneSizeFloatUnlessTurnedOff() {
+		var config = Config.WM(manage: true)
+		config.floatSettings = false
+		#expect(!Rules(config).isManaged(app: "Calendar", title: "Alerts", isResizable: false, subrole: standard))
+
+		config.floatFixedSize = false
+		#expect(Rules(config).isManaged(app: "Calendar", title: "Alerts", isResizable: false, subrole: standard))
+	}
+
+	@Test func settingsWindowsFollowTheRulesWhenTurnedOff() {
+		var config = Config.WM(manage: true)
+		config.floatSettings = false
+		#expect(Rules(config).isManaged(app: "Dia", title: "", identifier: "preferencesWindow", subrole: standard))
+	}
+
 	@Test func alternativesInAppPatternAreAllAnchored() {
 		let rules = Rules(.init(manage: false, rules: [WindowRule(app: "Arc|Dia", manage: true)]))
 		#expect(rules.isManaged(app: "Dia", title: "", subrole: standard))

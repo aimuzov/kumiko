@@ -10,6 +10,10 @@ public struct WindowInfo: Codable, Equatable, Sendable {
 	public var title: String
 	/// `AXStandardWindow` for ordinary windows; dialogs, sheets and panels say something else.
 	public var subrole: String?
+	/// What the app calls the window (`AXIdentifier`), there when it has no title too.
+	public var identifier: String?
+	/// False for a window of one size only, as settings windows mostly are: no layout can fit it.
+	public var isResizable: Bool
 	public var frame: CGRect
 	public var isMinimized: Bool
 	/// The app is hidden (cmd-h), so the window is not on screen though it still exists.
@@ -20,8 +24,11 @@ public struct WindowInfo: Codable, Equatable, Sendable {
 
 	public init(
 		id: UInt32, pid: Int32, app: String, bundleID: String?, title: String, subrole: String?,
-		frame: CGRect, isMinimized: Bool, isHidden: Bool, isFullscreen: Bool, isManaged: Bool
+		frame: CGRect, isMinimized: Bool, isHidden: Bool, isFullscreen: Bool, isManaged: Bool, identifier: String? = nil,
+		isResizable: Bool = true
 	) {
+		self.identifier = identifier
+		self.isResizable = isResizable
 		self.id = id
 		self.pid = pid
 		self.app = app
