@@ -219,6 +219,11 @@ struct ConfigTests {
 		#expect(try Config.parse("[wm]\nhide_apps = false").wm.hideApps == false)
 	}
 
+	@Test func floatingWindowsStayOnTopUnlessTurnedOff() throws {
+		#expect(try Config.parse("").wm.floatOnTop)
+		#expect(try Config.parse("[wm]\nfloat_on_top = false").wm.floatOnTop == false)
+	}
+
 	@Test func workspacesAndRulesAreOnUnlessTurnedOff() throws {
 		let defaults = try Config.parse("").wm
 		#expect(defaults.useWorkspaces && defaults.useRules)

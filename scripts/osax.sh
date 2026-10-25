@@ -15,7 +15,7 @@ out="$root/Vendor/build/osax"
 mkdir -p "$out"
 
 xcrun clang "$src/payload.m" -shared -fPIC -O2 -mmacosx-version-min=14.0 -arch x86_64 -arch arm64e \
-	-F/System/Library/PrivateFrameworks -framework SkyLight -framework Foundation -o "$out/payload"
+	-F/System/Library/PrivateFrameworks -framework SkyLight -framework CoreGraphics -framework Foundation -o "$out/payload"
 xcrun clang "$src/loader.m" -O2 -mmacosx-version-min=14.0 -arch x86_64 -arch arm64e \
 	-framework Cocoa -o "$out/loader"
 

@@ -401,6 +401,9 @@ public struct Config: Equatable, Sendable {
 		/// Window shadows. Off needs the scripting addition in Dock (`kumiko sa load`), since only
 		/// Dock may change other apps' windows; without it windows keep the shadow macOS gives them.
 		public var shadows = true
+		/// Windows left floating stay above the tiled ones, so a click on the layout does not bury
+		/// them. Needs the scripting addition too, for the same reason as `shadows`.
+		public var floatOnTop = true
 		/// `[[workspace]]` in use. Off, every display has a single workspace of its own and all its
 		/// windows are tiled there together.
 		public var useWorkspaces = true
@@ -428,6 +431,7 @@ public struct Config: Equatable, Sendable {
 			padding = try container.decodeIfPresent(Insets.self, forKey: .padding) ?? Insets(all: 4)
 			hideApps = try container.decodeIfPresent(Bool.self, forKey: .hideApps) ?? true
 			shadows = try container.decodeIfPresent(Bool.self, forKey: .shadows) ?? true
+			floatOnTop = try container.decodeIfPresent(Bool.self, forKey: .floatOnTop) ?? true
 			useWorkspaces = try container.decodeIfPresent(Bool.self, forKey: .useWorkspaces) ?? true
 			useRules = try container.decodeIfPresent(Bool.self, forKey: .useRules) ?? true
 			rules = try container.decodeIfPresent([WindowRule].self, forKey: .rules) ?? []
@@ -436,6 +440,7 @@ public struct Config: Equatable, Sendable {
 		private enum CodingKeys: String, CodingKey {
 			case enabled, manage, gap, padding, shadows
 			case hideApps = "hide_apps"
+			case floatOnTop = "float_on_top"
 			case useWorkspaces = "workspaces"
 			case useRules = "rules"
 			case rules = "rule"

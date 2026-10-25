@@ -1156,18 +1156,24 @@ private struct WindowsPage: View {
 			)
 		}
 
-		Card(title: "Shadows") {
+		Card(title: "Through Dock") {
 			SwitchRow(
 				title: "Window shadows",
 				on: model.binding(\.wm.shadows, "wm", "shadows"),
 				disabled: !model.sipAllowsPayload,
 				reset: model.reset(\.wm.shadows, "wm", "shadows")
 			)
+			SwitchRow(
+				title: "Floating windows on top",
+				detail: "Windows left out of the layout stay above the tiled ones.",
+				on: model.binding(\.wm.floatOnTop, "wm", "float_on_top"),
+				disabled: !model.sipAllowsPayload,
+				reset: model.reset(\.wm.floatOnTop, "wm", "float_on_top")
+			)
 			Row(
 				"Scripting addition",
 				value: model.payloadVersion.map { "Loaded, version \($0)" } ?? "Not loaded",
-				detail: model.payloadVersion == nil && model.sipAllowsPayload
-					? "Turning shadows off needs it: sudo kumiko sa load" : nil,
+				detail: payloadDetail,
 				last: true
 			)
 		}
@@ -1175,6 +1181,17 @@ private struct WindowsPage: View {
 		if !model.sipAllowsPayload {
 			SIPNote()
 		}
+	}
+
+	/// What the scripting addition needs: to be loaded, or a payload this kumiko can talk to. One
+	/// older than this build takes the new requests and does nothing with them.
+	private var payloadDetail: String? {
+		guard model.sipAllowsPayload else { return nil }
+		guard let version = model.payloadVersion else { return "Both need it: sudo kumiko sa load" }
+		guard version == ScriptingAddition.version else {
+			return "This kumiko needs version \(ScriptingAddition.version): sudo kumiko sa install, killall Dock, then sudo kumiko sa load"
+		}
+		return nil
 	}
 
 	private var isUniform: Bool { wm.padding == Insets(all: wm.padding.top) }

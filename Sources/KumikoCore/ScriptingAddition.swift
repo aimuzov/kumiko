@@ -5,7 +5,7 @@ import Foundation
 /// carries them out as Dock.
 public enum ScriptingAddition {
 	/// The payload version this build talks to, `SA_VERSION` in `common.h`.
-	public static let version = "1"
+	public static let version = "2"
 
 	public struct Failure: Error, CustomStringConvertible {
 		public let description: String
@@ -18,6 +18,7 @@ public enum ScriptingAddition {
 	private enum Opcode: UInt8 {
 		case handshake = 0x01
 		case windowShadow = 0x02
+		case windowAbove = 0x03
 	}
 
 	/// The payload listens in the name of the user Dock runs as. Under sudo that is the user who
@@ -53,6 +54,16 @@ public enum ScriptingAddition {
 		var body = [Opcode.windowShadow.rawValue]
 		withUnsafeBytes(of: window.littleEndian) { body += $0 }
 		body.append(on ? 1 : 0)
+		return (try? exchange(body, answered: false)) != nil
+	}
+
+	/// Keeps a window above the windows of the normal level, or puts it back among them. False when
+	/// the payload did not take the request; one older than version 2 takes it and does nothing.
+	@discardableResult
+	public static func setAbove(_ window: UInt32, _ above: Bool) -> Bool {
+		var body = [Opcode.windowAbove.rawValue]
+		withUnsafeBytes(of: window.littleEndian) { body += $0 }
+		body.append(above ? 1 : 0)
 		return (try? exchange(body, answered: false)) != nil
 	}
 

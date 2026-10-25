@@ -15,6 +15,7 @@
 extern int SLSMainConnectionID(void);
 extern CGError SLSSetWindowTags(int cid, uint32_t wid, uint64_t *tags, size_t tag_size);
 extern CGError SLSClearWindowTags(int cid, uint32_t wid, uint64_t *tags, size_t tag_size);
+extern CGError SLSSetWindowSubLevel(int cid, uint32_t wid, int level);
 
 // The window server tag that leaves a window without its shadow.
 static const uint64_t no_shadow_tag = 1 << 3;
@@ -52,6 +53,18 @@ static void handle(int fd, const uint8_t *message, int16_t length) {
 		} else {
 			SLSSetWindowTags(SLSMainConnectionID(), wid, &tags, 64);
 		}
+	} break;
+	case SA_OPCODE_WINDOW_ABOVE: {
+		if (length < 1 + sizeof(uint32_t) + 1) return;
+
+		uint32_t wid;
+		memcpy(&wid, message + 1, sizeof(wid));
+		bool above = message[1 + sizeof(wid)] != 0;
+
+		// The sub-level, as yabai's `--layer above` sets it: the app keeps its own level and order,
+		// and the window still goes under menus and panels.
+		CGWindowLevelKey key = above ? kCGFloatingWindowLevelKey : kCGNormalWindowLevelKey;
+		SLSSetWindowSubLevel(SLSMainConnectionID(), wid, CGWindowLevelForKey(key));
 	} break;
 	}
 }

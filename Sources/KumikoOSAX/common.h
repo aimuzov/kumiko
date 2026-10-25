@@ -5,13 +5,15 @@
 // arguments, little endian.
 
 #define SA_SOCKET_PATH_FMT "/tmp/kumiko-sa_%s.socket"
-#define SA_VERSION         "1"
+#define SA_VERSION         "2"
 
 enum sa_opcode {
 	// Answers with the payload version and a newline.
 	SA_OPCODE_HANDSHAKE     = 0x01,
 	// uint32 window id, uint8 whether the window has a shadow.
 	SA_OPCODE_WINDOW_SHADOW = 0x02,
+	// uint32 window id, uint8 whether the window stays above the windows of the normal level.
+	SA_OPCODE_WINDOW_ABOVE  = 0x03,
 };
 
 #endif
