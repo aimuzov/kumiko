@@ -1,0 +1,22 @@
+name: Release
+
+# Мёрж в main только обновляет релизный PR. Мёрж этого PR ставит тег, пишет CHANGELOG.md и
+# создаёт релиз; Kumiko.app собирается на маке и догружается к релизу руками.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    uses: aimuzov/.github/.github/workflows/release.yml@v1
