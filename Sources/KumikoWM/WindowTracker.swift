@@ -581,6 +581,9 @@ public final class WindowTracker {
 		return nil
 	}
 
+	/// How far past a window's edge macOS still starts a resize, in points.
+	static let resizeReach: CGFloat = 8
+
 	static func isEmptyDesktop(at point: CGPoint) -> Bool {
 		guard
 			let finder = NSRunningApplication.runningApplications(withBundleIdentifier: finder).first,
@@ -593,6 +596,7 @@ public final class WindowTracker {
 		// desktop window, the wallpaper, and a window server strip under the menu bar above them.
 		let desktopLevel = Int(CGWindowLevelForKey(.desktopIconWindow))
 		let backstopLevel = Int(CGWindowLevelForKey(.backstopMenu))
+		let menuBarLevel = Int(CGWindowLevelForKey(.mainMenuWindow))
 		let clickThrough = Set(NSApp.windows.filter(\.ignoresMouseEvents).map { $0.windowNumber })
 		let menuBar = menuBarStrip(at: point)
 		let under = list.filter {
@@ -605,7 +609,11 @@ public final class WindowTracker {
 			if let menuBar, !menuBar.contains(point), bounds.minY == menuBar.minY, bounds.height <= menuBar.height + 8 {
 				return false
 			}
-			return bounds.contains(point)
+			// An app window can be grabbed for a resize a few points past its edge, over the desktop
+			// in the gap between windows.
+			let layer = $0[kCGWindowLayer as String] as? Int ?? 0
+			let reach = (0..<menuBarLevel).contains(layer) ? resizeReach : 0
+			return bounds.insetBy(dx: -reach, dy: -reach).contains(point)
 		}
 		guard
 			!under.contains(where: { ($0[kCGWindowLayer as String] as? Int ?? 0) >= backstopLevel }),
