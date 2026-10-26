@@ -24,7 +24,16 @@ shadows and floating windows kept on top, which need a scripting addition in Doc
 
 ## Install
 
-Download `Kumiko-<version>.zip` from the [latest release](https://github.com/aimuzov/kumiko/releases/latest),
+With Homebrew:
+
+```sh
+brew install --cask aimuzov/tap/kumiko
+```
+
+The cask also puts the `kumiko` command on the `PATH` and takes the quarantine flag off the app, so
+it opens straight away.
+
+Or download `Kumiko-<version>.zip` from the [latest release](https://github.com/aimuzov/kumiko/releases/latest),
 unzip it and move `Kumiko.app` to Applications. The app is not notarized yet, so the first time macOS
 refuses to open it: try to open it once, then press Open Anyway under Privacy & Security in System
 Settings.

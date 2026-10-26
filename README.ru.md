@@ -24,7 +24,16 @@
 
 ## Установка
 
-Скачай `Kumiko-<версия>.zip` из [последнего релиза](https://github.com/aimuzov/kumiko/releases/latest),
+Через Homebrew:
+
+```sh
+brew install --cask aimuzov/tap/kumiko
+```
+
+Каск заодно кладёт команду `kumiko` в `PATH` и снимает с приложения флаг карантина, так что оно
+открывается сразу.
+
+Или скачай `Kumiko-<версия>.zip` из [последнего релиза](https://github.com/aimuzov/kumiko/releases/latest),
 распакуй и перенеси `Kumiko.app` в Applications. Приложение пока не нотаризовано, поэтому в первый
 раз macOS его не откроет: попробуй открыть его один раз, затем нажми Open Anyway в разделе Privacy &
 Security системных настроек.
