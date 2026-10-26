@@ -8,6 +8,7 @@
 </p>
 
 <p align="center">
+	<a href="https://github.com/aimuzov/kumiko/releases/latest"><img src="https://img.shields.io/github/v/release/aimuzov/kumiko?color=c08a5c&label=%D1%81%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C" alt="Скачать последний релиз"></a>
 	<img src="https://img.shields.io/badge/macOS-14%2B-555?logo=apple&logoColor=white" alt="macOS 14+">
 	<img src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white" alt="Swift 6">
 	<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-c08a5c" alt="License: MIT"></a>
@@ -20,6 +21,13 @@
 бар, рамка вокруг окна в фокусе, Vim-режимы в текстовых полях и скрытие значков строки меню. Всё
 это один процесс и один конфиг. Без SIP работает всё, кроме снятия теней и плавающих окон поверх
 раскладки: им нужен scripting addition в Dock.
+
+## Установка
+
+Скачай `Kumiko-<версия>.zip` из [последнего релиза](https://github.com/aimuzov/kumiko/releases/latest),
+распакуй и перенеси `Kumiko.app` в Applications. Приложение пока не нотаризовано, поэтому в первый
+раз macOS его не откроет: попробуй открыть его один раз, затем нажми Open Anyway в разделе Privacy &
+Security системных настроек.
 
 ## Сборка
 
