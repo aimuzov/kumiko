@@ -1,0 +1,22 @@
+name: Changelog
+
+# Ченжлог для читателя, его показывает лендинг kumiko-site. Релизный PR release-please
+# поднимает версию в манифесте, и проверка остаётся красной, пока у версии нет записи.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npx -y --package=github:aimuzov/infra-site-kit#v5.3.0 site-changelog verify

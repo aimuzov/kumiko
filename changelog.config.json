@@ -1,0 +1,5 @@
+{
+	"file": "changelog.json",
+	"guide": "changelog.guide.md",
+	"locales": ["ru", "en"]
+}
