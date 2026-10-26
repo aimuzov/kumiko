@@ -1,163 +1,48 @@
 # Changelog
 
-## [0.2.0](https://github.com/aimuzov/kumiko/compare/v0.1.0...v0.2.0) (2026-10-26)
+## 0.2.0 (2026-10-26)
 
+The first release: kumiko tiles windows into workspaces, draws a bar and a frame, takes hotkeys and
+Vim modes, and edits all of its config from a settings window.
 
-### Features
+### Windows and workspaces
 
-* add the app skeleton, config, CLI and permission onboarding ([e8c1992](https://github.com/aimuzov/kumiko/commit/e8c1992904391e42d28f7accca19d70463307efa))
-* **app:** add a read-only settings window ([88dfae5](https://github.com/aimuzov/kumiko/commit/88dfae5026d7366f84a0319d6d9b7f1bfe2773e4))
-* **app:** add a workspace from inside its display island ([0d8b3d5](https://github.com/aimuzov/kumiko/commit/0d8b3d56828e6ea210d8a16df9a06e6beddbedaf))
-* **app:** add apps to a workspace with a plus, the way Raycast does ([70ff3a0](https://github.com/aimuzov/kumiko/commit/70ff3a0a79fafe84ba5fffaa5ccc20b69a0b54cd))
-* **app:** add workspace layout to the command line ([3632438](https://github.com/aimuzov/kumiko/commit/36324387d03eb1d8d6f032a26c950926c0bb85cd))
-* **app:** call share a size and set it by dragging the edge of a split ([1835672](https://github.com/aimuzov/kumiko/commit/1835672aa7a8523cf8bef0d4aedf8cb120eedb8c))
-* **app:** change settings from the settings window ([a904abc](https://github.com/aimuzov/kumiko/commit/a904abcf02db8722ed180d374b018f868f38c98c))
-* **app:** edit hotkeys in the settings window ([7e0f9b0](https://github.com/aimuzov/kumiko/commit/7e0f9b0e219a3e88e8f01bc1a2b124857add3dbc)), closes [#29](https://github.com/aimuzov/kumiko/issues/29)
-* **app:** edit the Vim page in the settings window ([1314cd7](https://github.com/aimuzov/kumiko/commit/1314cd77a14ec8a5456a5b25f3a06eede68ee574)), closes [#55](https://github.com/aimuzov/kumiko/issues/55)
-* **app:** edit window rules per app ([94ee12a](https://github.com/aimuzov/kumiko/commit/94ee12afd2f012250574b6b755f5ed9c9f20a6bf)), closes [#16](https://github.com/aimuzov/kumiko/issues/16)
-* **app:** edit workspaces in the settings window ([f4f4f59](https://github.com/aimuzov/kumiko/commit/f4f4f5981230a6460d3bb018e4718d409a270481))
-* **app:** fake an external screen for the settings page ([3c6425e](https://github.com/aimuzov/kumiko/commit/3c6425e9e37024fe43e469d8fc96421ad5b62fde))
-* **app:** fold the Menu Bar page into General ([dcc6dec](https://github.com/aimuzov/kumiko/commit/dcc6dece64e3131207e9e192aa585b1138ce648b))
-* **app:** give each display its own island in the workspace list ([fd60e21](https://github.com/aimuzov/kumiko/commit/fd60e214092a3dab49f314523e5c46a13b3a737f))
-* **app:** give kumiko an icon of its own ([fec36c2](https://github.com/aimuzov/kumiko/commit/fec36c2ef364317ce91d1bee3ab0799f52928752)), closes [#59](https://github.com/aimuzov/kumiko/issues/59)
-* **app:** give the status menu items icons ([0dbaaa6](https://github.com/aimuzov/kumiko/commit/0dbaaa693d6e6091b7d98d9d23051314f7218391))
-* **app:** give the workspaces page room for two columns ([fcf8f77](https://github.com/aimuzov/kumiko/commit/fcf8f77039aa36ad6bcbf03b57470b45e5078f12))
-* **app:** keep open workspace islands in place and drop their hotkey label ([fddd57f](https://github.com/aimuzov/kumiko/commit/fddd57f416d445b0df965afc72776b3d0f70f01b))
-* **app:** lay the settings window out like Raycast ([e7b6f9d](https://github.com/aimuzov/kumiko/commit/e7b6f9d179cfa9d7513bd7e4f95bd3d0be927ff3))
-* **app:** lay workspaces out as islands ([2cdd60a](https://github.com/aimuzov/kumiko/commit/2cdd60a0334b4914d0383d492a2b569c56af3af4))
-* **app:** leave stacking to window rules and say when an app floats ([225a159](https://github.com/aimuzov/kumiko/commit/225a159bd30c9a354f4ee5a749fb1614bb6fc9dc))
-* **app:** let a workspace app row mean it opens there ([04e36b8](https://github.com/aimuzov/kumiko/commit/04e36b8683497a473c035fa8526d2ca4946154bc))
-* **app:** let the settings window join the layout by a rule ([99df632](https://github.com/aimuzov/kumiko/commit/99df6320c0bb3eb04ff6126753335098ddf26097)), closes [#43](https://github.com/aimuzov/kumiko/issues/43)
-* **app:** lift workspace islands and move them live ([3e39791](https://github.com/aimuzov/kumiko/commit/3e3979193236caeaad7f254965aeec41e629910a))
-* **app:** pick a workspace's layout in its settings ([8a36532](https://github.com/aimuzov/kumiko/commit/8a36532b4d42ae6c2ff55e4e29dd7c95608120c0))
-* **app:** pin a Raycast-style header over the settings page ([6ff5661](https://github.com/aimuzov/kumiko/commit/6ff56617b3951cb3192fe8af2c9e84be4e6d6968))
-* **app:** put workspaces into display areas ([09bd880](https://github.com/aimuzov/kumiko/commit/09bd880fa8dc1efb92b6ab2a26d3fe7852c87f0a))
-* **app:** remove a workspace from its open island corner ([86e120c](https://github.com/aimuzov/kumiko/commit/86e120cdfb45a9021681ef1a411c882e77093ef3))
-* **app:** reorder a workspace's apps by dragging and set a share with a slider ([0df9597](https://github.com/aimuzov/kumiko/commit/0df95972d2a1c791ff682cdbbfc0866c9c7bc2d7))
-* **app:** scroll the page while an island is dragged to its edge ([6441529](https://github.com/aimuzov/kumiko/commit/6441529911d4c06702dab0226cb4d78cfb477c14))
-* **app:** show a workspace's apps on its island ([cd657b8](https://github.com/aimuzov/kumiko/commit/cd657b818772ace1bf2eb599bc8c156211c909d6))
-* **app:** show the menu bar items as they look ([f3de595](https://github.com/aimuzov/kumiko/commit/f3de595655942e416933202ca7f75384618add18)), closes [#44](https://github.com/aimuzov/kumiko/issues/44)
-* **app:** show workspaces and a pause in the status menu ([f7b1fd4](https://github.com/aimuzov/kumiko/commit/f7b1fd4ed9fd04c7237bbf6f19c1e95a825e34e6)), closes [#51](https://github.com/aimuzov/kumiko/issues/51)
-* **app:** show workspaces as a list beside the picked one's settings ([9b74c95](https://github.com/aimuzov/kumiko/commit/9b74c954aeb657b2fd352b73d134f3f1b962f836))
-* **app:** take the settings window's shadow away with the others ([77ad891](https://github.com/aimuzov/kumiko/commit/77ad891396a562f68b76c7337bc73d8b4433826c))
-* **bar:** add a workspace from a plus after the workspaces ([37888f0](https://github.com/aimuzov/kumiko/commit/37888f0e568645727328333b68a6040dba16ec8f)), closes [#28](https://github.com/aimuzov/kumiko/issues/28)
-* **bar:** draw the battery the way Control Center does ([ab49daf](https://github.com/aimuzov/kumiko/commit/ab49dafec03ec966ffb1b0106dfdfcaa8e59f3c4))
-* **bar:** grey out the workspaces not on screen ([a842bbb](https://github.com/aimuzov/kumiko/commit/a842bbb919a7a1c04a3f03d3302f86fcae12b3a6))
-* **bar:** highlight the items on the right under the pointer ([a6d40eb](https://github.com/aimuzov/kumiko/commit/a6d40eb06b10f340e8d6ed6327388c230f0377ce)), closes [#32](https://github.com/aimuzov/kumiko/issues/32)
-* **bar:** leave out what the menu bar already shows ([9563a33](https://github.com/aimuzov/kumiko/commit/9563a339b2ad584b6cffc4f987508a3a2464825f))
-* **bar:** look like the macOS menu bar ([a96767b](https://github.com/aimuzov/kumiko/commit/a96767b0eaf03f2adf16e0bbfc566f8c9788fb21))
-* **bar:** move what the bar shows out of the menu bar on request ([52f2610](https://github.com/aimuzov/kumiko/commit/52f261059b0d616aa4c4e1c4429f1b43b53bd4a2))
-* **bar:** open Calendar on a click on the time ([e9e45cd](https://github.com/aimuzov/kumiko/commit/e9e45cd9c8bf1bb8736ac67136f3e2f6f3221dd4)), closes [#34](https://github.com/aimuzov/kumiko/issues/34)
-* **bar:** replace sketchybar with a built-in status bar ([d3b9533](https://github.com/aimuzov/kumiko/commit/d3b9533c5eae93289ccca8c4408170dedc9f0706))
-* **bar:** show a label over each item ([9265695](https://github.com/aimuzov/kumiko/commit/926569505836562f558423bf7bc77ea0a3ff901e)), closes [#35](https://github.com/aimuzov/kumiko/issues/35)
-* **bar:** show the battery percentage on a click ([59b8aa7](https://github.com/aimuzov/kumiko/commit/59b8aa75f9449aa90b5150d32664c364551a152f))
-* **bar:** show the battery percentage on a click ([122b8cb](https://github.com/aimuzov/kumiko/commit/122b8cbbc88e686d9176597ab223b9755d6bcca7)), closes [#33](https://github.com/aimuzov/kumiko/issues/33)
-* **bar:** show the pointer over a workspace in the accent colour ([b39f1af](https://github.com/aimuzov/kumiko/commit/b39f1afc1d42d9c99c34b1cc181b88dc31ed0387)), closes [#27](https://github.com/aimuzov/kumiko/issues/27)
-* **bar:** show the system input badge and Vim mode like hotkey modes ([5b2c1b3](https://github.com/aimuzov/kumiko/commit/5b2c1b371b66319379764e3d12a0b06c24b48a89))
-* **bar:** switch the input source on a click ([f5076f6](https://github.com/aimuzov/kumiko/commit/f5076f6533cd1c3cba6403fffb8fa0cb9dc29dbd))
-* **bar:** switch the input source on a click ([d4c26bd](https://github.com/aimuzov/kumiko/commit/d4c26bd41fac788a24a3efa9d38f13431e2951eb)), closes [#31](https://github.com/aimuzov/kumiko/issues/31)
-* **bar:** take from the menu bar unless turned off ([48613b5](https://github.com/aimuzov/kumiko/commit/48613b52801848595c9d486e3537e19f050adefa))
-* **borders:** frame the focused window ([755dfbd](https://github.com/aimuzov/kumiko/commit/755dfbd22cf9d9491101a41741d808c431ead900))
-* **core:** add, remove and move entries of an array of tables ([b281a2f](https://github.com/aimuzov/kumiko/commit/b281a2fe58446bc59b40071834097865acb33dce))
-* **core:** change keys of one entry of an array of tables ([bd8cd3b](https://github.com/aimuzov/kumiko/commit/bd8cd3b65f6a69d474116ff4dd6e282dbedd5753))
-* **core:** group workspaces by display ([94b64cc](https://github.com/aimuzov/kumiko/commit/94b64cc2ebbd6f4f3595af6ef7d73bb1a39ef1fa))
-* **core:** read and edit window rules per app ([a16dc83](https://github.com/aimuzov/kumiko/commit/a16dc8374acb6479a003dc634ba3b7fb325a11cf))
-* **core:** tell whether the window rules tile an app ([b71dbb5](https://github.com/aimuzov/kumiko/commit/b71dbb5bfb454febc9fd88a0dc8499896bf4090d))
-* **core:** write arrays and workspaces as TOML ([c8ce598](https://github.com/aimuzov/kumiko/commit/c8ce598f2af66ecd8962ff12bdbd9b3ec4b988b7))
-* **core:** write arrays of tables with a dotted name ([cf9413b](https://github.com/aimuzov/kumiko/commit/cf9413bb380d60484a543eb3153b0a20c38eb841))
-* **core:** write settings back to kumiko.toml ([691114d](https://github.com/aimuzov/kumiko/commit/691114df8ff0ab2266b9f9a17e2afb50a33560e0))
-* **core:** write several config changes as one ([eea2174](https://github.com/aimuzov/kumiko/commit/eea2174d37470d718b46a473f7dfc38dc9748733))
-* **hotkeys:** replace skhd with a built-in hotkey module ([2f89315](https://github.com/aimuzov/kumiko/commit/2f89315d87abaac7321aafdbe11d16c59eaf055e))
-* **menubar:** draw the divider while items are cmd-dragged ([90498c5](https://github.com/aimuzov/kumiko/commit/90498c51d679392764cb350f3f28bfa380743974))
-* **menubar:** hide menu bar items the way Ice does ([836a392](https://github.com/aimuzov/kumiko/commit/836a3926a405d515f865c04153d7a7f3cd7d1782))
-* **menubar:** list the items either side of the divider ([4f17084](https://github.com/aimuzov/kumiko/commit/4f170849c6f00f5992dd1e0005b2d15fa189a6cf))
-* **vim:** add Vim modes in any text field ([65c32a5](https://github.com/aimuzov/kumiko/commit/65c32a53b3db99cbf67cc78ada954390f4cc7379))
-* **wm:** add virtual workspaces ([b63fead](https://github.com/aimuzov/kumiko/commit/b63feadf92f40ef9bbeeabc0ee398805e9009994))
-* **wm:** give each workspace a bsp, stack or float layout ([0b531f6](https://github.com/aimuzov/kumiko/commit/0b531f615f14f4ab4ccb0f970080b8e37d024211))
-* **wm:** hide apps whose windows are all on hidden workspaces ([5a4d64a](https://github.com/aimuzov/kumiko/commit/5a4d64aaff99781009b55cf27beaddd81c648d2d))
-* **wm:** keep a workspace's windows through a rename ([1837c2f](https://github.com/aimuzov/kumiko/commit/1837c2fd64c436a3bb70e258d920a4c50ca69728))
-* **wm:** keep floating windows above the tiled ones ([fee4aa0](https://github.com/aimuzov/kumiko/commit/fee4aa083f04a42813a9dec08beb32646c87b7f4))
-* **wm:** lay out a workspace's windows in the order of its apps ([8b561e1](https://github.com/aimuzov/kumiko/commit/8b561e1b1b9c32133682e5db787b2ab92c68e611))
-* **wm:** let workspaces and window rules be turned off ([fe4ca00](https://github.com/aimuzov/kumiko/commit/fe4ca00dd12efd3c3ddfb01c3d3c806cbeada362))
-* **wm:** match windows by ID and float settings and fixed-size windows ([e4b2114](https://github.com/aimuzov/kumiko/commit/e4b2114799b36518349a021691138ddc4681d1e3)), closes [#20](https://github.com/aimuzov/kumiko/issues/20) [#21](https://github.com/aimuzov/kumiko/issues/21)
-* **wm:** tile managed windows with a BSP layout ([377a23f](https://github.com/aimuzov/kumiko/commit/377a23ff0c9248b3f43f26601d701f0bcc225313))
-* **wm:** track windows and decide which ones are managed ([2bcab3d](https://github.com/aimuzov/kumiko/commit/2bcab3dcb5797d2a4b234040aa8c87e3769fb8af))
-* **wm:** turn window shadows off through a scripting addition in Dock ([85d3d40](https://github.com/aimuzov/kumiko/commit/85d3d4070c733c121f708f8422e372164f2f4b90))
+* Windows split the screen, sit in one stack or float, chosen per workspace.
+* A workspace lives on a display: `main`, `external`, `builtin` or a screen's name, and `main` is
+  the one System Settings calls main.
+* Apps open on their workspace in the order the file lists them, each with a size of its own.
+* Window rules pick windows by app, title or window ID. Settings windows and windows that cannot be
+  resized float on their own.
+* A group of native tabs takes one place in the layout instead of one per tab.
+* Floating windows stay above the tiled ones and window shadows can go, with the scripting addition
+  in Dock.
+* Pressing a window's edge resizes it instead of clicking the desktop.
 
+### Settings window
 
-### Bug Fixes
+* Every section of the config is edited here, and only the lines that change are written.
+* Workspaces sit in islands per display and move by dragging; each has its layout and app sizes.
+* Window rules take exceptions picked from open windows by title or ID.
+* Hotkeys are recorded by pressing them, actions come from a list, and modes come and go.
+* The Vim page sets the apps it stays out of, its start commands and the Russian layout in Normal
+  mode.
+* Menu bar items move between shown and hidden by dragging.
+* Cmd-W closes the window, a rule can tile it, and it looks right in full screen.
 
-* **app:** add Edit and Window menus so Cmd-W closes the settings ([86d6156](https://github.com/aimuzov/kumiko/commit/86d6156ae6f02e8c45be36c1a7e28b1dbd2515be))
-* **app:** add Edit and Window menus so Cmd-W closes the settings ([b662ed2](https://github.com/aimuzov/kumiko/commit/b662ed2cafe55ffbfe301ed28bdb42b8c86bd563)), closes [#14](https://github.com/aimuzov/kumiko/issues/14)
-* **app:** address workspaces by name, not by a stale index ([80f1716](https://github.com/aimuzov/kumiko/commit/80f1716aaefdff21082143638403db102ced72af))
-* **app:** drag workspaces as their own type ([521e65d](https://github.com/aimuzov/kumiko/commit/521e65d6b83c39bff854b7907c181a8bbfa5f365))
-* **app:** drop a lift the page no longer has ([5de0717](https://github.com/aimuzov/kumiko/commit/5de0717fd7ea1943eba0ea8b9d873e677ce5194e))
-* **app:** end a lift that lost its mouse ([f0e24ef](https://github.com/aimuzov/kumiko/commit/f0e24ef36c4979d45cbf438a5963d17a3e2fbdf1))
-* **app:** give the settings sidebar and cards Raycast's depth ([27347bd](https://github.com/aimuzov/kumiko/commit/27347bdc40e16c229085b3bd09279caf7eeafca8))
-* **app:** give the settings sidebar and cards Raycast's depth ([fbf60ec](https://github.com/aimuzov/kumiko/commit/fbf60eccc6a15419ed18f4ae04efaf3d39b0580b)), closes [#7](https://github.com/aimuzov/kumiko/issues/7)
-* **app:** give the settings window its top back in full screen ([d9f6889](https://github.com/aimuzov/kumiko/commit/d9f68896253bac3245cb929b122c5bc13611df51))
-* **app:** give the settings window its top back in full screen ([7113389](https://github.com/aimuzov/kumiko/commit/71133898556e4de1134ad8f177ae9849c2fff2ef)), closes [#46](https://github.com/aimuzov/kumiko/issues/46)
-* **app:** give workspace islands the cards new grey ([453cabc](https://github.com/aimuzov/kumiko/commit/453cabca5cece6257587ff611bab3d1c854c07f0))
-* **app:** keep a dragged row in its area until it crosses the closed edge back ([4cc8735](https://github.com/aimuzov/kumiko/commit/4cc87357910687ab1d36bf05d5c342a288f1a09d))
-* **app:** keep a name being typed when another workspace is picked ([eac19aa](https://github.com/aimuzov/kumiko/commit/eac19aabc50d4e384016c2ef5ea9054de68ac041))
-* **app:** keep an island's identity through a rename ([6b3ad55](https://github.com/aimuzov/kumiko/commit/6b3ad55f53f8ea821d712a0a871e0ba8da50bc0a))
-* **app:** keep app patterns and app names apart ([c33648d](https://github.com/aimuzov/kumiko/commit/c33648db9043ac15e80072b426b4615b65d9e901))
-* **app:** keep area order and the lifted island's place steady ([83c6370](https://github.com/aimuzov/kumiko/commit/83c63708ea1ed6943dca49e20ca756479b984cd7))
-* **app:** leave stack alone when an app leaves a workspace ([9660b8e](https://github.com/aimuzov/kumiko/commit/9660b8e64a351fddfdd026c33788daada1f60330))
-* **app:** let a dragged row taller than the last one get past it ([5f63af7](https://github.com/aimuzov/kumiko/commit/5f63af73563a87e887e6b3dd54d2bcd4222656dd))
-* **app:** let a workspace row be dropped last in its list and area ([7b9004f](https://github.com/aimuzov/kumiko/commit/7b9004f81230ebf0940b6c1cc8ac23fce7dbe7b8))
-* **app:** lift a dragged app row to the card's edges ([034721c](https://github.com/aimuzov/kumiko/commit/034721ce33ea2c0e3cadc33720003213c88802c5))
-* **app:** line up a workspace plus under its red remove button ([7b08133](https://github.com/aimuzov/kumiko/commit/7b081339d3f2f9eed68644dc39d7b56fef5f0b59))
-* **app:** list screen names only when there are several external ones ([0c6b184](https://github.com/aimuzov/kumiko/commit/0c6b184f145af28ef75b69cad2c8f54a01442192))
-* **app:** make a workspace icon buttons look pressable ([c082dda](https://github.com/aimuzov/kumiko/commit/c082dda6a4f83db89f873260672aa762e0d15c1b))
-* **app:** make a workspace plus and remove into system buttons ([e9e5876](https://github.com/aimuzov/kumiko/commit/e9e587628d7bbf9848873a967a66478b3a346ae6))
-* **app:** make the settings search field a capsule ([6a4a3a9](https://github.com/aimuzov/kumiko/commit/6a4a3a94c8e9227baf77199cd0ac52829088cf55))
-* **app:** move the settings window by its toolbar only ([5fff0a2](https://github.com/aimuzov/kumiko/commit/5fff0a2d4d6e9c4ec361593cc1d64ecf107a981e))
-* **app:** name and show display areas the way the window manager places them ([eb2b796](https://github.com/aimuzov/kumiko/commit/eb2b7963d6f8cfe673b405fd51504ad8b5033731))
-* **app:** offer Main and External for a workspace display ([110c046](https://github.com/aimuzov/kumiko/commit/110c0461ed5d4576977507483889da362ac568bf))
-* **app:** put default before a workspace app icons ([1554ecb](https://github.com/aimuzov/kumiko/commit/1554ecb89a63df2d3fd2bfebc6afe58b7ec93dc8))
-* **app:** reach workspace islands from the keyboard ([e6dba82](https://github.com/aimuzov/kumiko/commit/e6dba82a444ba4fb4ed2cab22038c0872c447af1))
-* **app:** read the file before setting a workspace layout from the command line ([d01c9c9](https://github.com/aimuzov/kumiko/commit/d01c9c98b2b5fc0a498115c6225654bc30cd9919))
-* **app:** say where an app already opens ([40cbe5a](https://github.com/aimuzov/kumiko/commit/40cbe5aa88dbbd3b0cdb619cf0aa0b604e70fdd1))
-* **app:** spell out removing a workspace and mark removing an app in red ([66756fc](https://github.com/aimuzov/kumiko/commit/66756fcaa6454b235dee3818269522ca5bc9906e))
-* **app:** step the share slider and keep the settings window on its screen ([fde1d33](https://github.com/aimuzov/kumiko/commit/fde1d33123464482abb2cf90aeef77a4e7db2e8b))
-* **app:** tidy island identity and header ([5532124](https://github.com/aimuzov/kumiko/commit/55321240a10956cd4ddd26692b9260f9b82f7d53))
-* **app:** treat dotted app names as names ([20c3e04](https://github.com/aimuzov/kumiko/commit/20c3e0447e1421ff9f7b7cafd865e6946a01339c))
-* **app:** widen the settings window for the workspaces page ([19e39d1](https://github.com/aimuzov/kumiko/commit/19e39d18c9f2e2247355ad3b6661c376e7cdf85e))
-* **bar:** draw magnified icons sharp ([5289732](https://github.com/aimuzov/kumiko/commit/528973246e8c81247804464fa5b64e1d244035fd))
-* **bar:** keep caffeinate on across restarts ([bd81207](https://github.com/aimuzov/kumiko/commit/bd81207e237a11a1c0407ad51763d7bc06215643))
-* **bar:** keep caffeinate on across restarts ([65624bd](https://github.com/aimuzov/kumiko/commit/65624bd12e27eed3943a93ff6700dd0b1a07b1f4))
-* **bar:** make hidden workspaces easier to see ([d431312](https://github.com/aimuzov/kumiko/commit/d431312db27624a069658f3861aba2ce5ae0dec4))
-* **bar:** make hidden workspaces easier to see ([0fb1fbb](https://github.com/aimuzov/kumiko/commit/0fb1fbb3d490cd5789231194c4aa6723f19eac8a)), closes [#61](https://github.com/aimuzov/kumiko/issues/61)
-* **bar:** show Calendar's workspace on a click on the time ([e7f09b2](https://github.com/aimuzov/kumiko/commit/e7f09b274228733c7f9d7612748af1c46b6cdd80)), closes [#47](https://github.com/aimuzov/kumiko/issues/47)
-* **bar:** show the vim command mode glyph once ([b3c47b4](https://github.com/aimuzov/kumiko/commit/b3c47b496753b05a0fa3c0c6890b1a91f67a8e7d))
-* **bar:** take clicks on the clear parts of the bar ([c4953db](https://github.com/aimuzov/kumiko/commit/c4953db7e152982b0bb0e6bd4cdfe6f5f21e17a9))
-* **borders:** bring the frame back once the focused window is in place ([91204cd](https://github.com/aimuzov/kumiko/commit/91204cd3bc7a830ad53f5b7048d348ce99eacd4f))
-* **core:** keep share keys unique and test their order ([f5072d3](https://github.com/aimuzov/kumiko/commit/f5072d3d84d26c4ecd0bc04a4ccf273d759336f4))
-* **core:** leave the file alone when nothing changes ([6e74f1d](https://github.com/aimuzov/kumiko/commit/6e74f1d23db5060c0e45640c5ee58d23295a6479))
-* **core:** move an entry's sub-tables along with it ([ef6e8c0](https://github.com/aimuzov/kumiko/commit/ef6e8c0b19f685b62a8f1abb8afd1135d773a989))
-* **core:** refuse entries whose sub-tables stand apart ([f328a87](https://github.com/aimuzov/kumiko/commit/f328a87b48c898551cd607712a4945c8b62078f2))
-* **core:** send every window of a last app to the end ([0867814](https://github.com/aimuzov/kumiko/commit/0867814a55755557f9fb4bd7a3c4e8bfa63fac97))
-* **core:** tell entries apart by their sub-tables too ([fa10076](https://github.com/aimuzov/kumiko/commit/fa100768978d800ac5d50063889c95f29d022a29))
-* **hotkeys:** keep hotkeys working on an empty workspace ([0627359](https://github.com/aimuzov/kumiko/commit/06273596bbc6dadc7ac13fcebe908e3648aa12af))
-* **wm,borders:** follow drags through WindowServer events ([70ff3c5](https://github.com/aimuzov/kumiko/commit/70ff3c50e5dd262844f7890cae23d2149ff77f65))
-* **wm:** apply a workspace's app order and shares live without tearing stacks ([01a18bf](https://github.com/aimuzov/kumiko/commit/01a18bf9401c697a6af5cc923b1caec909db1d14))
-* **wm:** bring a floating window along to the other display ([4332ae4](https://github.com/aimuzov/kumiko/commit/4332ae4f6b8a239335f8d780a1e956d24e454a86))
-* **wm:** carry renames through recent workspace and chained hints ([6673931](https://github.com/aimuzov/kumiko/commit/6673931aab4201aefe949be31a0a70e8ddf5edcb))
-* **wm:** focus the desktop on an empty workspace ([0524f7b](https://github.com/aimuzov/kumiko/commit/0524f7bb5c694f1607f7ea3f36ec4874c99da9f4))
-* **wm:** give a group of native tabs one place in the layout ([5330ac9](https://github.com/aimuzov/kumiko/commit/5330ac94c90b47e74a50195efd391825b0557846)), closes [#23](https://github.com/aimuzov/kumiko/issues/23)
-* **wm:** hide Finder like other apps, focus kumiko on empty workspaces ([481a26c](https://github.com/aimuzov/kumiko/commit/481a26cc65622418bc57bc782b3f8afa9e030d88))
-* **wm:** keep 4 pt from the screen edges by default ([c7b08c3](https://github.com/aimuzov/kumiko/commit/c7b08c3f17a48c7b3e134ed184e19c750095c19f))
-* **wm:** keep clicks under the menu bar from Finder ([77cebf5](https://github.com/aimuzov/kumiko/commit/77cebf5a930d145bbc56fe5ca41e83faf224150b))
-* **wm:** leave agent apps alone ([ebfcd23](https://github.com/aimuzov/kumiko/commit/ebfcd2349abac304aa77a2a175114b28b27c7ea3))
-* **wm:** leave panels their shadow ([ffe7d65](https://github.com/aimuzov/kumiko/commit/ffe7d659e2b2b41d997f5baf8916c00cd853d1e6))
-* **wm:** let a press at a window edge start a resize ([32b606c](https://github.com/aimuzov/kumiko/commit/32b606cbe96707f8a37173f28b445a08053248a3))
-* **wm:** let a press at a window edge start a resize ([785499a](https://github.com/aimuzov/kumiko/commit/785499a7f4dba2189212ebfb1cea15225f826186)), closes [#52](https://github.com/aimuzov/kumiko/issues/52)
-* **wm:** make external the screen that is not main ([36b448f](https://github.com/aimuzov/kumiko/commit/36b448f241aaa2656d97884657e55a0c20fed454)), closes [#56](https://github.com/aimuzov/kumiko/issues/56)
-* **wm:** place a window moved to another display by that workspace's rules ([55e6280](https://github.com/aimuzov/kumiko/commit/55e6280185370c22fe9b89ab01e791d67a52ebe7))
+### Bar
 
+* Built in, in place of sketchybar, looking like the macOS menu bar, with a scale.
+* A click on a workspace shows it, on an app's icon focuses its window, on the time opens Calendar
+  on its workspace, on the battery shows its percentage, on the input source switches it.
+* A plus after the workspaces adds one, and icons grow under the pointer like the Dock's.
+* Labels over the items and a highlight under the pointer.
+* The icons and numbers of hidden workspaces are easier to see.
+* Caffeinate stays on across restarts.
 
-### Performance Improvements
+### Also
 
-* **app:** keep pointer state off the whole page ([9685573](https://github.com/aimuzov/kumiko/commit/9685573724ff8bd72258efd39ae36a992ea3bd05))
-* **borders:** move the frame's path, not its window ([17781e6](https://github.com/aimuzov/kumiko/commit/17781e6f2bb85dd6be776bdc53dda801b57bc8f3))
+* A frame around the focused window, in the accent colour unless one is picked.
+* Hotkeys with modes and key remaps, and Vim modes in any text field.
+* Menu bar items hide the way Ice hides them.
+* The menu bar icon shows the workspaces and the hotkey mode, and can pause kumiko.
+* kumiko has an icon of its own.
