@@ -61,6 +61,21 @@ struct DisplayMatchingTests {
 		#expect(Display.matching("dell", in: both) == external)
 	}
 
+	/// The menu bar moved onto the monitor makes the monitor main, as System Settings says.
+	@Test func withTheMenuBarOnTheMonitorTheLaptopIsExternal() {
+		let monitorFirst = [external, builtin]
+		#expect(Display.matching("main", in: monitorFirst) == external)
+		#expect(Display.matching("external", in: monitorFirst) == builtin)
+		#expect(Display.matching("builtin", in: monitorFirst) == builtin)
+	}
+
+	@Test func externalPrefersAMonitorToTheLaptop() {
+		let frame = CGRect(x: -2560, y: 0, width: 2560, height: 1440)
+		let second = Display(id: 3, name: "LG UltraFine", isBuiltin: false, frame: frame, visibleFrame: frame)
+		#expect(Display.matching("external", in: [external, builtin, second]) == second)
+		#expect(Display.matching("external", in: [external]) == external)
+	}
+
 	@Test func missingScreenFallsBackToMain() {
 		#expect(Display.matching("external", in: [builtin]) == builtin)
 		#expect(Display.matching("LG", in: both) == builtin)

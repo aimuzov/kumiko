@@ -2,10 +2,10 @@ import AppKit
 import KumikoCore
 
 /// The screens the two areas stand for, by the names macOS gives them, picked the way
-/// the window manager places a workspace: Main is the screen with the menu bar, External
-/// the first monitor, which is Main itself when the menu bar was moved onto it. Areas
-/// show only with more than one screen and a monitor among them: a Mac mini with one
-/// monitor or a closed laptop would get two areas for the same screen.
+/// the window manager places a workspace (`Display.matching`): Main is the screen with the
+/// menu bar, as System Settings calls it, and External the other one, a monitor first and
+/// the laptop's own screen when the menu bar sits on the monitor. Areas show only with two
+/// screens: a Mac mini with one monitor or a closed laptop has nothing to tell apart.
 struct AreaScreens: Equatable {
 	var main: String?
 	var external: String?
@@ -21,11 +21,12 @@ struct AreaScreens: Equatable {
 		if let fake = UserDefaults.standard.string(forKey: debugExternalKey), !fake.isEmpty {
 			return AreaScreens(main: screens.first?.localizedName, external: fake)
 		}
-		let monitors = screens.filter { screen in
+		func isBuiltin(_ screen: NSScreen) -> Bool {
 			let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
-			return number.map { CGDisplayIsBuiltin($0.uint32Value) == 0 } ?? true
+			return number.map { CGDisplayIsBuiltin($0.uint32Value) != 0 } ?? false
 		}
-		let external = screens.count > 1 ? monitors.first : nil
+		let others = screens.dropFirst()
+		let external = others.first { !isBuiltin($0) } ?? others.first
 		return AreaScreens(main: screens.first?.localizedName, external: external?.localizedName)
 	}
 
