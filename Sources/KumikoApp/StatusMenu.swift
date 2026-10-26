@@ -48,10 +48,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 		add(workspaceItems() + hotkeyModeItems())
 
-		add([action(app.isPaused ? "Resume kumiko" : "Pause kumiko", #selector(togglePause))])
+		let pause = action(app.isPaused ? "Resume kumiko" : "Pause kumiko", #selector(togglePause))
+		pause.image = Self.symbol(app.isPaused ? "play.circle" : "pause.circle")
+		add([pause])
 
 		let settings = NSMenuItem(title: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
 		settings.target = app
+		settings.image = Self.symbol("gearshape")
 		add([settings])
 
 		add([NSMenuItem(title: "Quit kumiko", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")])
@@ -80,8 +83,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			let own = workspaces.filter { $0.display == display.id }
 			guard !own.isEmpty else { return nil }
 
-			let label = Self.displayLabel(manager.displaySetting(for: display.id))
-			let entry = NSMenuItem(title: "\(label): \(display.workspace ?? "—")", action: nil, keyEquivalent: "")
+			let setting = manager.displaySetting(for: display.id)
+			let entry = NSMenuItem(title: "\(Self.displayLabel(setting)): \(display.workspace ?? "—")", action: nil, keyEquivalent: "")
+			entry.image = Self.symbol(setting == nil ? "square.grid.2x2" : display.isBuiltin ? "laptopcomputer" : "display")
 			let submenu = NSMenu()
 			for workspace in own {
 				let row = action(workspace.name, #selector(showWorkspace(_:)))
@@ -127,7 +131,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	private func hotkeyModeItems() -> [NSMenuItem] {
 		guard !app.isPaused, app.config.hotkeys.enabled, let hotkeys = app.hotkeys, hotkeys.isRunning else { return [] }
-		return [disabled("Hotkeys: \(HotkeyCatalog.modeTitle(hotkeys.mode))")]
+		let entry = disabled("Hotkeys: \(HotkeyCatalog.modeTitle(hotkeys.mode))")
+		entry.image = Self.symbol("command")
+		return [entry]
+	}
+
+	/// The icons at the left of the items, as the system gives Quit one of its own.
+	private static func symbol(_ name: String) -> NSImage? {
+		NSImage(systemSymbolName: name, accessibilityDescription: nil)
 	}
 
 	// MARK: - Items
