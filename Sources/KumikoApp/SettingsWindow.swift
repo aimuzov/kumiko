@@ -223,6 +223,8 @@ final class SettingsModel: ObservableObject {
 	@Published var rulePendingRemoval: RuleSelection?
 	/// The title typed into the exceptions' last row, not yet added.
 	@Published var newExceptionTitle = ""
+	/// The command typed into the Vim page's last row, not yet added.
+	@Published var newVimCommand = ""
 	/// The mode the Hotkeys page shows; nil, or one the file no longer has, is the default mode.
 	@Published var selectedHotkeyMode: HotkeyBindings.ModeID?
 	/// The binding whose shortcut is being recorded, by its key in the file; "" for a new one.
@@ -809,7 +811,7 @@ private struct Page: View {
 			case .hotkeys: HotkeysPage(model: model)
 			case .bar: BarPage(model: model)
 			case .borders: BordersPage(model: model)
-			case .vim: VimPage(vim: model.config.vim)
+			case .vim: VimPage(model: model)
 			}
 		}
 	}
@@ -1427,16 +1429,3 @@ private struct BordersPage: View {
 	}
 }
 
-private struct VimPage: View {
-	let vim: Config.Vim
-
-	var body: some View {
-		Card(title: "Exceptions") {
-			Row("Off in", value: list(vim.blacklist), last: true)
-		}
-
-		Card(title: "Startup") {
-			Row("Commands", value: vim.commands.isEmpty ? "None" : "\(vim.commands.count)", last: true)
-		}
-	}
-}

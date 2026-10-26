@@ -574,4 +574,42 @@ struct ConfigWriterTests {
 		_ = try ConfigWriter.write(ConfigEdit(target: .table("wm"), key: "gap", value: nil), to: url)
 		#expect(!FileManager.default.fileExists(atPath: url.path(percentEncoded: false)))
 	}
+
+	/// The Vim page writes the user's commands, long and in Cyrillic, back the way they were laid out.
+	private let vim = """
+		[vim]
+		enabled = true
+		commands = [
+			"set langmap=ФИСВ;ABCD,фисв;abcd",
+			"set ignorecase",
+		] # run at start
+		blacklist = ["Code"]
+		"""
+
+	@Test func rewritesAnArraySpreadOverLinesTheWayItWas() throws {
+		let changed = try apply("vim", "commands", .array([.string("set ignorecase")]), to: vim)
+
+		#expect(changed == vim.replacingOccurrences(of: "\t\"set langmap=ФИСВ;ABCD,фисв;abcd\",\n", with: ""))
+		#expect(try Config.parse(changed).vim.commands == ["set ignorecase"])
+	}
+
+	@Test func keepsCyrillicAndQuotesInAnArraySpreadOverLines() throws {
+		let commands = ["set langmap=ФИСВУАПРШОЛДЬТЩЗЙКЫЕГМЦЧНЯ;ABCDEFGHIJKLMNOPQRSTUVWXYZ", #"echo "a\b""#]
+		let changed = try apply("vim", "commands", .array(commands.map(TOMLValue.string)), to: vim)
+
+		#expect(try Config.parse(changed).vim.commands == commands)
+		#expect(try Config.parse(changed).vim.blacklist == ["Code"])
+		#expect(changed.contains("] # run at start"))
+	}
+
+	@Test func emptiesAnArraySpreadOverLinesOnOneLine() throws {
+		let changed = try apply("vim", "commands", .array([]), to: vim)
+		#expect(changed.contains("commands = [] # run at start\nblacklist"))
+		#expect(try Config.parse(changed).vim.commands.isEmpty)
+	}
+
+	@Test func refusesAStringSpreadOverLines() {
+		let text = "[vim]\ncommands = \"\"\"\nset ignorecase\n\"\"\"\n"
+		#expect(throws: ConfigError.self) { try apply("vim", "commands", .string("x"), to: text) }
+	}
 }
