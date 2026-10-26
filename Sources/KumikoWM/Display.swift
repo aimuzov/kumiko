@@ -38,13 +38,18 @@ struct Display: Equatable {
 	/// Resolves a workspace's `display` setting: `main`, `builtin`, `external`, or part of a screen
 	/// name. Whatever is not attached right now falls back to the main display, so a laptop without
 	/// its monitor still shows every workspace.
+	///
+	/// `main` is the screen System Settings calls main, the one with the menu bar, and `external`
+	/// the other one: a monitor first, the laptop's own screen when the menu bar was moved onto
+	/// the monitor. Read as "not built in", it would be the same screen as `main` then.
 	static func matching(_ spec: String, in displays: [Display]) -> Display? {
 		let main = displays.first
+		let others = displays.dropFirst()
 
 		switch spec.lowercased() {
 		case "main": return main
 		case "builtin": return displays.first(where: \.isBuiltin) ?? main
-		case "external": return displays.first { !$0.isBuiltin } ?? main
+		case "external": return others.first { !$0.isBuiltin } ?? others.first ?? main
 		case let name: return displays.first { $0.name.lowercased().contains(name) } ?? main
 		}
 	}
