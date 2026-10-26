@@ -26,7 +26,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		self.app = app
 		super.init()
 
-		item.button?.image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "kumiko")
+		item.button?.image = Self.mark
 		menu.delegate = self
 		item.menu = menu
 	}
@@ -137,6 +137,44 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	}
 
 	/// The icons at the left of the items, as the system gives Quit one of its own.
+	/// kumiko's mark, as on its app icon (scripts/app-icon.swift): a big cell with an asanoha star
+	/// and three windows beside it. A template, so macOS inks it for the menu bar it sits in.
+	private static let mark: NSImage = {
+		let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+			let frame = CGRect(x: 1.75, y: 1.75, width: 14.5, height: 14.5)
+			let split = frame.minX + frame.width * 0.64
+			let lines = NSBezierPath(roundedRect: frame, xRadius: 2.5, yRadius: 2.5)
+			lines.move(to: CGPoint(x: split, y: frame.minY))
+			lines.line(to: CGPoint(x: split, y: frame.maxY))
+			for row in 1...2 {
+				let y = frame.minY + frame.height * CGFloat(row) / 3
+				lines.move(to: CGPoint(x: split, y: y))
+				lines.line(to: CGPoint(x: frame.maxX, y: y))
+			}
+			lines.lineWidth = 1.5
+			lines.lineCapStyle = .round
+			lines.lineJoinStyle = .round
+			NSColor.black.setStroke()
+			lines.stroke()
+
+			let centre = CGPoint(x: (frame.minX + split) / 2, y: frame.midY)
+			let radius = (split - frame.minX) / 2 - 1.4
+			let star = NSBezierPath()
+			for ray in 0..<6 {
+				let angle = CGFloat(ray) * .pi / 3 + .pi / 2
+				star.move(to: centre)
+				star.line(to: CGPoint(x: centre.x + radius * cos(angle), y: centre.y + radius * sin(angle)))
+			}
+			star.lineWidth = 1.1
+			star.lineCapStyle = .round
+			star.stroke()
+			return true
+		}
+		image.isTemplate = true
+		image.accessibilityDescription = "kumiko"
+		return image
+	}()
+
 	private static func symbol(_ name: String) -> NSImage? {
 		NSImage(systemSymbolName: name, accessibilityDescription: nil)
 	}

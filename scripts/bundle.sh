@@ -37,6 +37,12 @@ cp "$bin/kumiko" "$app/Contents/MacOS/kumiko"
 # `kumiko sa install` copies these into /Library/ScriptingAdditions and signs them there.
 cp -R "$osax" "$app/Contents/Resources/osax"
 
+# The icon is drawn by code at each size, so there is no picture of it to keep in the repository.
+iconset=$(mktemp -d)/AppIcon.iconset
+swift "$root/scripts/app-icon.swift" "$iconset"
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+rm -rf "$(dirname "$iconset")"
+
 cat >"$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -46,6 +52,8 @@ cat >"$app/Contents/Info.plist" <<PLIST
 	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>KumikoApp</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>$identifier</string>
 	<key>CFBundleInfoDictionaryVersion</key>
