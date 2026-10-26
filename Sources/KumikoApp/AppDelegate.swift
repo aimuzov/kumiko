@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var config = Config()
 	/// The reason the last reload failed; the previous config stays in force until it is fixed.
 	private(set) var configError: ConfigError?
+	/// Stopped from the status menu until resumed. Not in kumiko.toml: a restart brings kumiko back.
+	private(set) var isPaused = false
 
 	private(set) var tracker: WindowTracker?
 	private(set) var manager: WindowManager?
@@ -96,8 +98,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		self.hotkeys = hotkeys
 		self.borders = borders
 
-		bus.subscribe { event in
-			if case let .configReloaded(config) = event {
+		bus.subscribe { [weak self] event in
+			if case let .configReloaded(loaded) = event, let self {
+				let config = self.running(loaded)
 				tracker.apply(config.wm)
 				manager.apply(config)
 				hotkeys.apply(config.hotkeys)
@@ -151,6 +154,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		floatLayer?.restore()
 		tracker?.stop()
 		hotkeys?.stop()
+	}
+
+	/// The modules take the change the way they take a module switched off in the file: the window
+	/// manager puts the windows of hidden workspaces back on screen.
+	func setPaused(_ paused: Bool) {
+		guard paused != isPaused else { return }
+		isPaused = paused
+		bus.publish(.configReloaded(config))
+	}
+
+	/// The config the modules run on: the file's, with what a pause stops turned off. The bar
+	/// stays, with the clock and the battery on it.
+	private func running(_ config: Config) -> Config {
+		guard isPaused else { return config }
+		var config = config
+		config.wm.enabled = false
+		config.wm.floatOnTop = false
+		config.hotkeys.enabled = false
+		config.vim.enabled = false
+		config.borders.enabled = false
+		return config
 	}
 
 	/// The bar's plus: a workspace like the settings window's "Add Workspace" on that bar's display,
