@@ -148,7 +148,8 @@ private struct WorkspacesItem: View {
 						AppIcons(model: model, workspace: workspace)
 					}
 				}
-				.foregroundStyle(workspace.isVisible ? .primary : .secondary)
+				// Not `.secondary`: at half the text's strength the number is lost over a busy wallpaper.
+				.foregroundStyle(.primary.opacity(workspace.isVisible ? 1 : 0.75))
 				.modifier(Highlight(
 					isOn: workspace.isVisible, isHovered: model.hoveredWorkspace == workspace.name, tint: colors.active,
 					scale: scale
@@ -295,8 +296,9 @@ private struct AppIcon: View {
 			.resizable()
 			.aspectRatio(contentMode: .fit)
 			.frame(width: size, height: size)
+			// Grey, but barely faded: at 70% they sank into the wallpaper.
 			.grayscale(muted ? 1 : 0)
-			.opacity(muted ? 0.7 : 1)
+			.opacity(muted ? 0.9 : 1)
 			.animation(.easeOut(duration: 0.12), value: muted)
 	}
 }
