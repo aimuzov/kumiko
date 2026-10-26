@@ -8,6 +8,7 @@
 </p>
 
 <p align="center">
+	<a href="https://github.com/aimuzov/kumiko/releases/latest"><img src="https://img.shields.io/github/v/release/aimuzov/kumiko?color=c08a5c&label=download" alt="Download the latest release"></a>
 	<img src="https://img.shields.io/badge/macOS-14%2B-555?logo=apple&logoColor=white" alt="macOS 14+">
 	<img src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white" alt="Swift 6">
 	<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-c08a5c" alt="License: MIT"></a>
@@ -20,6 +21,13 @@ A tiling window manager for macOS that comes as one app: windows and workspaces,
 status bar, a frame around the focused window, Vim modes in text fields and hiding of menu bar
 items, sharing one process and one config file. Everything works without touching SIP but window
 shadows and floating windows kept on top, which need a scripting addition in Dock.
+
+## Install
+
+Download `Kumiko-<version>.zip` from the [latest release](https://github.com/aimuzov/kumiko/releases/latest),
+unzip it and move `Kumiko.app` to Applications. The app is not notarized yet, so the first time macOS
+refuses to open it: try to open it once, then press Open Anyway under Privacy & Security in System
+Settings.
 
 ## Build
 
