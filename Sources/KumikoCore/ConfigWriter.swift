@@ -230,7 +230,12 @@ public enum ConfigWriter {
 					lines.removeSubrange(index...last)
 					return lines.joined(separator: "\n")
 				}
-				guard state.atRest else { throw unchangeable }
+				guard state.atRest else {
+					guard let replaced = replaceSpread(value, at: index, in: &lines, after: end + 1, state: &state) else {
+						throw unchangeable
+					}
+					return replaced
+				}
 				let valueEnd = comment ?? line.count
 				let old = line[(end + 1)..<valueEnd]
 				let leading = old.prefix { $0 == " " || $0 == "\t" }
@@ -465,6 +470,50 @@ public enum ConfigWriter {
 		}
 
 		return config
+	}
+
+	/// An array written over several lines, `commands = [` and an element a line, gets the new
+	/// elements written the same way: the indent of its lines, a comma after each, and what follows
+	/// its `]` kept. Nil for any other value spread over lines, which stays the user's to change.
+	private static func replaceSpread(
+		_ value: TOMLValue, at index: Int, in lines: inout [String], after valueStart: Int, state: inout ScanState
+	) -> String? {
+		guard case let .array(items) = value else { return nil }
+		let line = Array(lines[index])
+		let leading = line[valueStart...].prefix { $0 == " " || $0 == "\t" }
+		guard line.dropFirst(valueStart + leading.count).first == "[" else { return nil }
+
+		var last = index
+		var before = state
+		while !state.atRest && last + 1 < lines.count {
+			last += 1
+			before = state
+			_ = scan(Array(lines[last]), from: 0, &state)
+		}
+		guard state.atRest, last > index else { return nil }
+
+		// Where in its last line the array closes: the shortest start of the line that brings the
+		// brackets back to rest.
+		let closing = Array(lines[last])
+		guard let end = (1...closing.count).first(where: { count in
+			var probe = before
+			_ = scan(Array(closing[..<count]), from: 0, &probe)
+			return probe.atRest
+		}) else { return nil }
+
+		func indent(_ text: String) -> String { String(text.prefix { $0 == " " || $0 == "\t" }) }
+		let outer = indent(lines[index])
+		let inner = lines[(index + 1)..<last].first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+			.map(indent) ?? outer + "\t"
+		let closer = closing.drop { $0 == " " || $0 == "\t" }.first == "]" ? indent(lines[last]) : outer
+		let head = String(line[..<valueStart]) + String(leading)
+		let tail = String(closing[end...])
+
+		let written = items.isEmpty
+			? [head + "[]" + tail]
+			: [head + "["] + items.map { inner + $0.literal + "," } + [closer + "]" + tail]
+		lines.replaceSubrange(index...last, with: written)
+		return lines.joined(separator: "\n")
 	}
 
 	/// Where a line leaves the text after it: inside a multi-line string, or inside brackets a
