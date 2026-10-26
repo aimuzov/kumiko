@@ -1,0 +1,33 @@
+[
+	{
+		"version": "0.2.0",
+		"date": "2026-10-26",
+		"title": {
+			"ru": "Первый релиз",
+			"en": "The first release"
+		},
+		"icon": "LayoutDashboard",
+		"items": {
+			"ru": [
+				"Окна встают плиткой, в стопку или плавают, и каждый рабочий стол выбирает своё. Группа вкладок занимает одно место.",
+				"Рабочие столы живут на экранах, а приложения открываются на своих в том порядке, в каком ты их перечислил.",
+				"Окно настроек правит весь конфиг, от рабочих столов и правил окон до хоткеев и Vim, и пишет только изменённые строки.",
+				"Бар на месте строки меню: рабочие столы с иконками приложений, которые растут под курсором, время, батарея и раскладка, и клик по каждому делает то, чего ждёшь.",
+				"Рамка вокруг окна в фокусе цветом акцента системы.",
+				"Хоткеи с режимами и Vim-режимы в любом текстовом поле.",
+				"Редко нужные значки строки меню прячутся за разделителем.",
+				"kumiko ставится через [Homebrew](https://github.com/aimuzov/homebrew-tap)."
+			],
+			"en": [
+				"Windows tile, stack or float, and each workspace picks its own way. A group of native tabs takes one place.",
+				"Workspaces live on displays, and apps open on theirs in the order you list them.",
+				"A settings window edits the whole config, from workspaces and window rules to hotkeys and Vim, and writes only the lines that change.",
+				"A bar in the place of the menu bar: workspaces with app icons that grow under the pointer, the time, the battery and the input source, and a click on each does what you would expect.",
+				"A frame around the focused window, in your accent colour.",
+				"Hotkeys with modes, and Vim modes in any text field.",
+				"Menu bar icons you rarely need hide behind a divider.",
+				"kumiko installs from [Homebrew](https://github.com/aimuzov/homebrew-tap)."
+			]
+		}
+	}
+]
