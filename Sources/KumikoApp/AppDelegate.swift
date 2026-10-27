@@ -207,6 +207,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		do throws(ConfigError) {
 			let loaded = try Config.load(from: paths.configFile)
 			configError = nil
+			// Only after a config that parsed: a typo elsewhere must not turn reports back on.
+			CrashReports.apply(loaded.telemetry)
 
 			if loaded != config {
 				config = loaded

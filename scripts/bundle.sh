@@ -96,4 +96,20 @@ done
 codesign --force --options runtime --sign "$identity" "$app/Contents/MacOS/kumiko"
 codesign --force --options runtime --sign "$identity" "$app"
 
+# Crashes reach Sentry as addresses, and only the debug symbols of the very binary that crashed
+# turn them back into code. A release shipped without them is a release whose crashes nobody can
+# read, so a signed build stops rather than skip the upload.
+if [ "$configuration" = release ]; then
+	dsym="$root/dist/KumikoApp.dSYM"
+	rm -rf "$dsym"
+	dsymutil "$bin/KumikoApp" -o "$dsym"
+
+	if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
+		sentry-cli debug-files upload --org "${SENTRY_ORG:-f7b8dd6b2ecf}" --project kumiko --include-sources "$dsym" >&2
+	elif [ -n "${KUMIKO_SIGN_IDENTITY:-}" ]; then
+		echo "SENTRY_AUTH_TOKEN is not set: crash reports from this build would be unreadable" >&2
+		exit 1
+	fi
+fi
+
 echo "$app"

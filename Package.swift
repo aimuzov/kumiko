@@ -14,6 +14,7 @@ let package = Package(
 	],
 	dependencies: [
 		.package(url: "https://github.com/dduan/TOMLDecoder", from: "0.4.5"),
+		.package(url: "https://github.com/getsentry/sentry-cocoa", from: "9.30.0"),
 	],
 	targets: [
 		.target(
@@ -57,7 +58,10 @@ let package = Package(
 		),
 		.executableTarget(
 			name: "KumikoApp",
-			dependencies: ["KumikoCore", "KumikoWM", "KumikoHotkeys", "KumikoBorders", "KumikoBar", "KumikoMenuBar", "KumikoVim"]
+			dependencies: [
+				"KumikoCore", "KumikoWM", "KumikoHotkeys", "KumikoBorders", "KumikoBar", "KumikoMenuBar", "KumikoVim",
+				.product(name: "Sentry", package: "sentry-cocoa"),
+			]
 		),
 		// The product is called `kumiko`, the target is not: macOS file systems are case-insensitive,
 		// so a `kumiko` target next to `KumikoApp`'s module would fight over the same build paths.
