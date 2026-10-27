@@ -156,6 +156,7 @@ public final class WindowTracker {
 		}
 
 		on(NSWorkspace.didActivateApplicationNotification) { [weak self] app in
+			if app.processIdentifier == getpid(), self?.focusOwnWindow() == true { return }
 			self?.apps.values.filter { $0.app == app || $0.owner == app }.forEach { $0.rescan() }
 			self?.updateFocus()
 		}
@@ -592,6 +593,20 @@ public final class WindowTracker {
 	private static func isDesktopFocused(in app: AXUIElement) -> Bool {
 		guard let element = AX.element(app, kAXFocusedUIElementAttribute) else { return false }
 		return AX.string(element, kAXRoleAttribute) == kAXScrollAreaRole && AX.element(element, kAXWindowAttribute) == nil
+	}
+
+	/// kumiko brought forward by cmd-tab or the Dock with its settings in a corner, on a hidden
+	/// workspace: AppKit makes no window key there, and with nothing in focus the workspace would
+	/// stay hidden. Coming forward for an empty workspace, kumiko wants no window at all.
+	private func focusOwnWindow() -> Bool {
+		guard NSApp.keyWindow == nil, Date() > ownFocusIgnoredUntil,
+		      let (id, window) = own.first(where: { $0.value.isVisible && !$0.value.isMiniaturized })
+		else { return false }
+		// Focus first: it shows the workspace, which takes the window out of the corner; only then
+		// will AppKit make it key.
+		setFocus(id)
+		DispatchQueue.main.async { window.makeKeyAndOrderFront(nil) }
+		return true
 	}
 
 	/// Leaves no window in focus, for an empty workspace: kumiko itself comes forward. Its menu
