@@ -291,7 +291,8 @@ private final class BorderWindow: NSWindow {
 		guard let target, let bounds = contentView?.bounds else { return }
 
 		let local = target.offsetBy(dx: -frame.minX, dy: -frame.minY).insetBy(dx: -width / 2, dy: -width / 2)
-		let corner = min(radius + width / 2, min(local.width, local.height) / 2)
+		// Square corners stay square on the outside too, not rounded by half the stroke.
+		let corner = radius > 0 ? min(radius + width / 2, min(local.width, local.height) / 2) : 0
 
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
