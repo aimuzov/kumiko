@@ -20,3 +20,18 @@ jobs:
       pull-requests: write
       actions: write
     uses: aimuzov/.github/.github/workflows/release.yml@v1
+
+  # Символы ждут ручной загрузки сборки до часа, поэтому идут своим запуском, а не держат
+  # группу release, через которую проходит каждый пуш в main.
+  debug-symbols:
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - run: gh workflow run debug-symbols.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
