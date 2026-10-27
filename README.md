@@ -55,7 +55,7 @@ signed ad hoc, and macOS asks for permissions again after every rebuild.
 
 Open `dist/Kumiko.app`. It lives in the menu bar; on first launch it asks for Accessibility (to
 arrange windows) and Input Monitoring (for hotkeys and Vim). Its menu shows the workspace on each
-display and the hotkey mode, can pause kumiko, and opens the settings window, which edits every
+display, can pause kumiko, and opens the settings window, which edits every
 section of the config below and writes only the lines it changes.
 
 The CLI is inside the bundle:
