@@ -230,10 +230,10 @@ public final class WindowTracker {
 	}
 
 	private func refreshWindows(of app: NSRunningApplication) {
-		guard let observer = apps[app.processIdentifier] else { return }
-
-		for id in observer.windows.keys {
-			refresh(id)
+		for observer in apps.values where observer.app == app || observer.owner == app {
+			for id in observer.windows.keys {
+				refresh(id)
+			}
 		}
 	}
 
@@ -364,12 +364,14 @@ public final class WindowTracker {
 		let app = observer.owner.localizedName ?? ""
 		let title = AX.string(element, kAXTitleAttribute) ?? ""
 		let identifier = AX.string(element, kAXIdentifierAttribute)
-		let subrole = observer.app.isHidden && previous != nil
+		// Hiding Steam takes Steam Helper's windows with it, though the helper never says it is hidden.
+		let isHidden = observer.app.isHidden || observer.owner.isHidden
+		let subrole = isHidden && previous != nil
 			? previous?.subrole
 			: AX.string(element, kAXSubroleAttribute)
 		// The same distrust of a hidden app; and a window that does not answer is taken as resizable,
 		// so a busy app does not see its windows leave the layout.
-		let isResizable = observer.app.isHidden && previous != nil
+		let isResizable = isHidden && previous != nil
 			? previous?.isResizable ?? true
 			: AX.isSettable(element, kAXSizeAttribute) ?? true
 
@@ -382,7 +384,7 @@ public final class WindowTracker {
 			subrole: subrole,
 			frame: frame,
 			isMinimized: AX.bool(element, kAXMinimizedAttribute) ?? false,
-			isHidden: observer.app.isHidden,
+			isHidden: isHidden,
 			isFullscreen: AX.bool(element, "AXFullScreen") ?? false,
 			isManaged: rules.isManaged(
 				app: app, title: title, identifier: identifier, isResizable: isResizable, subrole: subrole
