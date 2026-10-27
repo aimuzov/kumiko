@@ -979,7 +979,9 @@ public final class WindowManager {
 		// The last move of the drag may still be waiting in the tracker's coalescing.
 		tracker.refresh(id)
 
+		// A workspace switch during the drag may have hidden the window since.
 		guard
+			hidden[id] == nil, assignment[id].map(isVisible) ?? true,
 			let frame = tracker.windows[id]?.frame,
 			let display = Display.containing(frame, in: Display.all())
 		else { return }
