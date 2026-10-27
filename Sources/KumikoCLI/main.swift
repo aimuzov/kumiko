@@ -38,6 +38,10 @@ let usage = """
 	  menubar show|hide|toggle
 	             show or hide the status items left of the divider
 
+	  appearance [toggle|dark|light]
+	             switch the system between light and dark, Automatic stays on;
+	             without an argument, print the current one
+
 	  sa status|install|load|uninstall|sudoers
 	             the scripting addition in Dock, for window shadows;
 	             install, load and uninstall need sudo

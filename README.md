@@ -75,6 +75,7 @@ kumiko status
 | `kumiko window focus\|warp\|move\|resize\|ratio\|float\|zoom\|stack\|unstack\|close …` | acts on the focused window |
 | `kumiko workspace focus\|balance\|rotate\|mirror\|layout …` | acts on the focused workspace |
 | `kumiko menubar show\|hide\|toggle` | shows or hides the menu bar items left of the divider |
+| `kumiko appearance [toggle\|dark\|light]` | switches the system between light and dark, keeping Automatic on; prints the current one with no argument |
 | `kumiko sa status\|install\|load\|uninstall\|sudoers` | the scripting addition in Dock |
 | `kumiko version` | version of the running app (`--version` for the CLI itself) |
 | `kumiko quit` | quits the app, putting hidden windows back on screen |
