@@ -46,11 +46,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		}
 		add(problems)
 
-		add(workspaceItems() + hotkeyModeItems())
+		add(workspaceItems())
 
 		let pause = action(app.isPaused ? "Resume kumiko" : "Pause kumiko", #selector(togglePause))
 		pause.image = Self.symbol(app.isPaused ? "play.circle" : "pause.circle")
-		add([pause])
+		var switches = [pause]
+		// Named after the look it switches to, as the item in Control Center is.
+		if let dark = Appearance.isDark {
+			let appearance = action(dark ? "Light Appearance" : "Dark Appearance", #selector(toggleAppearance))
+			appearance.image = Self.symbol(dark ? "sun.max" : "moon")
+			switches.append(appearance)
+		}
+		add(switches)
 
 		let settings = NSMenuItem(title: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
 		settings.target = app
@@ -129,13 +136,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return shortcuts
 	}
 
-	private func hotkeyModeItems() -> [NSMenuItem] {
-		guard !app.isPaused, app.config.hotkeys.enabled, let hotkeys = app.hotkeys, hotkeys.isRunning else { return [] }
-		let entry = disabled("Hotkeys: \(HotkeyCatalog.modeTitle(hotkeys.mode))")
-		entry.image = Self.symbol("command")
-		return [entry]
-	}
-
 	/// The icons at the left of the items, as the system gives Quit one of its own.
 	/// kumiko's mark, as on its app icon (scripts/app-icon.swift): a big cell with an asanoha star
 	/// and three windows beside it. A template, so macOS inks it for the menu bar it sits in.
@@ -181,12 +181,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	// MARK: - Items
 
-	private func disabled(_ title: String) -> NSMenuItem {
-		let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-		entry.isEnabled = false
-		return entry
-	}
-
 	private func action(_ title: String, _ selector: Selector) -> NSMenuItem {
 		let entry = NSMenuItem(title: title, action: selector, keyEquivalent: "")
 		entry.target = self
@@ -215,6 +209,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		app.setPaused(!app.isPaused)
 		// Dimmed while paused, the way macOS shows a menu bar item that is off.
 		item.button?.appearsDisabled = app.isPaused
+	}
+
+	@objc private func toggleAppearance() {
+		_ = Appearance.handle(["toggle"])
 	}
 
 	/// An empty file is a valid config, so one that is not there yet is made to open it.

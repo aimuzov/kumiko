@@ -32,6 +32,8 @@ struct Commands {
 		case "menubar":
 			guard let menuBar = app.menuBar else { return .failure("menu bar hiding is not running") }
 			return menuBar.handle(args)
+		case "appearance":
+			return Appearance.handle(Array(args.dropFirst()))
 		case "workspace" where args.dropFirst().first == "layout":
 			return workspaceLayout(Array(args.dropFirst(2)))
 		case "window", "workspace":

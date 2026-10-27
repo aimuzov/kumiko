@@ -393,6 +393,11 @@ final class SettingsModel: ObservableObject {
 		set("borders", "color", .string(color?.hex ?? "accent"))
 	}
 
+	/// An empty list takes the key out, which is its default too.
+	func setBorderBlacklist(_ apps: [String]) {
+		set("borders", "blacklist", apps.isEmpty ? nil : .array(apps.map(TOMLValue.string)))
+	}
+
 	/// What lives outside the config and may have changed while the window was closed.
 	func refresh() {
 		AppIcon.forgetMissing()
@@ -1491,9 +1496,10 @@ private struct BordersPage: View {
 			}
 		}
 
-		Card(title: "Exceptions") {
-			Row("No border for", value: list(borders.blacklist), last: true)
-		}
+		AppListCard(
+			title: "No border for", empty: "Every app gets a border", apps: borders.blacklist,
+			removeHelp: { "\($0) gets a border again" }, set: model.setBorderBlacklist
+		)
 	}
 }
 

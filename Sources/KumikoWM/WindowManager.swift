@@ -483,7 +483,7 @@ public final class WindowManager {
 
 	/// Hidden by cmd-h, not by kumiko: a window of an app kumiko hid keeps its place in the layout.
 	private func isHiddenByUser(_ info: WindowInfo) -> Bool {
-		info.isHidden && !hiddenApps.contains(info.pid)
+		info.isHidden && !hiddenApps.contains(info.pid) && !hiddenApps.contains(tracker.owner(of: info.pid))
 	}
 
 	/// Puts a window into its workspace's layout, then applies the workspace's layout rules.
@@ -596,7 +596,10 @@ public final class WindowManager {
 
 		for info in tracker.windows.values where !info.isMinimized && !info.isFullscreen && info.pid != kumiko {
 			let shown = assignment[info.id].map(isVisible) ?? true
-			result[info.pid] = (result[info.pid] ?? false) || shown
+			// Hiding Steam hides Steam Helper's windows too, so a shown helper window keeps Steam shown.
+			for pid in Set([info.pid, tracker.owner(of: info.pid)]) {
+				result[pid] = (result[pid] ?? false) || shown
+			}
 		}
 
 		return result
@@ -825,7 +828,10 @@ public final class WindowManager {
 	public func focus(app pid: pid_t, on name: String) -> Bool {
 		guard config.wm.enabled, let workspace = workspaces.first(where: { $0.name == name }) else { return false }
 
-		let candidates = windows(of: workspace).filter { tracker.windows[$0]?.pid == pid }
+		// A bar icon stands for the owner, Steam, whose windows are its helper's.
+		let candidates = windows(of: workspace).filter { id in
+			tracker.windows[id].map { tracker.owner(of: $0.pid) == pid } ?? false
+		}
 		let id = history.last(where: candidates.contains)
 			?? workspace.tree.visibleWindows.first(where: candidates.contains)
 			?? candidates.first { tracker.windows[$0]?.isMinimized == false }
