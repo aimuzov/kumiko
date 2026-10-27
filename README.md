@@ -51,6 +51,11 @@ builds run `scripts/dev-certificate.sh` once: it puts a self-signed certificate 
 keychain, `bundle.sh` signs with it, and permissions survive rebuilds. Without either the bundle is
 signed ad hoc, and macOS asks for permissions again after every rebuild.
 
+A release build also uploads its debug symbols to Sentry, so crash reports read as code rather than
+addresses. It needs [`sentry-cli`](https://docs.sentry.io/cli/) (`brew install getsentry/tools/sentry-cli`)
+and an organization auth token in `SENTRY_AUTH_TOKEN`; a build signed with `KUMIKO_SIGN_IDENTITY`
+stops without one, since its crashes would come in unreadable.
+
 ## Run
 
 Open `dist/Kumiko.app`. It lives in the menu bar; on first launch it asks for Accessibility (to
@@ -184,6 +189,9 @@ rehide = 0                  # seconds before shown items hide again, 0 for never
 enabled = false
 blacklist = ["Ghostty", "Code"]
 commands = ["set langmap=ФИСВУАПРШОЛДЬТЩЗЙКЫЕГМЦЧНЯ;ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
+
+[telemetry]
+crash_reports = true
 ```
 
 `main` is the display System Settings calls main, the one with the menu bar, and `external` the
@@ -206,6 +214,11 @@ window or cmd-drag them across the divider. A click on the chevron shows or hide
 
 `[vim]` gives every text field Vim's modes, the way SketchyVim does, except in the apps it names.
 `commands` run at start, svimrc style.
+
+`[telemetry]` covers crash reports. When kumiko crashes or hits an unhandled exception, it sends the
+report to [Sentry](https://sentry.io): the stack trace, kumiko's version and the macOS one. No window
+titles, app names or the Mac's name go with it. `crash_reports = false` turns this off, right away,
+without a restart.
 
 ## License
 

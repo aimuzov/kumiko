@@ -43,6 +43,15 @@ struct ConfigTests {
 		#expect(config.menuBar.rehide == 15)
 	}
 
+	@Test func crashReportsAreOnByDefault() throws {
+		#expect(try Config.parse("").telemetry.crashReports)
+		#expect(try Config.parse("[telemetry]").telemetry.crashReports)
+	}
+
+	@Test func crashReportsTurnOff() throws {
+		#expect(try Config.parse("[telemetry]\ncrash_reports = false").telemetry.crashReports == false)
+	}
+
 	@Test func negativeRehideIsAnError() {
 		#expect(throws: ConfigError.self) { try Config.parse("[menubar]\nrehide = -1") }
 	}

@@ -10,6 +10,7 @@ public struct Config: Equatable, Sendable {
 	public var borders = Borders()
 	public var vim = Vim()
 	public var menuBar = MenuBar()
+	public var telemetry = Telemetry()
 	/// `[[workspace]]` entries in file order. Empty means the default set: "1"…"9" on the main display.
 	public var workspaces: [Workspace] = []
 
@@ -304,6 +305,24 @@ public struct Config: Equatable, Sendable {
 
 		private enum CodingKeys: String, CodingKey {
 			case enabled, rehide
+		}
+	}
+
+	/// `[telemetry]`: what kumiko sends about itself.
+	public struct Telemetry: Equatable, Sendable, Decodable {
+		/// Crash reports and unhandled exceptions go to Sentry: the stack, kumiko's version and the
+		/// macOS one, never window titles or app names.
+		public var crashReports = true
+
+		public init() {}
+
+		public init(from decoder: any Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			crashReports = try container.decodeIfPresent(Bool.self, forKey: .crashReports) ?? true
+		}
+
+		private enum CodingKeys: String, CodingKey {
+			case crashReports = "crash_reports"
 		}
 	}
 
@@ -646,10 +665,11 @@ extension Config: Decodable {
 		workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []
 		vim = try container.decodeIfPresent(Vim.self, forKey: .vim) ?? Vim()
 		menuBar = try container.decodeIfPresent(MenuBar.self, forKey: .menuBar) ?? MenuBar()
+		telemetry = try container.decodeIfPresent(Telemetry.self, forKey: .telemetry) ?? Telemetry()
 	}
 
 	private enum CodingKeys: String, CodingKey {
-		case wm, hotkeys, bar, borders, vim
+		case wm, hotkeys, bar, borders, vim, telemetry
 		case menuBar = "menubar"
 		case workspaces = "workspace"
 	}
