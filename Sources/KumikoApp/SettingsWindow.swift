@@ -253,6 +253,8 @@ final class SettingsModel: ObservableObject {
 	/// display's wide gamut and the file in sRGB: handed the clipped colour back, the panel would
 	/// pull its cursor in from the edge of the wheel on every step of a drag.
 	@Published private(set) var pickedBorderColor: SwiftUI.Color?
+	/// The preset the dialog of the General page asks about, made for the apps found when it opened.
+	@Published var pendingRecommended: RecommendedSettings.Result?
 	private var pendingBorderColor: DispatchWorkItem?
 	init(configFile: URL, config: Config, error: String?) {
 		self.configFile = configFile
@@ -441,6 +443,32 @@ final class SettingsModel: ObservableObject {
 
 	func revealInFinder() {
 		NSWorkspace.shared.activateFileViewerSelecting([configFile])
+	}
+
+	/// Looks for the apps of this Mac and opens the dialog that asks before writing the preset.
+	func offerRecommendedSettings() {
+		pendingRecommended = RecommendedSettings.make(installed: InstalledApps.names())
+	}
+
+	/// Writes the preset over the whole file. What the file said before is kept next to it as
+	/// kumiko.toml.bak, so nothing typed into it is lost for good. A backup already there stays: the
+	/// next one is kumiko.toml.2.bak, then .3, or applying twice would put the preset in place of
+	/// the file it replaced.
+	func applyRecommendedSettings(_ result: RecommendedSettings.Result) {
+		let file = configFile.resolvingSymlinksInPath()
+		if let old = try? String(contentsOf: file, encoding: .utf8), !old.allSatisfy(\.isWhitespace), old != result.text {
+			let folder = configFile.deletingLastPathComponent()
+			let backup = (1...).lazy
+				.map { folder.appending(path: $0 == 1 ? "kumiko.toml.bak" : "kumiko.toml.\($0).bak") }
+				.first { !FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }!
+			do {
+				try old.write(to: backup, atomically: true, encoding: .utf8)
+			} catch {
+				writeError = "cannot keep the old settings in \(backup.path(percentEncoded: false)): \(error.localizedDescription)"
+				return
+			}
+		}
+		change([result])
 	}
 }
 
@@ -1137,6 +1165,40 @@ private struct GeneralPage: View {
 				)
 			}
 		}
+
+		Card(title: "Recommended Settings") {
+			Row(
+				title: "Start from a ready setup",
+				detail: "Twelve workspaces on ⌥1 … ⌥=, the apps of this Mac placed on them, and hotkeys to move "
+					+ "windows around. Replaces the current settings; the old file is kept as kumiko.toml.bak.",
+				last: true
+			) {
+				Button("Apply…") { model.offerRecommendedSettings() }
+			}
+		}
+		.confirmationDialog(
+			"Replace the current settings?",
+			isPresented: Binding(
+				get: { model.pendingRecommended != nil },
+				set: { if !$0 { model.pendingRecommended = nil } }
+			),
+			presenting: model.pendingRecommended
+		) { result in
+			Button("Replace Settings", role: .destructive) { model.applyRecommendedSettings(result) }
+		} message: { result in
+			Text(Self.summary(of: result))
+		}
+	}
+
+	/// The workspaces the preset makes, each with the apps found for it.
+	private static func summary(of result: RecommendedSettings.Result) -> String {
+		let lines = result.workspaces.enumerated().map { index, workspace in
+			let apps = workspace.apps.map { Config.Workspace.name(of: $0) ?? $0 }
+			let found = apps.isEmpty ? (workspace.isDefault ? "every other app" : "no app found") : apps.joined(separator: ", ")
+			return "\(index + 1). \(workspace.name): \(found)"
+		}
+		return "kumiko.toml is rewritten with these workspaces, and the hotkeys, rules and borders "
+			+ "that go with them. The current file is kept as kumiko.toml.bak.\n\n" + lines.joined(separator: "\n")
 	}
 }
 

@@ -618,7 +618,7 @@ public enum ConfigWriter {
 	}
 
 	/// A key as written: bare when TOML allows it, quoted otherwise.
-	fileprivate static func bare(_ key: String) -> String {
+	static func bare(_ key: String) -> String {
 		!key.isEmpty && key.allSatisfy(isBare) ? key : TOMLValue.string(key).literal
 	}
 
