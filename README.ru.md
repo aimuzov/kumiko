@@ -4,11 +4,12 @@
 </p>
 
 <p align="center">
-	<img src=".github/assets/banner.jpg" alt="kumiko: тайлинговый менеджер окон для macOS" width="100%">
+	<a href="https://kumiko.aimuzov.online"><img src=".github/assets/banner.jpg" alt="kumiko: тайлинговый менеджер окон для macOS" width="100%"></a>
 </p>
 
 <p align="center">
 	<a href="https://github.com/aimuzov/kumiko/releases/latest"><img src="https://img.shields.io/github/v/release/aimuzov/kumiko?color=c08a5c&label=%D1%81%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C" alt="Скачать последний релиз"></a>
+	<a href="https://kumiko.aimuzov.online"><img src="https://img.shields.io/badge/%D1%81%D0%B0%D0%B9%D1%82-kumiko.aimuzov.online-c08a5c" alt="Сайт"></a>
 	<img src="https://img.shields.io/badge/macOS-14%2B-555?logo=apple&logoColor=white" alt="macOS 14+">
 	<img src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white" alt="Swift 6">
 	<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-c08a5c" alt="License: MIT"></a>
