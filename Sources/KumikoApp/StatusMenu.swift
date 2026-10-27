@@ -46,7 +46,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		}
 		add(problems)
 
-		add(workspaceItems() + hotkeyModeItems())
+		add(workspaceItems())
 
 		let pause = action(app.isPaused ? "Resume kumiko" : "Pause kumiko", #selector(togglePause))
 		pause.image = Self.symbol(app.isPaused ? "play.circle" : "pause.circle")
@@ -136,13 +136,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return shortcuts
 	}
 
-	private func hotkeyModeItems() -> [NSMenuItem] {
-		guard !app.isPaused, app.config.hotkeys.enabled, let hotkeys = app.hotkeys, hotkeys.isRunning else { return [] }
-		let entry = disabled("Hotkeys: \(HotkeyCatalog.modeTitle(hotkeys.mode))")
-		entry.image = Self.symbol("command")
-		return [entry]
-	}
-
 	/// The icons at the left of the items, as the system gives Quit one of its own.
 	/// kumiko's mark, as on its app icon (scripts/app-icon.swift): a big cell with an asanoha star
 	/// and three windows beside it. A template, so macOS inks it for the menu bar it sits in.
@@ -187,12 +180,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	}
 
 	// MARK: - Items
-
-	private func disabled(_ title: String) -> NSMenuItem {
-		let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-		entry.isEnabled = false
-		return entry
-	}
 
 	private func action(_ title: String, _ selector: Selector) -> NSMenuItem {
 		let entry = NSMenuItem(title: title, action: selector, keyEquivalent: "")
