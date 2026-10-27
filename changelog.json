@@ -1,5 +1,34 @@
 [
 	{
+		"version": "0.4.0",
+		"date": "2026-10-27",
+		"title": {
+			"ru": "Готовая настройка одной кнопкой",
+			"en": "A ready setup in one click"
+		},
+		"icon": "SlidersHorizontal",
+		"items": {
+			"ru": [
+				"На странице General есть кнопка, которая ставит настройку автора: двенадцать рабочих столов на alt-1 ... alt-=, приложения на каждом и два режима хоткеев. Приложений, которых у тебя нет, в ней не будет, а прежний конфиг остаётся в резервной копии.",
+				"Режим хоткеев, про который ты забыл, сам заканчивается: через `mode_timeout` секунд без нажатий, по клику мышью или когда на первый план выходит другое приложение. Пока режим включён, рамка вокруг окна в фокусе красится в его цвет.",
+				"Светлую и тёмную тему системы можно переключать из меню kumiko и командой `kumiko appearance`, режим Automatic при этом не сбивается.",
+				"Приложения без рамки теперь правятся прямо в настройках рамки: строка на приложение и меню Add App, как в списке Vim.",
+				"Окна Steam и других приложений, которые рисуют окна во вспомогательном процессе, встают плиткой, слушаются правил и рабочих столов, а в баре у такого приложения одна иконка. Квадратное окно получает квадратную рамку.",
+				"Если вызвать kumiko через cmd-tab, пока его настройки открыты на скрытом рабочем столе, этот стол сразу показывается.",
+				"Когда kumiko падает, он отправляет отчёт о сбое, чтобы его можно было починить: стек и версии kumiko и macOS, без названий окон и приложений. Выключается ключом `crash_reports = false` в `[telemetry]`."
+			],
+			"en": [
+				"The General page has a button that applies the author's setup: twelve workspaces on alt-1 ... alt-=, the apps on each and two hotkey modes. Apps you don't have are left out, and your old config is kept as a backup.",
+				"A hotkey mode you forgot about ends on its own: after `mode_timeout` seconds without a key, on a mouse click, or when another app comes to the front. While a mode is on, the frame around the focused window takes its colour.",
+				"Switch the system between light and dark from the kumiko menu or with `kumiko appearance`, and Automatic stays on.",
+				"The apps that get no frame are now edited right in the border settings: a row per app and an Add App menu, as in the Vim list.",
+				"Windows of Steam and other apps that draw them in a helper process now tile and follow rules and workspaces, and such an app has one icon in the bar. A square window gets a square frame.",
+				"Bring kumiko forward with cmd-tab while its settings sit on a hidden workspace, and that workspace shows right away.",
+				"When kumiko crashes, it sends a crash report so the crash can be fixed: the stack and the versions of kumiko and macOS, no window titles or app names. Turn it off with `crash_reports = false` in `[telemetry]`."
+			]
+		}
+	},
+	{
 		"version": "0.3.0",
 		"date": "2026-10-27",
 		"title": {
