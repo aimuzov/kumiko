@@ -13,6 +13,9 @@ public final class Borders {
 	private let bus: EventBus
 	private let lookup: WindowLookup
 	private var config: Config.Borders
+	/// The bar's palette, for the colour of a hotkey mode.
+	private var palette: Config.Bar.Palette
+	private var mode = "default"
 	private var focused: UInt32?
 	private var overlay: BorderWindow?
 	private var observers: [any NSObjectProtocol] = []
@@ -21,9 +24,13 @@ public final class Borders {
 	public var onOwnWindow: @MainActor (UInt32?) -> Void = { _ in }
 
 	/// `lookup` answers what the tracker knows about a window.
-	public init(bus: EventBus, config: Config.Borders, focused: UInt32?, lookup: @escaping WindowLookup) {
+	public init(
+		bus: EventBus, config: Config.Borders, palette: Config.Bar.Palette, focused: UInt32?,
+		lookup: @escaping WindowLookup
+	) {
 		self.bus = bus
 		self.config = config
+		self.palette = palette
 		self.focused = focused
 		self.lookup = lookup
 	}
@@ -42,8 +49,8 @@ public final class Borders {
 		let restyle: @Sendable (Notification) -> Void = { [weak self] _ in
 			DispatchQueue.main.async {
 				MainActor.assumeIsolated {
-					guard let self, self.config.color == nil else { return }
-					self.overlay?.style(self.config)
+					guard let self, self.styled.color == nil else { return }
+					self.overlay?.style(self.styled)
 				}
 			}
 		}
@@ -98,14 +105,26 @@ public final class Borders {
 		return window
 	}
 
-	public func apply(_ config: Config.Borders) {
+	public func apply(_ config: Config.Borders, palette: Config.Bar.Palette) {
 		self.config = config
-		overlay?.style(config)
+		self.palette = palette
+		overlay?.style(styled)
 		update()
+	}
+
+	/// While a hotkey mode is on, the frame takes its colour: the mode shows where the user looks,
+	/// and keys typed into the window would be the mode's commands.
+	private var styled: Config.Borders {
+		var styled = config
+		if mode != "default" { styled.color = palette.mode(mode) }
+		return styled
 	}
 
 	private func handle(_ event: Event) {
 		switch event {
+		case let .hotkeyModeChanged(mode):
+			self.mode = mode
+			overlay?.style(styled)
 		case let .windowFocused(id):
 			focused = id
 			update()
@@ -158,7 +177,7 @@ public final class Borders {
 			return
 		}
 
-		let overlay = overlay ?? BorderWindow(config)
+		let overlay = overlay ?? BorderWindow(styled)
 		self.overlay = overlay
 		overlay.radius = WindowServer.cornerRadius(of: id) ?? BorderWindow.fallbackRadius
 

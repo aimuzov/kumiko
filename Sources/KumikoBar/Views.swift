@@ -438,15 +438,9 @@ private struct ModeItem: View {
 	]
 
 	var body: some View {
-		let colors = model.config.colors
-		let tints = [
-			"window": colors.yellow, "resize": colors.orange, "move": colors.green, "stack": colors.magenta,
-			"command": colors.red,
-		]
-
 		if model.mode != "default" {
 			Label(model.mode, systemImage: Self.symbols[model.mode] ?? "keyboard")
-				.modifier(Tint(color: tints[model.mode] ?? colors.grey))
+				.modifier(Tint(color: model.config.colors.mode(model.mode)))
 		}
 	}
 }

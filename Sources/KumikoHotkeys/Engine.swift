@@ -1,3 +1,4 @@
+import Foundation
 import KumikoCore
 
 /// Modifier keys as they are held, side by side, the way a key event reports them.
@@ -68,8 +69,13 @@ struct Engine {
 	/// Keys whose press was consumed or remapped, so their release gets the same treatment and an
 	/// app never sees a lone key-up.
 	private var held: [UInt16: Decision] = [:]
+	/// The last key pressed while a mode was on, the one that turned it on included, in uptime
+	/// seconds.
+	private var lastKey: TimeInterval = 0
 
 	static let escape: UInt16 = 0x35
+	/// How long after a key of the mode an app coming to the front counts as that key's doing.
+	static let activationGrace: TimeInterval = 1
 
 	init(_ config: Config.Hotkeys) {
 		self.config = config
@@ -83,16 +89,54 @@ struct Engine {
 	/// Forgets the mode and held keys: after the tap was off, the state may be stale.
 	mutating func reset() -> [Effect] {
 		held = [:]
+		return leaveMode()
+	}
+
+	/// When the mode times out, in uptime seconds; nil while it never does.
+	var deadline: TimeInterval? {
+		guard mode != "default", config.modeTimeout > 0 else { return nil }
+		return lastKey + config.modeTimeout
+	}
+
+	/// Ends a mode no key was pressed in for `mode_timeout`: it was most likely forgotten.
+	mutating func expire(at now: TimeInterval) -> [Effect] {
+		guard let deadline, now >= deadline else { return [] }
+		return leaveMode()
+	}
+
+	/// A click means the user went back to the mouse and the mode is no longer wanted.
+	mutating func click() -> [Effect] {
+		leaveMode()
+	}
+
+	/// Another app came to the front. Right after a key of the mode, its command did that, like
+	/// `window focus west`; later it is the user's doing, and the mode goes.
+	mutating func appActivated(at now: TimeInterval) -> [Effect] {
+		guard now - lastKey >= Self.activationGrace else { return [] }
+		return leaveMode()
+	}
+
+	mutating func handle(
+		_ event: KeyEvent, frontmostApp: String?, now: TimeInterval = ProcessInfo.processInfo.systemUptime
+	) -> (Decision, [Effect]) {
+		if !event.isDown {
+			return (held.removeValue(forKey: event.keyCode) ?? .pass, [])
+		}
+
+		// A key after the timeout is the default mode's, so it reaches the app as it was typed.
+		let expired = expire(at: now)
+		let (decision, effects) = decide(event, frontmostApp: frontmostApp)
+		if mode != "default" { lastKey = now }
+		return (decision, expired + effects)
+	}
+
+	private mutating func leaveMode() -> [Effect] {
 		guard mode != "default" else { return [] }
 		mode = "default"
 		return [.modeChanged(mode)]
 	}
 
-	mutating func handle(_ event: KeyEvent, frontmostApp: String?) -> (Decision, [Effect]) {
-		if !event.isDown {
-			return (held.removeValue(forKey: event.keyCode) ?? .pass, [])
-		}
-
+	private mutating func decide(_ event: KeyEvent, frontmostApp: String?) -> (Decision, [Effect]) {
 		if let app = frontmostApp, config.blacklist.contains(app) {
 			return (.pass, [])
 		}

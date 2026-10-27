@@ -77,7 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		self.tracker = tracker
 		self.manager = manager
 		tracker.keepsDockIcon = { [weak self] in self?.settingsWindow?.isOpen == true }
-		let borders = Borders(bus: bus, config: config.borders, focused: nil) { tracker.windows[$0] }
+		let borders = Borders(bus: bus, config: config.borders, palette: config.bar.colors, focused: nil) {
+			tracker.windows[$0]
+		}
 		let shadows = Shadows(bus: bus, tracker: tracker, config: config.wm)
 		self.shadows = shadows
 		let floatLayer = FloatLayer(bus: bus, manager: manager, config: config.wm)
@@ -104,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 				tracker.apply(config.wm)
 				manager.apply(config)
 				hotkeys.apply(config.hotkeys)
-				borders.apply(config.borders)
+				borders.apply(config.borders, palette: config.bar.colors)
 				shadows.apply(config.wm)
 				// After the manager, which has the new layouts and rules by then.
 				floatLayer.apply(config.wm)

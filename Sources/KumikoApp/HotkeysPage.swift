@@ -74,6 +74,14 @@ struct HotkeysPage: View {
 			}
 
 			Card(title: "When the mode changes") {
+				StepperRow(
+					title: "Back to default after",
+					detail: "A mode ends after this long without a key. A click or another app in front ends it too.",
+					value: model.binding(\.hotkeys.modeTimeout, "hotkeys", "mode_timeout"),
+					range: 0...60,
+					unit: "s",
+					zero: "Never"
+				)
 				Row(title: "Run", detail: "A shell command, with the new mode in $KUMIKO_MODE.", last: true) {
 					TextField(
 						"Nothing", value: Binding(
