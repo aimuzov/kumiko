@@ -110,6 +110,7 @@ shadows = true            # для false нужен scripting addition
 float_on_top = true       # плавающие окна поверх раскладки; тоже scripting addition
 float_settings = true     # окна настроек любых приложений плавают, что бы ни говорили правила
 float_fixed_size = true   # как и окна, размер которых не меняется
+keep_on_screen = false    # окно, утащенное за край экрана, возвращается обратно
 workspaces = true         # false: один рабочий стол на экран
 rules = true              # false: решает только `manage`
 

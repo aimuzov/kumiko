@@ -410,6 +410,9 @@ public struct Config: Equatable, Sendable {
 		/// Windows that cannot be resized float, whatever the rules say: no layout can fit a window
 		/// of one size. Most settings windows are such, Calendar's among them.
 		public var floatFixedSize = true
+		/// A window the user drags past the edge of the screen slides back into the display's
+		/// working area when the mouse button comes up. Tiled windows go back into the layout anyway.
+		public var keepOnScreen = false
 		/// `[[workspace]]` in use. Off, every display has a single workspace of its own and all its
 		/// windows are tiled there together.
 		public var useWorkspaces = true
@@ -440,6 +443,7 @@ public struct Config: Equatable, Sendable {
 			floatOnTop = try container.decodeIfPresent(Bool.self, forKey: .floatOnTop) ?? true
 			floatSettings = try container.decodeIfPresent(Bool.self, forKey: .floatSettings) ?? true
 			floatFixedSize = try container.decodeIfPresent(Bool.self, forKey: .floatFixedSize) ?? true
+			keepOnScreen = try container.decodeIfPresent(Bool.self, forKey: .keepOnScreen) ?? false
 			useWorkspaces = try container.decodeIfPresent(Bool.self, forKey: .useWorkspaces) ?? true
 			useRules = try container.decodeIfPresent(Bool.self, forKey: .useRules) ?? true
 			rules = try container.decodeIfPresent([WindowRule].self, forKey: .rules) ?? []
@@ -451,6 +455,7 @@ public struct Config: Equatable, Sendable {
 			case floatOnTop = "float_on_top"
 			case floatSettings = "float_settings"
 			case floatFixedSize = "float_fixed_size"
+			case keepOnScreen = "keep_on_screen"
 			case useWorkspaces = "workspaces"
 			case useRules = "rules"
 			case rules = "rule"

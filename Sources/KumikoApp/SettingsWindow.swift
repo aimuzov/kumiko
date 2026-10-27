@@ -1212,8 +1212,14 @@ private struct WindowsPage: View {
 						// Back to one number: every side takes the top's.
 						if !on && !isUniform { setPadding(Insets(all: wm.padding.top)) }
 					}
-				),
-				last: true
+				)
+			)
+			SwitchRow(
+				title: "Keep windows on screen",
+				detail: "A floating window dragged past the screen edge slides back when you let go.",
+				on: model.binding(\.wm.keepOnScreen, "wm", "keep_on_screen"),
+				last: true,
+				reset: model.reset(\.wm.keepOnScreen, "wm", "keep_on_screen")
 			)
 		}
 
