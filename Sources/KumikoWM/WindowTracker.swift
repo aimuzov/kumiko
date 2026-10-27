@@ -188,6 +188,11 @@ public final class WindowTracker {
 		observer.start()
 	}
 
+	/// The app a process's windows go by: the process itself, or for a helper, the app that launched it.
+	public func owner(of pid: pid_t) -> pid_t {
+		apps[pid]?.owner.processIdentifier ?? pid
+	}
+
 	private static func isRegular(_ app: NSRunningApplication) -> Bool {
 		app.activationPolicy == .regular && !isAgent(app)
 	}
