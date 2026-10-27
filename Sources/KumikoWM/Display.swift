@@ -82,6 +82,14 @@ struct Display: Equatable {
 		return right
 	}
 
+	/// The frame moved inside `area`, its size kept. A window larger than the area stays pinned
+	/// to the top left, so its title bar is on screen.
+	static func clamped(_ frame: CGRect, into area: CGRect) -> CGRect {
+		let x = max(area.minX, min(frame.minX, area.maxX - frame.width))
+		let y = max(area.minY, min(frame.minY, area.maxY - frame.height))
+		return CGRect(origin: CGPoint(x: x, y: y), size: frame.size)
+	}
+
 	private static func distance(_ rect: CGRect, _ point: CGPoint) -> CGFloat {
 		hypot(rect.midX - point.x, rect.midY - point.y)
 	}

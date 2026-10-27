@@ -232,6 +232,8 @@ struct ConfigTests {
 	@Test func windowsOfOneSizeFloatUnlessTurnedOff() throws {
 		#expect(try Config.parse("").wm.floatFixedSize)
 		#expect(try Config.parse("[wm]\nfloat_fixed_size = false").wm.floatFixedSize == false)
+		#expect(try Config.parse("").wm.keepOnScreen == false)
+		#expect(try Config.parse("[wm]\nkeep_on_screen = true").wm.keepOnScreen)
 	}
 
 	@Test func ruleReadsAWindowID() throws {

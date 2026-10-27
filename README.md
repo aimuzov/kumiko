@@ -110,6 +110,7 @@ shadows = true            # false needs the scripting addition
 float_on_top = true       # floating windows stay above the tiled ones; scripting addition too
 float_settings = true     # settings windows of every app float, whatever the rules say
 float_fixed_size = true   # so do windows that cannot be resized
+keep_on_screen = false    # a window dragged past the screen edge slides back
 workspaces = true         # false: one workspace per display
 rules = true              # false: `manage` alone decides
 

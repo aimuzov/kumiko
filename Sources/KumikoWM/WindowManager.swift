@@ -46,6 +46,8 @@ public final class WindowManager {
 	private var known: [UInt32: EligibilityKey] = [:]
 	private var syncScheduled = false
 	private var dragged: Set<UInt32> = []
+	/// Windows outside the layout being dragged, to bring back on screen at the drop.
+	private var draggedLoose: Set<UInt32> = []
 	private var dragCheckScheduled = false
 	private var observers: [(NotificationCenter, any NSObjectProtocol)] = []
 	private let desktopClicks = DesktopClicks()
@@ -230,11 +232,14 @@ public final class WindowManager {
 			} else if !WindowServer.isAvailable {
 				// Without the WindowServer's events a drag is only seen through AX, late.
 				noticeUserFrameChange(info.id, info.frame)
+				noticeLooseMove(info.id)
 			}
 		case let .windowFrameChanged(id, frame):
 			noticeUserFrameChange(id, frame)
+			noticeLooseMove(id)
 		case let .windowDestroyed(id):
 			tiledByUser[id] = nil
+			draggedLoose.remove(id)
 			hidden[id] = nil
 			expected[id] = nil
 			known[id] = nil
@@ -911,6 +916,11 @@ public final class WindowManager {
 				let ids = self.dragged
 				self.dragged = []
 				ids.forEach(self.settleUserFrame)
+
+				let loose = self.draggedLoose
+				self.draggedLoose = []
+				loose.forEach(self.keepOnScreen)
+
 				self.arrange()
 			}
 		}
@@ -945,6 +955,39 @@ public final class WindowManager {
 			// Dropped on a window on another display: the window moves to that workspace.
 			transfer(id, from: workspace, to: targetWorkspace, near: target)
 		}
+	}
+
+	/// A window outside the layout moved while a mouse button was down: with `keep_on_screen` its
+	/// drop is checked against the screen edges. Windows of a hidden workspace are kumiko's own
+	/// moves off screen and stay out of it.
+	private func noticeLooseMove(_ id: UInt32) {
+		guard
+			config.wm.keepOnScreen, NSEvent.pressedMouseButtons & 1 != 0, hidden[id] == nil,
+			let info = tracker.windows[id], !info.isMinimized, !info.isFullscreen, !info.isBackgroundTab
+		else { return }
+
+		if let workspace = assignment[id] {
+			guard isVisible(workspace), !workspace.tree.contains(id) else { return }
+		}
+
+		draggedLoose.insert(id)
+		scheduleDragCheck()
+	}
+
+	/// Slides a dropped window back inside the working area of the display holding its centre.
+	private func keepOnScreen(_ id: UInt32) {
+		// The last move of the drag may still be waiting in the tracker's coalescing.
+		tracker.refresh(id)
+
+		// A workspace switch during the drag may have hidden the window since.
+		guard
+			hidden[id] == nil, assignment[id].map(isVisible) ?? true,
+			let frame = tracker.windows[id]?.frame,
+			let display = Display.containing(frame, in: Display.all())
+		else { return }
+
+		let target = Display.clamped(frame, into: area(of: display))
+		if !frame.isClose(to: target) { tracker.setFrame(id, target) }
 	}
 
 	/// The mouse position in AX coordinates.
