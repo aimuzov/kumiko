@@ -1055,7 +1055,7 @@ struct SwitchRow: View {
 
 /// A number typed in or set a step at a time, its unit after it. A typed number is written when
 /// the field is left or return is pressed, not with every key, and kept within the range.
-private struct StepperRow: View {
+struct StepperRow: View {
 	let title: String
 	var detail: String?
 	let value: Binding<Double>

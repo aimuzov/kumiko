@@ -14,6 +14,9 @@ public final class Hotkeys {
 	private var tap: CFMachPort?
 	private var source: CFRunLoopSource?
 	private var permissionTimer: Timer?
+	/// Ends the mode at its timeout, so the bar stops showing it before the next key comes.
+	private var modeTimer: Timer?
+	private var activationObserver: (any NSObjectProtocol)?
 
 	public var mode: String { engine.mode }
 
@@ -30,6 +33,15 @@ public final class Hotkeys {
 		self.config = config
 		self.run = run
 		engine = Engine(config)
+
+		activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+			forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+		) { [weak self] _ in
+			MainActor.assumeIsolated {
+				guard let self else { return }
+				self.apply(self.engine.appActivated(at: ProcessInfo.processInfo.systemUptime))
+			}
+		}
 	}
 
 	/// Installs the tap, or waits for the permissions and installs it once they are there. An
@@ -60,11 +72,13 @@ public final class Hotkeys {
 		tap = nil
 
 		apply(engine.reset())
+		scheduleExpiry()
 	}
 
 	public func apply(_ config: Config.Hotkeys) {
 		self.config = config
 		engine.update(config)
+		scheduleExpiry()
 
 		if config.enabled { start() } else { stop() }
 	}
@@ -72,7 +86,8 @@ public final class Hotkeys {
 	private func install() -> Bool {
 		guard config.enabled, tap == nil, AXIsProcessTrusted(), CGPreflightListenEventAccess() else { return false }
 
-		let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
+		let mask = [CGEventType.keyDown, .keyUp, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+			.reduce(0) { $0 | 1 << $1.rawValue }
 		let refcon = Unmanaged.passUnretained(self).toOpaque()
 
 		guard let tap = CGEvent.tapCreate(
@@ -104,6 +119,10 @@ public final class Hotkeys {
 			return true
 		case .keyDown, .keyUp:
 			break
+		case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+			// The click goes on as it is; only the mode ends.
+			if !isPaused { later(engine.click()) }
+			return true
 		default:
 			return true
 		}
@@ -118,12 +137,8 @@ public final class Hotkeys {
 		)
 
 		let (decision, effects) = engine.handle(keyEvent, frontmostApp: Self.frontmostApp())
-
-		if !effects.isEmpty {
-			DispatchQueue.main.async { [weak self] in
-				MainActor.assumeIsolated { self?.apply(effects) }
-			}
-		}
+		later(effects)
+		if keyEvent.isDown { scheduleExpiry() }
 
 		switch decision {
 		case .pass:
@@ -134,6 +149,31 @@ public final class Hotkeys {
 			event.setIntegerValueField(.keyboardEventKeycode, value: Int64(keyCode))
 			event.flags = Self.flags(for: modifiers, keyCode: keyCode, keeping: event.flags)
 			return true
+		}
+	}
+
+	/// Effects of an event the tap is still deciding on: they run once it has gone on its way.
+	private func later(_ effects: [Effect]) {
+		guard !effects.isEmpty else { return }
+		DispatchQueue.main.async { [weak self] in
+			MainActor.assumeIsolated { self?.apply(effects) }
+		}
+	}
+
+	/// Sets the timer to the mode's deadline again: a key in the mode moves it on.
+	private func scheduleExpiry() {
+		modeTimer?.invalidate()
+		modeTimer = nil
+
+		guard let deadline = engine.deadline else { return }
+		let delay = max(deadline - ProcessInfo.processInfo.systemUptime, 0)
+
+		modeTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+			MainActor.assumeIsolated {
+				guard let self else { return }
+				self.modeTimer = nil
+				self.apply(self.engine.expire(at: ProcessInfo.processInfo.systemUptime))
+			}
 		}
 	}
 

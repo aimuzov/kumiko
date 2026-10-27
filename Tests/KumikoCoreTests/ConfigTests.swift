@@ -47,6 +47,18 @@ struct ConfigTests {
 		#expect(throws: ConfigError.self) { try Config.parse("[menubar]\nrehide = -1") }
 	}
 
+	@Test func modeTimeoutDefaultsToFiveSeconds() throws {
+		#expect(try Config.parse("").hotkeys.modeTimeout == 5)
+		#expect(try Config.parse("[hotkeys]\nmode_timeout = 0").hotkeys.modeTimeout == 0)
+		#expect(throws: ConfigError.self) { try Config.parse("[hotkeys]\nmode_timeout = -1") }
+	}
+
+	@Test func modeColourIsTheBarPalettes() {
+		let palette = Config.Bar.Palette()
+		#expect(palette.mode("window") == palette.yellow)
+		#expect(palette.mode("custom") == palette.grey)
+	}
+
 	@Test func brokenTOMLIsAnError() {
 		#expect(throws: ConfigError.self) { try Config.parse("[bar") }
 	}

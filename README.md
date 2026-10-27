@@ -145,6 +145,7 @@ stack = ["Telegram"]        # kept in one stack
 enabled = true
 blacklist = ["Screen Sharing"]
 on_mode_change = "echo $KUMIKO_MODE"
+mode_timeout = 5           # seconds without a key before a mode ends, 0 for never
 
 [hotkeys.bind]
 "alt - 1" = "workspace focus 1"
@@ -194,6 +195,9 @@ workspace.
 Hotkeys are written the way skhd writes them, by key position on an ANSI keyboard, so they stay
 put whatever input source is on. A binding is a kumiko command, with `||` to try the next one, or
 a table of `run`, `shell`, `mode`, `send` and `block`. `[hotkeys.global]` works in every mode.
+A mode other than default ends on its own after `mode_timeout` seconds without a key, on a mouse
+click, or when another app comes to the front, so a forgotten mode does not turn typing into
+commands. While it is on, the frame around the focused window takes the mode's colour from the bar.
 
 The bar can also show what a shell command prints (`[[bar.shell]]`), take its colours from
 `[bar.colors]` and its font from `font` and `font_size`. A click on a workspace shows it, on an

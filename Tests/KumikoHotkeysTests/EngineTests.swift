@@ -155,6 +155,69 @@ struct EngineTests {
 		#expect(engine.handle(press("alt - 1"), frontmostApp: "Ghostty").0 == .swallow)
 	}
 
+	private func windowMode(timeout: Double = 5) -> Engine {
+		var hotkeys = config(
+			global: ["cmd + ctrl - w": HotkeyAction(mode: "window")],
+			modes: ["window": ["shift - l": HotkeyAction(run: "window move next --focus")]]
+		)
+		hotkeys.modeTimeout = timeout
+		return Engine(hotkeys)
+	}
+
+	@Test func forgottenModeTimesOutAndTheKeyReachesTheApp() {
+		var engine = windowMode()
+		_ = engine.handle(press("cmd + ctrl - w"), frontmostApp: nil, now: 100)
+		#expect(engine.deadline == 105)
+
+		let (decision, effects) = engine.handle(press("shift - l"), frontmostApp: nil, now: 106)
+		#expect(decision == .pass)
+		#expect(effects == [.modeChanged("default")])
+		#expect(engine.mode == "default")
+	}
+
+	@Test func everyKeyInTheModeMovesTheDeadlineOn() {
+		var engine = windowMode()
+		_ = engine.handle(press("cmd + ctrl - w"), frontmostApp: nil, now: 100)
+		_ = engine.handle(press("j"), frontmostApp: nil, now: 104)
+
+		#expect(engine.handle(press("shift - l"), frontmostApp: nil, now: 108).1 == [.run("window move next --focus")])
+		#expect(engine.deadline == 113)
+	}
+
+	@Test func expireEndsTheModeOnlyAfterTheDeadline() {
+		var engine = windowMode()
+		_ = engine.handle(press("cmd + ctrl - w"), frontmostApp: nil, now: 100)
+
+		#expect(engine.expire(at: 104) == [])
+		#expect(engine.expire(at: 105) == [.modeChanged("default")])
+		#expect(engine.deadline == nil)
+	}
+
+	@Test func zeroTimeoutKeepsTheModeOn() {
+		var engine = windowMode(timeout: 0)
+		_ = engine.handle(press("cmd + ctrl - w"), frontmostApp: nil, now: 100)
+
+		#expect(engine.deadline == nil)
+		#expect(engine.handle(press("shift - l"), frontmostApp: nil, now: 1000).1 == [.run("window move next --focus")])
+	}
+
+	@Test func clickEndsTheMode() {
+		var engine = windowMode()
+		#expect(engine.click() == [])
+
+		_ = engine.handle(press("cmd + ctrl - w"), frontmostApp: nil, now: 100)
+		#expect(engine.click() == [.modeChanged("default")])
+	}
+
+	@Test func appComingForwardEndsTheModeUnlessItsKeyDidThat() {
+		var engine = windowMode()
+		_ = engine.handle(press("cmd + ctrl - w"), frontmostApp: nil, now: 100)
+		_ = engine.handle(press("shift - l"), frontmostApp: nil, now: 101)
+
+		#expect(engine.appActivated(at: 101.5) == [])
+		#expect(engine.appActivated(at: 103) == [.modeChanged("default")])
+	}
+
 	@Test func wordsKeepQuotedParts() {
 		#expect(Hotkeys.words(#"workspace focus "My Work""#) == ["workspace", "focus", "My Work"])
 		#expect(Hotkeys.words("  window  warp west ") == ["window", "warp", "west"])

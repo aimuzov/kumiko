@@ -204,6 +204,18 @@ public struct Config: Equatable, Sendable {
 				}
 			}
 
+			/// The colour of a hotkey mode, the same in the bar and on the frame of the focused window.
+			public func mode(_ name: String) -> Color {
+				switch name {
+				case "window": yellow
+				case "resize": orange
+				case "move": green
+				case "stack": magenta
+				case "command": red
+				default: grey
+				}
+			}
+
 			private enum CodingKeys: String, CodingKey {
 				case black, white, red, green, blue, yellow, orange, magenta, grey, active, background, text
 			}
@@ -346,6 +358,9 @@ public struct Config: Equatable, Sendable {
 		public var blacklist: [String] = []
 		/// A shell command run on every mode change, with the new mode in `$KUMIKO_MODE`.
 		public var onModeChange: String?
+		/// Seconds without a key press after which a mode other than default ends, so a forgotten
+		/// mode does not turn typing into commands. 0 keeps a mode on until it is left.
+		public var modeTimeout = 5.0
 		/// `[hotkeys.bind]`: the bindings of the default mode.
 		public var bindings: [KeyCombo: HotkeyAction] = [:]
 		/// `[hotkeys.global]`: bindings that work in every mode, after the mode's own.
@@ -361,6 +376,7 @@ public struct Config: Equatable, Sendable {
 			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
 			blacklist = try container.decodeIfPresent([String].self, forKey: .blacklist) ?? []
 			onModeChange = try container.decodeIfPresent(String.self, forKey: .onModeChange)
+			modeTimeout = try container.decodeIfPresent(Double.self, forKey: .modeTimeout) ?? 5
 			bindings = try Self.combos(container.decodeIfPresent([String: HotkeyAction].self, forKey: .bindings) ?? [:])
 			global = try Self.combos(container.decodeIfPresent([String: HotkeyAction].self, forKey: .global) ?? [:])
 
@@ -381,6 +397,7 @@ public struct Config: Equatable, Sendable {
 		private enum CodingKeys: String, CodingKey {
 			case enabled, blacklist, global
 			case onModeChange = "on_mode_change"
+			case modeTimeout = "mode_timeout"
 			case bindings = "bind"
 			case modes = "mode"
 		}
@@ -500,6 +517,10 @@ public struct Config: Equatable, Sendable {
 
 		if config.bar.magnificationSize < 0 {
 			throw ConfigError.invalid("bar: magnification_size must not be negative")
+		}
+
+		if config.hotkeys.modeTimeout < 0 {
+			throw ConfigError.invalid("hotkeys: mode_timeout must not be negative")
 		}
 
 		if config.menuBar.rehide < 0 {
