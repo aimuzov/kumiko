@@ -828,7 +828,10 @@ public final class WindowManager {
 	public func focus(app pid: pid_t, on name: String) -> Bool {
 		guard config.wm.enabled, let workspace = workspaces.first(where: { $0.name == name }) else { return false }
 
-		let candidates = windows(of: workspace).filter { tracker.windows[$0]?.pid == pid }
+		// A bar icon stands for the owner, Steam, whose windows are its helper's.
+		let candidates = windows(of: workspace).filter { id in
+			tracker.windows[id].map { tracker.owner(of: $0.pid) == pid } ?? false
+		}
 		let id = history.last(where: candidates.contains)
 			?? workspace.tree.visibleWindows.first(where: candidates.contains)
 			?? candidates.first { tracker.windows[$0]?.isMinimized == false }
