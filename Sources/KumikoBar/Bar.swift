@@ -310,8 +310,11 @@ public final class Bar {
 		model.workspaces = manager.workspaceStates.map { state in
 			var apps: [BarModel.App] = []
 			for id in state.windows {
-				guard let info = tracker.windows[id], !apps.contains(where: { $0.pid == info.pid }) else { continue }
-				apps.append(BarModel.App(name: info.app, pid: info.pid))
+				// Steam's windows are Steam Helper's, and go under the one Steam icon.
+				guard let info = tracker.windows[id] else { continue }
+				let pid = tracker.owner(of: info.pid)
+				guard !apps.contains(where: { $0.pid == pid }) else { continue }
+				apps.append(BarModel.App(name: info.app, pid: pid))
 			}
 			return BarModel.Workspace(
 				name: state.name, index: state.index, display: state.display, isVisible: state.isVisible, apps: apps
