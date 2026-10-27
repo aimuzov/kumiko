@@ -50,7 +50,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 		let pause = action(app.isPaused ? "Resume kumiko" : "Pause kumiko", #selector(togglePause))
 		pause.image = Self.symbol(app.isPaused ? "play.circle" : "pause.circle")
-		add([pause])
+		var switches = [pause]
+		// Named after the look it switches to, as the item in Control Center is.
+		if let dark = Appearance.isDark {
+			let appearance = action(dark ? "Light Appearance" : "Dark Appearance", #selector(toggleAppearance))
+			appearance.image = Self.symbol(dark ? "sun.max" : "moon")
+			switches.append(appearance)
+		}
+		add(switches)
 
 		let settings = NSMenuItem(title: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
 		settings.target = app
@@ -215,6 +222,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		app.setPaused(!app.isPaused)
 		// Dimmed while paused, the way macOS shows a menu bar item that is off.
 		item.button?.appearsDisabled = app.isPaused
+	}
+
+	@objc private func toggleAppearance() {
+		_ = Appearance.handle(["toggle"])
 	}
 
 	/// An empty file is a valid config, so one that is not there yet is made to open it.

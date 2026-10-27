@@ -75,6 +75,7 @@ kumiko status
 | `kumiko window focus\|warp\|move\|resize\|ratio\|float\|zoom\|stack\|unstack\|close …` | действие с окном в фокусе |
 | `kumiko workspace focus\|balance\|rotate\|mirror\|layout …` | действие с рабочим столом в фокусе |
 | `kumiko menubar show\|hide\|toggle` | показывает или прячет значки строки меню левее разделителя |
+| `kumiko appearance [toggle\|dark\|light]` | переключает светлую и тёмную тему системы, не выключая автоматическую; без аргумента печатает текущую |
 | `kumiko sa status\|install\|load\|uninstall\|sudoers` | scripting addition в Dock |
 | `kumiko version` | версия запущенного приложения (`--version` у самого CLI) |
 | `kumiko quit` | выход, спрятанные окна возвращаются на экран |
