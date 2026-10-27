@@ -72,10 +72,10 @@ struct RecommendedSettingsTests {
 	@Test("rules and blacklists name only installed apps")
 	func filtersRulesAndBlacklists() throws {
 		let config = try Config.parse(RecommendedSettings.make(installed: [
-			"Happ", "Steam", "iPhone Mirroring", "Notes", "Ghostty",
+			"Steam", "iPhone Mirroring", "Notes", "Ghostty",
 		]).text)
 
-		#expect(config.wm.rules == [WindowRule(app: "Happ", manage: false), WindowRule(app: "Steam", manage: true)])
+		#expect(config.wm.rules == [WindowRule(app: "Steam", manage: true)])
 		#expect(config.borders.blacklist == ["iPhone Mirroring"])
 		#expect(config.vim.blacklist == ["Ghostty", "Notes"])
 		#expect(config.hotkeys.blacklist == ["loginwindow", "screensaver"])
@@ -88,7 +88,7 @@ struct RecommendedSettingsTests {
 
 		#expect(bindings[try KeyCombo.parse("alt - 1")] == HotkeyAction(run: "workspace focus 1"))
 		#expect(bindings[try KeyCombo.parse("alt - 0x18")] == HotkeyAction(run: "workspace focus 12"))
-		#expect(Set(config.hotkeys.modes.keys).isSuperset(of: ["window", "resize", "move", "stack", "command"]))
+		#expect(Set(config.hotkeys.modes.keys) == ["window", "command"])
 	}
 
 	@Test("hiding menu bar items stays off next to another menu bar manager")
@@ -101,17 +101,17 @@ struct RecommendedSettingsTests {
 	func everythingInstalled() throws {
 		let all: Set<String> = [
 			"WezTerm", "Ghostty", "Code", "Zed", "GitUp", "Dia", "Safari", "ChatGPT", "Claude", "Google Chrome",
-			"Perplexity", "OpenCode", "Figma", "Blender", "SF Symbols", "Holst", "Finder", "Cyberduck", "Preview",
-			"Transmission", "Mail", "App Store", "System Settings", "Happ", "MacPass", "KeePassXC", "Kumiko",
-			"Steam", "OrbStack", "AppCleaner", "Pearcleaner", "Kaspersky Anti-Virus For Mac", "logioptionsplus",
-			"Things", "Calendar", "Telegram", "Time", "Толк", "zoom.us", "Citrix Workspace", "Spotify", "Photos",
-			"VLC",
+			"Perplexity", "OpenCode", "Figma", "Blender", "SF Symbols", "Finder", "Cyberduck", "Preview",
+			"Transmission", "Mail", "App Store", "System Settings", "MacPass", "KeePassXC", "Kumiko", "Steam",
+			"OrbStack", "AppCleaner", "Pearcleaner", "logioptionsplus", "Things", "Calendar", "Telegram", "Time",
+			"zoom.us", "Spotify", "Photos", "VLC",
 		]
 		let config = try Config.parse(RecommendedSettings.make(installed: all).text)
 		let placed = config.workspaces.flatMap(\.appRows)
 
 		#expect(Set(placed) == all)
-		#expect(config.wm.rules.count == 4)
+		#expect(config.wm.rules.count == 3)
+		#expect(config.borders.color?.hex == Config.Borders.ownColor.hex)
 		#expect(config.wm.shadows == false)
 		#expect(config.wm.keepOnScreen)
 	}

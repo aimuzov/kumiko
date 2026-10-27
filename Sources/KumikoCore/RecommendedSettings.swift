@@ -4,8 +4,8 @@ import Foundation
 /// workspaces on alt-1 ... alt-= and the apps that open on each. An app this Mac does not have is
 /// left out of every list, so the file names only what is there.
 ///
-/// What only fits one person stays out: the remaps of a keyboard layout, the langmap of vim, a
-/// colour picked for the frames.
+/// What only fits one person stays out: the remaps of a keyboard layout, vim with the langmap of
+/// a Russian layout, apps few people have.
 public enum RecommendedSettings {
 	/// One workspace of the preset, its apps by the names they are known by on any Mac.
 	struct Workspace {
@@ -23,14 +23,14 @@ public enum RecommendedSettings {
 		.init(name: "Code", display: "main", apps: ["WezTerm", "Ghostty", "Code", "Zed", "GitUp"]),
 		.init(name: "Web", display: "main", apps: ["Dia", "Safari"]),
 		.init(name: "AI", display: "main", apps: ["ChatGPT", "Claude", "Google Chrome", "Perplexity", "OpenCode"]),
-		.init(name: "Design", display: "main", apps: ["Figma", "Blender", "SF Symbols", "Holst"]),
+		.init(name: "Design", display: "main", apps: ["Figma", "Blender", "SF Symbols"]),
 		.init(name: "Files", display: "main", apps: ["Finder", "Cyberduck", "Preview", "Transmission"]),
 		.init(name: "Inbox", display: "main", apps: ["Mail"]),
 		.init(
 			name: "System", display: "external",
 			apps: [
-				"App Store", "System Settings", "Happ", "MacPass", "KeePassXC", "Kumiko", "Steam", "OrbStack",
-				"AppCleaner", "Pearcleaner", "Kaspersky Anti-Virus For Mac", "logioptionsplus",
+				"App Store", "System Settings", "MacPass", "KeePassXC", "Kumiko", "Steam", "OrbStack", "AppCleaner",
+				"Pearcleaner", "logioptionsplus",
 			],
 			stack: ["Steam"]
 		),
@@ -40,18 +40,15 @@ public enum RecommendedSettings {
 			name: "Chats", display: "external", apps: ["Telegram", "Time"], stack: ["Telegram"], last: ["Telegram"],
 			size: ["Time": 0.6]
 		),
-		.init(name: "Calls", display: "external", apps: ["Толк", "zoom.us", "Citrix Workspace"]),
+		.init(name: "Calls", display: "external", apps: ["zoom.us"]),
 		.init(name: "Media", display: "external", apps: ["Spotify", "Photos", "VLC"]),
 	]
 
 	/// `[[wm.rule]]` by app: these apps' windows are tiled, or left alone, whatever else says.
-	static let rules: [(app: String, manage: Bool)] = [
-		("Calendar", true), ("Mail", true), ("Happ", false), ("Steam", true),
-	]
+	static let rules: [(app: String, manage: Bool)] = [("Calendar", true), ("Mail", true), ("Steam", true)]
 
 	/// Processes that are no app in a folder of apps, but whose windows the hotkeys keep away from.
 	static let hotkeysSystemBlacklist = ["loginwindow", "screensaver"]
-	static let hotkeysBlacklist = ["LayerX"]
 	static let bordersBlacklist = ["iPhone Mirroring"]
 	static let vimBlacklist = ["Ghostty", "Notes", "Claude", "Telegram"]
 
@@ -138,7 +135,7 @@ public enum RecommendedSettings {
 		let focus = zip(keys, 1...).map { key, number in "\"alt - \(key)\" = \"workspace focus \(number)\"" }
 		sections.append("""
 			[hotkeys]
-			blacklist = \(array(hotkeysSystemBlacklist + resolved(hotkeysBlacklist, installed)))
+			blacklist = \(array(hotkeysSystemBlacklist))
 
 			[hotkeys.bind]
 			\(focus.joined(separator: "\n"))
@@ -150,76 +147,55 @@ public enum RecommendedSettings {
 
 			# Entering a mode works from any mode.
 			[hotkeys.global]
-			"cmd + ctrl - m" = { mode = "move" }
+			"cmd + ctrl - w" = { mode = "window" }
 			"cmd + ctrl - 0x29" = { mode = "command" }
-			"cmd + ctrl - n" = { mode = "resize" }
-			"cmd + ctrl - o" = { mode = "stack" }
-			"cmd + ctrl - i" = { mode = "window" }
 
-			[hotkeys.mode.command]
-			"escape" = { mode = "default" }
-			"ctrl - 0x21" = { mode = "default" }
-			"w" = { run = "reload", mode = "default" }
-
+			# Stays on until Esc. hjkl is the direction, the modifier the verb: none focuses, shift moves,
+			# ctrl resizes, alt stacks.
 			[hotkeys.mode.window]
 			"escape" = { mode = "default" }
 			"ctrl - 0x21" = { mode = "default" }
-			"e" = "workspace balance"
-			"r" = "reload"
-			"f" = "window float --grid 10:10:1:1:8:8"
 			"h" = "window focus west"
 			"j" = "window focus south"
 			"k" = "window focus north"
 			"l" = "window focus east"
-			"m" = "window zoom fullscreen"
-			"p" = "window zoom parent"
-			"q" = "window close"
-			"shift - h" = "window stack west"
-			"shift - j" = "window stack south"
-			"shift - k" = "window stack north"
-			"shift - l" = "window stack east"
-			"shift - n" = "window focus stack-next"
-			"shift - p" = "window focus stack-prev"
-			"shift - r" = "window unstack"
+			"shift - h" = "window warp west || window move prev --focus"
+			"shift - j" = "window warp south"
+			"shift - k" = "window warp north"
+			"shift - l" = "window warp east || window move next --focus"
 			"ctrl - h" = "window resize right -20 || window resize left -20"
 			"ctrl - j" = "window resize bottom 20 || window resize top 20"
 			"ctrl - k" = "window resize bottom -20 || window resize top -20"
 			"ctrl - l" = "window resize right 20 || window resize left 20"
-
-			[hotkeys.mode.resize]
-			"escape" = { mode = "default" }
-			"ctrl - 0x21" = { mode = "default" }
-			"h" = "window resize right -20 || window resize left -20"
-			"j" = "window resize bottom 20 || window resize top 20"
-			"k" = "window resize bottom -20 || window resize top -20"
-			"l" = "window resize right 20 || window resize left 20"
-
-			[hotkeys.mode.move]
-			"escape" = { mode = "default" }
-			"ctrl - 0x21" = { mode = "default" }
-			"h" = "window warp west || window move prev --focus"
-			"j" = "window warp south"
-			"k" = "window warp north"
-			"l" = "window warp east || window move next --focus"
+			"alt - h" = "window stack west"
+			"alt - j" = "window stack south"
+			"alt - k" = "window stack north"
+			"alt - l" = "window stack east"
+			"n" = "window focus stack-next"
+			"p" = "window focus stack-prev"
+			"u" = "window unstack"
+			"f" = "window float --grid 10:10:1:1:8:8"
+			"m" = "window zoom fullscreen"
+			"z" = "window zoom parent"
+			"e" = "workspace balance"
 			"r" = "workspace rotate 270"
 			"x" = "workspace mirror vertical"
 			"y" = "workspace mirror horizontal"
+			"q" = "window close"
 
-			[hotkeys.mode.stack]
+			# One-off actions, each goes back to the default mode.
+			[hotkeys.mode.command]
 			"escape" = { mode = "default" }
 			"ctrl - 0x21" = { mode = "default" }
-			"h" = "window stack west"
-			"j" = "window stack south"
-			"k" = "window stack north"
-			"l" = "window stack east"
-			"n" = "window focus stack-next"
-			"p" = "window focus stack-prev"
-			"r" = "window unstack"
+			"w" = { run = "reload", mode = "default" }
+			"l" = { shell = "pmset displaysleepnow", mode = "default" }
+			"t" = { run = "appearance toggle", mode = "default" }
 			""")
 
 		sections.append("""
 			[borders]
 			width = 4
+			color = "#8aadf4"
 			blacklist = \(array(resolved(bordersBlacklist, installed)))
 			""")
 
