@@ -156,7 +156,7 @@ public final class WindowTracker {
 		}
 
 		on(NSWorkspace.didActivateApplicationNotification) { [weak self] app in
-			self?.apps[app.processIdentifier]?.rescan()
+			self?.apps.values.filter { $0.app == app || $0.owner == app }.forEach { $0.rescan() }
 			self?.updateFocus()
 		}
 
@@ -167,20 +167,48 @@ public final class WindowTracker {
 		workspaceObservers.append(token)
 	}
 
-	/// Only regular apps — the ones with a Dock icon — have windows worth arranging. Agents are
-	/// left alone, and kumiko's own windows come through `track(own:)`.
+	/// Only regular apps — the ones with a Dock icon — have windows worth arranging, together with
+	/// the helpers they draw them in. Agents are left alone, and kumiko's own windows come through
+	/// `track(own:)`.
 	private func add(_ app: NSRunningApplication) {
 		let pid = app.processIdentifier
-		guard
-			app.activationPolicy == .regular,
-			!Self.isAgent(app),
-			pid != ProcessInfo.processInfo.processIdentifier,
-			apps[pid] == nil
-		else { return }
+		guard pid != ProcessInfo.processInfo.processIdentifier, apps[pid] == nil else { return }
 
-		let observer = AppObserver(app: app, tracker: self)
+		let owner: NSRunningApplication
+		if Self.isRegular(app) {
+			owner = app
+		} else if let host = Self.host(of: app) {
+			owner = host
+		} else {
+			return
+		}
+
+		let observer = AppObserver(app: app, owner: owner, tracker: self)
 		apps[pid] = observer
 		observer.start()
+	}
+
+	private static func isRegular(_ app: NSRunningApplication) -> Bool {
+		app.activationPolicy == .regular && !isAgent(app)
+	}
+
+	/// The regular app that launched a helper without a Dock icon of its own. Steam draws every
+	/// window in Steam Helper, an agent, and keeps a 1×1 window in Steam itself.
+	private static func host(of app: NSRunningApplication) -> NSRunningApplication? {
+		guard
+			let parent = parentPID(of: app.processIdentifier), parent > 1,
+			parent != ProcessInfo.processInfo.processIdentifier,
+			let host = NSRunningApplication(processIdentifier: parent), isRegular(host)
+		else { return nil }
+		return host
+	}
+
+	private static func parentPID(of pid: pid_t) -> pid_t? {
+		var info = kinfo_proc()
+		var size = MemoryLayout<kinfo_proc>.stride
+		var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+		guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return nil }
+		return info.kp_eproc.e_ppid
 	}
 
 	/// Built as an agent, like Raycast: a Dock icon only while its settings are open.
@@ -231,7 +259,7 @@ public final class WindowTracker {
 		case kAXFocusedWindowChangedNotification, kAXFocusedUIElementChangedNotification:
 			if name == kAXFocusedWindowChangedNotification { updateTabs(of: observer) }
 			// Background apps move their own focus around too; only the frontmost app's counts.
-			if observer.app.isActive { updateFocus() }
+			if observer.app.isActive || observer.owner.isActive { updateFocus() }
 		case kAXMainWindowChangedNotification:
 			updateTabs(of: observer)
 		case kAXUIElementDestroyedNotification:
@@ -333,7 +361,7 @@ public final class WindowTracker {
 	) -> WindowInfo? {
 		guard let frame = AX.frame(element) else { return nil }
 
-		let app = observer.app.localizedName ?? ""
+		let app = observer.owner.localizedName ?? ""
 		let title = AX.string(element, kAXTitleAttribute) ?? ""
 		let identifier = AX.string(element, kAXIdentifierAttribute)
 		let subrole = observer.app.isHidden && previous != nil
@@ -349,7 +377,7 @@ public final class WindowTracker {
 			id: id,
 			pid: observer.pid,
 			app: app,
-			bundleID: observer.app.bundleIdentifier,
+			bundleID: observer.owner.bundleIdentifier,
 			title: title,
 			subrole: subrole,
 			frame: frame,
@@ -524,8 +552,7 @@ public final class WindowTracker {
 
 		guard
 			let frontmost = NSWorkspace.shared.frontmostApplication,
-			let observer = apps[frontmost.processIdentifier],
-			let window = AX.element(observer.element, kAXFocusedWindowAttribute),
+			let (window, observer) = focusedWindow(of: frontmost.processIdentifier),
 			let id = AX.windowID(window)
 		else {
 			setFocus(nil)
@@ -538,6 +565,18 @@ public final class WindowTracker {
 		}
 
 		setFocus(windows[id] == nil ? nil : id)
+	}
+
+	/// An app that draws its windows in a helper, as Steam does, asks the helper first: its own
+	/// focused window is a 1×1 stand-in. A helper brought forward by kumiko is frontmost itself.
+	private func focusedWindow(of pid: pid_t) -> (AXUIElement, AppObserver)? {
+		let observers = apps.values
+			.filter { $0.pid == pid || $0.owner.processIdentifier == pid }
+			.sorted { $0.pid != pid && $1.pid == pid }
+		for observer in observers {
+			if let window = AX.element(observer.element, kAXFocusedWindowAttribute) { return (window, observer) }
+		}
+		return nil
 	}
 
 	static let finder = "com.apple.finder"

@@ -15,6 +15,9 @@ private let windowNotifications = [
 @MainActor
 final class AppObserver {
 	let app: NSRunningApplication
+	/// The app its windows are told as, by name and bundle id: the app itself, or for a helper
+	/// like Steam Helper, the app that launched it.
+	let owner: NSRunningApplication
 	let element: AXUIElement
 	/// The windows of this app that are being watched, by WindowServer id.
 	private(set) var windows: [CGWindowID: AXUIElement] = [:]
@@ -25,8 +28,9 @@ final class AppObserver {
 
 	var pid: pid_t { app.processIdentifier }
 
-	init(app: NSRunningApplication, tracker: WindowTracker) {
+	init(app: NSRunningApplication, owner: NSRunningApplication, tracker: WindowTracker) {
 		self.app = app
+		self.owner = owner
 		self.tracker = tracker
 		element = AXUIElementCreateApplication(app.processIdentifier)
 
