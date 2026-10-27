@@ -446,11 +446,16 @@ final class SettingsModel: ObservableObject {
 	}
 
 	/// Writes the preset over the whole file. What the file said before is kept next to it as
-	/// kumiko.toml.bak, so nothing typed into it is lost for good.
+	/// kumiko.toml.bak, so nothing typed into it is lost for good. A backup already there stays: the
+	/// next one is kumiko.toml.2.bak, then .3, or applying twice would put the preset in place of
+	/// the file it replaced.
 	func applyRecommendedSettings(_ result: RecommendedSettings.Result) {
 		let file = configFile.resolvingSymlinksInPath()
-		if let old = try? String(contentsOf: file, encoding: .utf8), !old.allSatisfy(\.isWhitespace) {
-			let backup = configFile.deletingLastPathComponent().appending(path: "kumiko.toml.bak")
+		if let old = try? String(contentsOf: file, encoding: .utf8), !old.allSatisfy(\.isWhitespace), old != result.text {
+			let folder = configFile.deletingLastPathComponent()
+			let backup = (1...).lazy
+				.map { folder.appending(path: $0 == 1 ? "kumiko.toml.bak" : "kumiko.toml.\($0).bak") }
+				.first { !FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }!
 			do {
 				try old.write(to: backup, atomically: true, encoding: .utf8)
 			} catch {
