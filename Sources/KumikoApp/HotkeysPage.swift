@@ -293,21 +293,6 @@ private struct BindingRow: View {
 	}
 }
 
-private struct RemoveButton: View {
-	let help: String
-	let remove: () -> Void
-
-	var body: some View {
-		Button(action: remove) {
-			Image(systemName: "minus.circle.fill")
-				.symbolRenderingMode(.palette)
-				.foregroundStyle(.white, .red)
-		}
-		.buttonStyle(.borderless)
-		.help(help)
-	}
-}
-
 /// A shortcut drawn the way macOS menus draw theirs.
 private struct KeyCaps: View {
 	let text: String

@@ -56,19 +56,10 @@ struct VimPage: View {
 	}
 
 	private var blacklist: some View {
-		Card(title: "Off in") {
-			if vim.blacklist.isEmpty {
-				Row(title: "Vim works in every app", last: false) { EmptyView() }
-			}
-			ForEach(vim.blacklist, id: \.self) { app in
-				VimAppRow(app: app) { model.setVimBlacklist(vim.blacklist.filter { $0 != app }) }
-			}
-			HStack {
-				Spacer()
-				VimAddAppMenu(listed: vim.blacklist) { model.setVimBlacklist(vim.blacklist + [$0]) }
-			}
-			.padding(.vertical, 10)
-		}
+		AppListCard(
+			title: "Off in", empty: "Vim works in every app", apps: vim.blacklist,
+			removeHelp: { "Vim works in \($0) again" }, set: model.setVimBlacklist
+		)
 	}
 
 	private var commands: some View {
@@ -103,31 +94,6 @@ struct VimPage: View {
 	}
 }
 
-/// An app Vim stays out of, with its icon, as the Workspaces and Window Rules pages show apps.
-private struct VimAppRow: View {
-	let app: String
-	let remove: () -> Void
-
-	var body: some View {
-		VStack(spacing: 0) {
-			HStack(spacing: 8) {
-				if let icon = AppIcon.image(for: app, size: 20) {
-					Image(nsImage: icon)
-				} else {
-					Image(systemName: "app.dashed")
-						.foregroundStyle(.secondary)
-						.frame(width: 20, height: 20)
-				}
-				Text(app)
-				Spacer()
-				VimRemoveButton(name: app, help: "Vim works in \(app) again", remove: remove)
-			}
-			.padding(.vertical, 8)
-			Divider()
-		}
-	}
-}
-
 /// A command as written, edited in place and written when Return is pressed or the field is left.
 private struct VimCommandRow: View {
 	let command: String
@@ -143,7 +109,7 @@ private struct VimCommandRow: View {
 					.textFieldStyle(.plain)
 					.font(.system(.body, design: .monospaced))
 					.help(command)
-				VimRemoveButton(name: command, help: "Take this command out", remove: remove)
+				RemoveButton(name: command, help: "Take this command out", remove: remove)
 			}
 			.padding(.vertical, 8)
 			Divider()
@@ -154,53 +120,6 @@ private struct VimCommandRow: View {
 			Divider()
 			Button("Remove", action: remove)
 		}
-	}
-}
-
-private struct VimRemoveButton: View {
-	let name: String
-	let help: String
-	let remove: () -> Void
-
-	var body: some View {
-		Button(action: remove) {
-			Image(systemName: "minus.circle.fill")
-				.symbolRenderingMode(.palette)
-				.foregroundStyle(.white, .red)
-				.accessibilityLabel("Remove \(name)")
-		}
-		.buttonStyle(.borderless)
-		.help(help)
-	}
-}
-
-/// The running apps not listed yet, and a way to pick one in /Applications.
-private struct VimAddAppMenu: View {
-	let listed: [String]
-	let add: (String) -> Void
-
-	var body: some View {
-		Menu {
-			ForEach(AddAppButton.running(excluding: listed), id: \.self) { app in
-				Button { add(app) } label: {
-					if let icon = AppIcon.image(for: app, size: 16) {
-						Label { Text(app) } icon: { Image(nsImage: icon) }
-					} else {
-						Text(app)
-					}
-				}
-			}
-			Divider()
-			Button("Choose…") {
-				if let app = AddAppButton.chooseApp(), !listed.contains(app) { add(app) }
-			}
-		} label: {
-			Label("Add App", systemImage: "plus")
-		}
-		.menuStyle(.button)
-		.buttonStyle(.bordered)
-		.controlSize(.small)
-		.fixedSize()
 	}
 }
 
