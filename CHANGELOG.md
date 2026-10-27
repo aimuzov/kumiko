@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/aimuzov/kumiko/compare/v0.2.0...v0.3.0) (2026-10-27)
+
+
+### Features
+
+* keep floating windows on screen after a drag ([5813d75](https://github.com/aimuzov/kumiko/commit/5813d7522a740b7bf311d3fbd69e97e40ca6a134))
+
+
+### Bug Fixes
+
+* leave a window alone if its workspace was hidden during the drag ([1936c6a](https://github.com/aimuzov/kumiko/commit/1936c6ab94a70be481001bf9ac852c9c3b6fb257))
+
 ## 0.2.0 (2026-10-26)
 
 The first release: kumiko tiles windows into workspaces, draws a bar and a frame, takes hotkeys and

@@ -1,5 +1,22 @@
 [
 	{
+		"version": "0.3.0",
+		"date": "2026-10-27",
+		"title": {
+			"ru": "Окна не теряются за краем",
+			"en": "Windows stay on screen"
+		},
+		"icon": "Move",
+		"items": {
+			"ru": [
+				"Плавающее окно, которое ты утащил за край экрана, само возвращается обратно, когда отпускаешь кнопку мыши. Включается переключателем «Keep windows on screen» в настройках окон или ключом `keep_on_screen` в `[wm]`."
+			],
+			"en": [
+				"A floating window you drag past the edge of the screen slides back when you let go of the mouse button. Turn it on with “Keep windows on screen” in the window settings or with `keep_on_screen` in `[wm]`."
+			]
+		}
+	},
+	{
 		"version": "0.2.0",
 		"date": "2026-10-26",
 		"title": {
