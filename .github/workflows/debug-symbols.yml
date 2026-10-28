@@ -1,0 +1,51 @@
+name: Debug symbols
+
+# Отладочные символы релиза в Sentry: без них сбои приходят адресами. Kumiko.app собирается на маке,
+# и KumikoApp-<версия>.dSYM.zip догружается к релизу руками, поэтому job ждёт этот файл в релизе.
+# Запускает его release.yml после нового тега, а руками -- для релиза, чьи символы не дошли.
+# scripts/bundle.sh тоже грузит символы, если у сборки есть токен; повторная загрузка ничего
+# не портит, Sentry узнаёт файл по debug ID. Без секрета SENTRY_AUTH_TOKEN шаги пропускаются.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, e.g. v0.4.0
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - if: env.SENTRY_AUTH_TOKEN == ''
+        run: echo "::notice::SENTRY_AUTH_TOKEN is not set, debug symbols of $TAG are not uploaded"
+
+      # Сборка и загрузка в релиз идут руками после тега, на это даём час.
+      - if: env.SENTRY_AUTH_TOKEN != ''
+        run: |
+          asset="KumikoApp-${TAG#v}.dSYM.zip"
+          for _ in $(seq 120); do
+            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir dsym 2>/dev/null; then
+              unzip -q "dsym/$asset" -d dsym
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::$asset did not appear in release $TAG within an hour"
+          exit 1
+
+      - if: env.SENTRY_AUTH_TOKEN != ''
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - if: env.SENTRY_AUTH_TOKEN != ''
+        run: npx -y @sentry/cli@3.8.2 debug-files upload --org f7b8dd6b2ecf --project kumiko dsym

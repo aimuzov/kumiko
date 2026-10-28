@@ -56,6 +56,12 @@ addresses. It needs [`sentry-cli`](https://docs.sentry.io/cli/) (`brew install g
 and an organization auth token in `SENTRY_AUTH_TOKEN`; a build signed with `KUMIKO_SIGN_IDENTITY`
 stops without one, since its crashes would come in unreadable.
 
+CI uploads them once more from the release itself: after a new tag the
+[`Debug symbols`](.github/workflows/debug-symbols.yml) workflow waits up to an hour for
+`KumikoApp-<version>.dSYM.zip` in the release and sends it to Sentry, so a laptop build without the
+token still ends up readable. It needs the `SENTRY_AUTH_TOKEN` repository secret and skips itself
+without it. For an older release run it by hand with the tag.
+
 ## Run
 
 Open `dist/Kumiko.app`. It lives in the menu bar; on first launch it asks for Accessibility (to
