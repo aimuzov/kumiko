@@ -303,6 +303,15 @@ struct BSPTreeStackTests {
 		tree.activate(1)
 		#expect(tree.visibleWindows == [1])
 	}
+
+	@Test func onlyTheWindowsBehindAreBehind() {
+		let tree = tree(1, 2, 3)
+		tree.stack(3, onto: 1)
+		#expect(tree.isBehind(1))
+		#expect(!tree.isBehind(3))
+		#expect(!tree.isBehind(2))
+		#expect(!tree.isBehind(9))
+	}
 }
 
 struct BSPTreePermuteTests {

@@ -107,6 +107,12 @@ final class BSPTree {
 		return index + 1
 	}
 
+	/// Whether the window is in a stack, behind the one in front.
+	func isBehind(_ id: UInt32) -> Bool {
+		guard let leaf = leafByWindow[id] else { return false }
+		return leaf.activeWindow != id
+	}
+
 	func stackCount(of id: UInt32) -> Int {
 		leafByWindow[id]?.windows.count ?? 0
 	}

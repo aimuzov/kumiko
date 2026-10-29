@@ -139,6 +139,14 @@ public final class WindowManager {
 		}
 		hidden = [:]
 
+		// The windows behind a stack on a shown workspace wait past the edge too.
+		for workspace in workspaces where isVisible(workspace) {
+			for (id, frame) in workspace.tree.frames(in: area(of: workspace.display), gap: gap)
+			where workspace.tree.isBehind(id) {
+				tracker.setFrame(id, frame)
+			}
+		}
+
 		// Frames are applied in the background; quitting must not cut them off.
 		tracker.flushFrames()
 	}
@@ -253,8 +261,12 @@ public final class WindowManager {
 			if history.count > 16 { history.removeFirst() }
 
 			guard let workspace = assignment[id] else { return }
-			workspace.lastFocused = id
-			workspace.tree.activate(id)
+			if workspace.tree.isBehind(id) {
+				bringForward(id, in: workspace)
+			} else {
+				workspace.lastFocused = id
+				workspace.tree.activate(id)
+			}
 
 			// Focus landed on a window of a hidden workspace — cmd-tab, a Dock click, a link opening
 			// in a browser — so that workspace comes into view instead of the window staying unseen.
@@ -263,6 +275,23 @@ public final class WindowManager {
 			}
 		case .configReloaded, .workspacesChanged, .hotkeyModeChanged, .vimModeChanged:
 			break
+		}
+	}
+
+	/// A window behind in a stack that got focus by itself (cmd-tab, the Dock) comes in front, once
+	/// the focus stays on it: an app coming forward reports its last window for a moment before the
+	/// one it is about to focus, and that window must not take the stack.
+	private func bringForward(_ id: UInt32, in workspace: Workspace) {
+		DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { [weak self] in
+			MainActor.assumeIsolated {
+				guard let self, self.tracker.focusedWindowID == id, self.assignment[id] === workspace,
+				      workspace.tree.isBehind(id)
+				else { return }
+
+				workspace.lastFocused = id
+				workspace.tree.activate(id)
+				self.arrange()
+			}
 		}
 	}
 
@@ -563,7 +592,7 @@ public final class WindowManager {
 		let unhidden = unhideApps()
 
 		for workspace in workspaces where isVisible(workspace) {
-			layout(workspace)
+			layout(workspace, displays: displays)
 		}
 
 		scheduleHiding(displays, after: unhidden)
@@ -687,8 +716,13 @@ public final class WindowManager {
 		}
 	}
 
-	private func layout(_ workspace: Workspace) {
-		for (id, frame) in workspace.tree.frames(in: area(of: workspace.display), gap: gap) {
+	private func layout(_ workspace: Workspace, displays: [Display]) {
+		let tree = workspace.tree
+
+		for (id, leaf) in tree.frames(in: area(of: workspace.display), gap: gap) {
+			// The windows behind in a stack wait past the edge of the screen: sharing the leaf, they
+			// would come over the one in front whenever their app raises its windows.
+			let frame = tree.isBehind(id) ? offScreen(leaf.size, on: workspace.display, displays: displays) : leaf
 			expected[id] = frame
 			hidden[id] = nil
 			if let current = tracker.windows[id]?.frame, current.isClose(to: frame) { continue }
@@ -704,7 +738,7 @@ public final class WindowManager {
 	}
 
 	private func hide(_ workspace: Workspace, displays: [Display]) {
-		let others = displays.filter { $0 != workspace.display }.map(\.frame)
+		let leaves = workspace.tree.frames(in: area(of: workspace.display), gap: gap)
 
 		for id in windows(of: workspace) where hidden[id] == nil {
 			// A tab behind is off screen already and moves with the tab in front.
@@ -712,10 +746,16 @@ public final class WindowManager {
 			      !info.isBackgroundTab
 			else { continue }
 
-			hidden[id] = info.frame
-			let origin = Display.hiddenOrigin(for: info.frame.size, on: workspace.display.frame, others: others)
-			tracker.setFrame(id, CGRect(origin: origin, size: info.frame.size))
+			// A window behind in a stack may be past the edge already; it is to come back to its leaf.
+			hidden[id] = workspace.tree.isBehind(id) ? leaves[id] ?? info.frame : info.frame
+			tracker.setFrame(id, offScreen(info.frame.size, on: workspace.display, displays: displays))
 		}
+	}
+
+	/// A frame of this size in the corner of the display, clear of the other displays.
+	private func offScreen(_ size: CGSize, on display: Display, displays: [Display]) -> CGRect {
+		let others = displays.filter { $0 != display }.map(\.frame)
+		return CGRect(origin: Display.hiddenOrigin(for: size, on: display.frame, others: others), size: size)
 	}
 
 	private var gap: Double { Double(config.wm.gap) }
@@ -1117,6 +1157,11 @@ public final class WindowManager {
 		}
 
 		guard let next, next != id else { return .failure("no window there") }
+
+		// A window behind in a stack comes in from past the edge of the screen before it gets focus.
+		if let tree = assignment[next]?.tree, tree.isBehind(next) { tree.activate(next) }
+		if target == "stack-next" || target == "stack-prev" || target == "recent" { arrange() }
+
 		tracker.focus(next)
 		return .success()
 	}
