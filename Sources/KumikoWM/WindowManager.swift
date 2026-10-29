@@ -878,7 +878,7 @@ public final class WindowManager {
 		// A resize reflows the layout while the edge is still being pulled, the way yabai does:
 		// the splits follow the window and the neighbours move with them. The window under the
 		// mouse is left to the user. A plain drag waits for the drop, which decides where it goes.
-		if abs(frame.width - expected.width) > 2 || abs(frame.height - expected.height) > 2 {
+		if frame.isResized(from: expected) {
 			moveSplits(of: id, from: expected, to: frame, in: workspace)
 
 			for (other, target) in workspace.tree.frames(in: area(of: workspace.display), gap: gap) {
@@ -943,9 +943,7 @@ public final class WindowManager {
 			let workspace = assignment[id], workspace.tree.contains(id)
 		else { return }
 
-		let resized = abs(frame.width - old.width) > 2 || abs(frame.height - old.height) > 2
-
-		if resized {
+		if frame.isResized(from: old) {
 			moveSplits(of: id, from: old, to: frame, in: workspace)
 			return
 		}
@@ -1141,7 +1139,7 @@ public final class WindowManager {
 			}
 
 			if otherWorkspace === workspace {
-				tree.warp(id, to: other, direction: direction)
+				tree.swap(id, other)
 			} else {
 				// Across displays: the window joins the workspace shown there, next to `other`.
 				transfer(id, from: workspace, to: otherWorkspace, near: other)
