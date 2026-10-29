@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.1](https://github.com/aimuzov/kumiko/compare/v0.4.0...v0.4.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* count a drag along one axis as a drag when the other size shifts ([2d38ea7](https://github.com/aimuzov/kumiko/commit/2d38ea76d7d52a23d5871534e58c603b7c7a1649))
+* keep an app's windows in the layout until its unhide shows in them ([a036fd3](https://github.com/aimuzov/kumiko/commit/a036fd34161b3a840ad8bea29a3727621fd613e7))
+* keep the grid when two windows swap places ([25b86b1](https://github.com/aimuzov/kumiko/commit/25b86b10606cd299c5d4ed26e0262db409a15c51))
+* keep the grid when two windows swap places ([8483162](https://github.com/aimuzov/kumiko/commit/84831624986a0a142db653efc1fb9868d961b7eb))
+* keep the windows behind a stack in place through resizes, cycles and leaving the layout ([297efdd](https://github.com/aimuzov/kumiko/commit/297efddf2482b99e9e084c9c8e59a57b6952d97b))
+* keep the windows behind a stack out of sight ([f974bc3](https://github.com/aimuzov/kumiko/commit/f974bc38ea6b65bf46e63dd1b59e0925bf404c70))
+* keep the windows behind a stack out of sight ([5dfe19d](https://github.com/aimuzov/kumiko/commit/5dfe19db4bed21a28e06a0b9e64980b1b225a40b))
+* keep the windows of an app being unhidden in the layout ([95c216b](https://github.com/aimuzov/kumiko/commit/95c216b50517143227278dfa8c4c97ce14926dc2))
+* let a window back in a stack go off screen again before its float frame lands ([b9d6500](https://github.com/aimuzov/kumiko/commit/b9d65000720e3c5cbf707a213f61a69ea504ee17))
+* resend a frame still on its way and finish a cycle onto the focused window ([77fd11f](https://github.com/aimuzov/kumiko/commit/77fd11f4779903351c108e442d6f3f19564aa08d))
+
 ## [0.4.0](https://github.com/aimuzov/kumiko/compare/v0.3.0...v0.4.0) (2026-10-27)
 
 
