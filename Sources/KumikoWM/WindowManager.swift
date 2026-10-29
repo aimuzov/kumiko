@@ -49,6 +49,8 @@ public final class WindowManager {
 	/// Windows outside the layout being dragged, to bring back on screen at the drop.
 	private var draggedLoose: Set<UInt32> = []
 	private var dragCheckScheduled = false
+	/// Counts focus events, so a wait on one focus can tell that another came since.
+	private var focusChanges = 0
 	private var observers: [(NotificationCenter, any NSObjectProtocol)] = []
 	private let desktopClicks = DesktopClicks()
 
@@ -255,6 +257,7 @@ public final class WindowManager {
 		case let .tabReplaced(old, new):
 			replaceTab(old, with: new)
 		case let .windowFocused(id):
+			focusChanges += 1
 			guard let id else { return }
 			history.removeAll { $0 == id }
 			history.append(id)
@@ -282,10 +285,12 @@ public final class WindowManager {
 	/// the focus stays on it: an app coming forward reports its last window for a moment before the
 	/// one it is about to focus, and that window must not take the stack.
 	private func bringForward(_ id: UInt32, in workspace: Workspace) {
+		// Focus that went away and came back within the wait starts it over.
+		let change = focusChanges
 		DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { [weak self] in
 			MainActor.assumeIsolated {
-				guard let self, self.tracker.focusedWindowID == id, self.assignment[id] === workspace,
-				      workspace.tree.isBehind(id)
+				guard let self, self.focusChanges == change, self.tracker.focusedWindowID == id,
+				      self.assignment[id] === workspace, workspace.tree.isBehind(id)
 				else { return }
 
 				workspace.lastFocused = id
@@ -373,7 +378,11 @@ public final class WindowManager {
 		}
 
 		for workspace in workspaces {
+			let leaves = workspace.tree.frames(in: area(of: workspace.display), gap: gap)
 			for id in workspace.tree.allWindows where !isTiled(id, in: workspace) {
+				// A window behind in a stack is past the edge of the screen; out of the layout (the
+				// workspace turned float, say) it comes back to its leaf, as a hidden window would.
+				if workspace.tree.isBehind(id), hidden[id] == nil { hidden[id] = leaves[id] }
 				workspace.tree.remove(id)
 			}
 		}
@@ -921,7 +930,8 @@ public final class WindowManager {
 		if abs(frame.width - expected.width) > 2 || abs(frame.height - expected.height) > 2 {
 			moveSplits(of: id, from: expected, to: frame, in: workspace)
 
-			for (other, target) in workspace.tree.frames(in: area(of: workspace.display), gap: gap) {
+			for (other, target) in workspace.tree.frames(in: area(of: workspace.display), gap: gap)
+			where !workspace.tree.isBehind(other) {
 				self.expected[other] = target
 				guard other != id else { continue }
 				if let current = tracker.windows[other]?.frame, current.isClose(to: target) { continue }
@@ -1156,11 +1166,13 @@ public final class WindowManager {
 			return .failure("usage: kumiko window focus west|east|north|south|first|last|recent|stack-next|stack-prev")
 		}
 
-		guard let next, next != id else { return .failure("no window there") }
-
 		// A window behind in a stack comes in from past the edge of the screen before it gets focus.
-		if let tree = assignment[next]?.tree, tree.isBehind(next) { tree.activate(next) }
-		if target == "stack-next" || target == "stack-prev" || target == "recent" { arrange() }
+		// A cycle lays the stack out even when it lands on the focused window: focused while still
+		// behind, that one is past the edge too.
+		if let next, let tree = assignment[next]?.tree, tree.isBehind(next) { tree.activate(next) }
+		if next != nil, target == "stack-next" || target == "stack-prev" || target == "recent" { arrange() }
+
+		guard let next, next != id else { return .failure("no window there") }
 
 		tracker.focus(next)
 		return .success()
