@@ -1,5 +1,26 @@
 [
 	{
+		"version": "0.4.1",
+		"date": "2026-10-29",
+		"title": {
+			"ru": "Стопки и обмен окнами держат форму",
+			"en": "Stacks and swaps keep their shape"
+		},
+		"icon": "Layers",
+		"items": {
+			"ru": [
+				"Окна стопки, которые лежат сзади, больше не вылезают поверх переднего, когда ты переключаешь фокус, приложения или рабочие столы: kumiko держит их за краем экрана, пока стопка не дойдёт до них.",
+				"Стопка больше не рассыпается на отдельные окна, когда ты уходишь с рабочего стола и возвращаешься.",
+				"`kumiko window warp` и перетаскивание окна на другое просто меняют их местами: каждое место в сетке сохраняет свой размер."
+			],
+			"en": [
+				"Windows lying behind in a stack no longer come over the one in front when you switch focus, apps or workspaces: kumiko keeps them past the edge of the screen until the stack gets to them.",
+				"A stack no longer falls apart into separate windows when you leave its workspace and come back.",
+				"`kumiko window warp` and dropping one window onto another just trade the two: every place in the grid keeps its size."
+			]
+		}
+	},
+	{
 		"version": "0.4.0",
 		"date": "2026-10-27",
 		"title": {
