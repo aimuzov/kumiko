@@ -732,9 +732,14 @@ public final class WindowManager {
 			// The windows behind in a stack wait past the edge of the screen: sharing the leaf, they
 			// would come over the one in front whenever their app raises its windows.
 			let frame = tree.isBehind(id) ? offScreen(leaf.size, on: workspace.display, displays: displays) : leaf
+			let sent = expected[id]
 			expected[id] = frame
 			hidden[id] = nil
-			if let current = tracker.windows[id]?.frame, current.isClose(to: frame) { continue }
+			// The frame known may predate a move still on its way, past the edge and back for a stack
+			// cycled twice; only a window last sent here and found here is left alone.
+			if let current = tracker.windows[id]?.frame, current.isClose(to: frame), sent?.isClose(to: frame) ?? true {
+				continue
+			}
 			tracker.setFrame(id, frame)
 		}
 
@@ -1147,6 +1152,7 @@ public final class WindowManager {
 
 	private func focus(_ id: UInt32, _ target: String?) -> Response {
 		let tree = assignment[id]?.tree
+		let wasBehind = tree?.isBehind(id) == true
 		let next: UInt32?
 
 		switch target {
@@ -1171,6 +1177,12 @@ public final class WindowManager {
 		// behind, that one is past the edge too.
 		if let next, let tree = assignment[next]?.tree, tree.isBehind(next) { tree.activate(next) }
 		if next != nil, target == "stack-next" || target == "stack-prev" || target == "recent" { arrange() }
+
+		// The cycle brought forward the focused window itself, which was behind: it is done.
+		if next == id, wasBehind {
+			assignment[id]?.lastFocused = id
+			return .success()
+		}
 
 		guard let next, next != id else { return .failure("no window there") }
 
