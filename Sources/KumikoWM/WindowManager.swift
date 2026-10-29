@@ -92,10 +92,7 @@ public final class WindowManager {
 		let token = center.addObserver(forName: NSWorkspace.didUnhideApplicationNotification, object: nil, queue: .main) {
 			[weak self] notification in
 			guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-			MainActor.assumeIsolated {
-				self?.unhiding.remove(app.processIdentifier)
-				self?.rehide(app)
-			}
+			MainActor.assumeIsolated { self?.rehide(app) }
 		}
 		observers.append((center, token))
 
@@ -345,6 +342,11 @@ public final class WindowManager {
 
 		for id in assignment.keys where tracker.windows[id] == nil {
 			assignment[id] = nil
+		}
+
+		// An app is done unhiding once none of its windows says hidden any more.
+		unhiding = unhiding.filter { pid in
+			tracker.windows.values.contains { $0.isHidden && ($0.pid == pid || tracker.owner(of: $0.pid) == pid) }
 		}
 
 		for info in tracker.sortedWindows where assignment[info.id] == nil {
@@ -658,10 +660,8 @@ public final class WindowManager {
 
 		for pid in hiddenApps where visibility[pid] != false || !config.wm.hideApps {
 			hiddenApps.remove(pid)
-			if let app = NSRunningApplication(processIdentifier: pid), app.isHidden {
-				unhiding.insert(pid)
-				app.unhide()
-			}
+			unhiding.insert(pid)
+			NSRunningApplication(processIdentifier: pid)?.unhide()
 			unhidden.insert(pid)
 		}
 
