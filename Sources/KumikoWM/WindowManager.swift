@@ -25,6 +25,9 @@ public final class WindowManager {
 	/// Apps kumiko hid because all their windows are on hidden workspaces. Apps the user hid are
 	/// not here and are left hidden.
 	private var hiddenApps: Set<pid_t> = []
+	/// Apps kumiko unhid that macOS has not reported back yet: their windows still say hidden, and
+	/// must not pass for windows the user hid, or they leave the layout and come back one by one.
+	private var unhiding: Set<pid_t> = []
 	private var hidingScheduled = false
 	private var pendingUnhides: Set<pid_t> = []
 	/// Hiding an app hands focus to some other app, maybe one with a window on another hidden
@@ -49,6 +52,8 @@ public final class WindowManager {
 	/// Windows outside the layout being dragged, to bring back on screen at the drop.
 	private var draggedLoose: Set<UInt32> = []
 	private var dragCheckScheduled = false
+	/// Counts focus events, so a wait on one focus can tell that another came since.
+	private var focusChanges = 0
 	private var observers: [(NotificationCenter, any NSObjectProtocol)] = []
 	private let desktopClicks = DesktopClicks()
 
@@ -138,6 +143,15 @@ public final class WindowManager {
 			tracker.setFrame(id, frame)
 		}
 		hidden = [:]
+
+		// The windows behind a stack on a shown workspace wait past the edge too, and come back to
+		// their leaf like the rest: with kumiko gone, nothing would ever bring them in again.
+		for workspace in workspaces where isVisible(workspace) {
+			for (id, frame) in workspace.tree.frames(in: area(of: workspace.display), gap: gap)
+			where workspace.tree.isBehind(id) {
+				tracker.setFrame(id, frame)
+			}
+		}
 
 		// Frames are applied in the background; quitting must not cut them off.
 		tracker.flushFrames()
@@ -247,14 +261,19 @@ public final class WindowManager {
 		case let .tabReplaced(old, new):
 			replaceTab(old, with: new)
 		case let .windowFocused(id):
+			focusChanges += 1
 			guard let id else { return }
 			history.removeAll { $0 == id }
 			history.append(id)
 			if history.count > 16 { history.removeFirst() }
 
 			guard let workspace = assignment[id] else { return }
-			workspace.lastFocused = id
-			workspace.tree.activate(id)
+			if workspace.tree.isBehind(id) {
+				bringForward(id, in: workspace)
+			} else {
+				workspace.lastFocused = id
+				workspace.tree.activate(id)
+			}
 
 			// Focus landed on a window of a hidden workspace — cmd-tab, a Dock click, a link opening
 			// in a browser — so that workspace comes into view instead of the window staying unseen.
@@ -263,6 +282,25 @@ public final class WindowManager {
 			}
 		case .configReloaded, .workspacesChanged, .hotkeyModeChanged, .vimModeChanged:
 			break
+		}
+	}
+
+	/// A window behind in a stack that got focus by itself (cmd-tab, the Dock) comes in front, once
+	/// the focus stays on it: an app coming forward reports its last window for a moment before the
+	/// one it is about to focus, and that window must not take the stack.
+	private func bringForward(_ id: UInt32, in workspace: Workspace) {
+		// Focus that went away and came back within the wait starts it over.
+		let change = focusChanges
+		DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { [weak self] in
+			MainActor.assumeIsolated {
+				guard let self, self.focusChanges == change, self.tracker.focusedWindowID == id,
+				      self.assignment[id] === workspace, workspace.tree.isBehind(id)
+				else { return }
+
+				workspace.lastFocused = id
+				workspace.tree.activate(id)
+				self.arrange()
+			}
 		}
 	}
 
@@ -306,6 +344,11 @@ public final class WindowManager {
 			assignment[id] = nil
 		}
 
+		// An app is done unhiding once none of its windows says hidden any more.
+		unhiding = unhiding.filter { pid in
+			tracker.windows.values.contains { $0.isHidden && ($0.pid == pid || tracker.owner(of: $0.pid) == pid) }
+		}
+
 		for info in tracker.sortedWindows where assignment[info.id] == nil {
 			let workspace = workspace(forNew: info, displays: displays)
 			assignment[info.id] = workspace
@@ -344,7 +387,11 @@ public final class WindowManager {
 		}
 
 		for workspace in workspaces {
+			let leaves = workspace.tree.frames(in: area(of: workspace.display), gap: gap)
 			for id in workspace.tree.allWindows where !isTiled(id, in: workspace) {
+				// A window behind in a stack is past the edge of the screen; out of the layout (the
+				// workspace turned float, say) it comes back to its leaf, as a hidden window would.
+				if workspace.tree.isBehind(id), hidden[id] == nil { hidden[id] = leaves[id] }
 				workspace.tree.remove(id)
 			}
 		}
@@ -483,7 +530,8 @@ public final class WindowManager {
 
 	/// Hidden by cmd-h, not by kumiko: a window of an app kumiko hid keeps its place in the layout.
 	private func isHiddenByUser(_ info: WindowInfo) -> Bool {
-		info.isHidden && !hiddenApps.contains(info.pid) && !hiddenApps.contains(tracker.owner(of: info.pid))
+		let pids = [info.pid, tracker.owner(of: info.pid)]
+		return info.isHidden && !pids.contains { hiddenApps.contains($0) || unhiding.contains($0) }
 	}
 
 	/// Puts a window into its workspace's layout, then applies the workspace's layout rules.
@@ -563,7 +611,7 @@ public final class WindowManager {
 		let unhidden = unhideApps()
 
 		for workspace in workspaces where isVisible(workspace) {
-			layout(workspace)
+			layout(workspace, displays: displays)
 		}
 
 		scheduleHiding(displays, after: unhidden)
@@ -612,6 +660,7 @@ public final class WindowManager {
 
 		for pid in hiddenApps where visibility[pid] != false || !config.wm.hideApps {
 			hiddenApps.remove(pid)
+			unhiding.insert(pid)
 			NSRunningApplication(processIdentifier: pid)?.unhide()
 			unhidden.insert(pid)
 		}
@@ -687,24 +736,36 @@ public final class WindowManager {
 		}
 	}
 
-	private func layout(_ workspace: Workspace) {
-		for (id, frame) in workspace.tree.frames(in: area(of: workspace.display), gap: gap) {
+	private func layout(_ workspace: Workspace, displays: [Display]) {
+		let tree = workspace.tree
+
+		for (id, leaf) in tree.frames(in: area(of: workspace.display), gap: gap) {
+			// The windows behind in a stack wait past the edge of the screen: sharing the leaf, they
+			// would come over the one in front whenever their app raises its windows.
+			let frame = tree.isBehind(id) ? offScreen(leaf.size, on: workspace.display, displays: displays) : leaf
+			let sent = expected[id]
 			expected[id] = frame
 			hidden[id] = nil
-			if let current = tracker.windows[id]?.frame, current.isClose(to: frame) { continue }
+			// The frame known may predate a move still on its way, past the edge and back for a stack
+			// cycled twice; only a window last sent here and found here is left alone.
+			if let current = tracker.windows[id]?.frame, current.isClose(to: frame), sent?.isClose(to: frame) ?? true {
+				continue
+			}
 			tracker.setFrame(id, frame)
 		}
 
 		// Windows that are not tiled come back to where they were before the workspace was hidden.
 		for id in windows(of: workspace) where !workspace.tree.contains(id) {
 			if let frame = hidden.removeValue(forKey: id) {
+				// Remembered as sent, so a window back in a stack before this lands is sent off again.
+				expected[id] = frame
 				tracker.setFrame(id, frame)
 			}
 		}
 	}
 
 	private func hide(_ workspace: Workspace, displays: [Display]) {
-		let others = displays.filter { $0 != workspace.display }.map(\.frame)
+		let leaves = workspace.tree.frames(in: area(of: workspace.display), gap: gap)
 
 		for id in windows(of: workspace) where hidden[id] == nil {
 			// A tab behind is off screen already and moves with the tab in front.
@@ -712,10 +773,16 @@ public final class WindowManager {
 			      !info.isBackgroundTab
 			else { continue }
 
-			hidden[id] = info.frame
-			let origin = Display.hiddenOrigin(for: info.frame.size, on: workspace.display.frame, others: others)
-			tracker.setFrame(id, CGRect(origin: origin, size: info.frame.size))
+			// A window behind in a stack may be past the edge already; it is to come back to its leaf.
+			hidden[id] = workspace.tree.isBehind(id) ? leaves[id] ?? info.frame : info.frame
+			tracker.setFrame(id, offScreen(info.frame.size, on: workspace.display, displays: displays))
 		}
+	}
+
+	/// A frame of this size in the corner of the display, clear of the other displays.
+	private func offScreen(_ size: CGSize, on display: Display, displays: [Display]) -> CGRect {
+		let others = displays.filter { $0 != display }.map(\.frame)
+		return CGRect(origin: Display.hiddenOrigin(for: size, on: display.frame, others: others), size: size)
 	}
 
 	private var gap: Double { Double(config.wm.gap) }
@@ -881,7 +948,8 @@ public final class WindowManager {
 		if frame.isResized(from: expected) {
 			moveSplits(of: id, from: expected, to: frame, in: workspace)
 
-			for (other, target) in workspace.tree.frames(in: area(of: workspace.display), gap: gap) {
+			for (other, target) in workspace.tree.frames(in: area(of: workspace.display), gap: gap)
+			where !workspace.tree.isBehind(other) {
 				self.expected[other] = target
 				guard other != id else { continue }
 				if let current = tracker.windows[other]?.frame, current.isClose(to: target) { continue }
@@ -1095,6 +1163,7 @@ public final class WindowManager {
 
 	private func focus(_ id: UInt32, _ target: String?) -> Response {
 		let tree = assignment[id]?.tree
+		let wasBehind = tree?.isBehind(id) == true
 		let next: UInt32?
 
 		switch target {
@@ -1114,7 +1183,20 @@ public final class WindowManager {
 			return .failure("usage: kumiko window focus west|east|north|south|first|last|recent|stack-next|stack-prev")
 		}
 
+		// A window behind in a stack comes in from past the edge of the screen before it gets focus.
+		// A cycle lays the stack out even when it lands on the focused window: focused while still
+		// behind, that one is past the edge too.
+		if let next, let tree = assignment[next]?.tree, tree.isBehind(next) { tree.activate(next) }
+		if next != nil, target == "stack-next" || target == "stack-prev" || target == "recent" { arrange() }
+
+		// The cycle brought forward the focused window itself, which was behind: it is done.
+		if next == id, wasBehind {
+			assignment[id]?.lastFocused = id
+			return .success()
+		}
+
 		guard let next, next != id else { return .failure("no window there") }
+
 		tracker.focus(next)
 		return .success()
 	}
