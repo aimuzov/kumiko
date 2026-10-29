@@ -15,6 +15,12 @@ struct FrameChangeTests {
 		#expect(!CGRect(x: 250, y: 180, width: 405, height: 296).isResized(from: old))
 	}
 
+	/// Moved sideways with the height nudged: the top edge stays, and still it is a drag.
+	@Test func aMoveAlongOneAxisWithTheOtherSizeNudgedIsNotAResize() {
+		#expect(!CGRect(x: 250, y: 100, width: 400, height: 296).isResized(from: old))
+		#expect(!CGRect(x: 100, y: 180, width: 405, height: 300).isResized(from: old))
+	}
+
 	@Test func pullingEachEdgeIsAResize() {
 		#expect(CGRect(x: 60, y: 100, width: 440, height: 300).isResized(from: old))
 		#expect(CGRect(x: 100, y: 100, width: 460, height: 300).isResized(from: old))
