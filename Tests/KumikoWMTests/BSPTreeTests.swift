@@ -83,25 +83,6 @@ struct BSPTreeRemoveTests {
 }
 
 struct BSPTreeMoveTests {
-	@Test func siblingsSwapOnWarp() {
-		let tree = tree(1, 2)
-		tree.warp(2, to: 1, direction: .west)
-		#expect(tree.visibleWindows == [2, 1])
-	}
-
-	/// [1 | [2 / 3]]: moving 3 west lands it in the left column, on the side facing where it came
-	/// from, instead of jumping past 1.
-	@Test func warpLandsOnTheSideFacingTheOrigin() {
-		let tree = tree(1, 2, 3)
-		tree.warp(3, to: 1, direction: .west)
-
-		let frames = tree.frames(in: area, gap: 0)
-		#expect(tree.visibleWindows == [1, 3, 2])
-		#expect(frames[2] == rect(500, 0, 500, 600))
-		#expect(frames[1] == rect(0, 0, 250, 600))
-		#expect(frames[3] == rect(250, 0, 250, 600))
-	}
-
 	@Test func swapKeepsTheShape() {
 		let tree = tree(1, 2, 3)
 		let before = tree.frames(in: area, gap: 0)
@@ -109,6 +90,20 @@ struct BSPTreeMoveTests {
 		let after = tree.frames(in: area, gap: 0)
 
 		#expect(after[3] == before[1])
+		#expect(after[1] == before[3])
+		#expect(after[2] == before[2])
+	}
+
+	/// [1 | [2 / 3]] with the column split moved off the middle: 3 and 1 are not siblings, and
+	/// still each takes the other's slot as it was.
+	@Test func swapAcrossSplitsKeepsTheSizes() {
+		let tree = tree(1, 2, 3)
+		tree.setSize(1, 0.3)
+		let before = tree.frames(in: area, gap: 0)
+		tree.swap(3, 1)
+		let after = tree.frames(in: area, gap: 0)
+
+		#expect(after[3] == rect(0, 0, 300, 600))
 		#expect(after[1] == before[3])
 		#expect(after[2] == before[2])
 	}

@@ -18,15 +18,6 @@ enum Direction: String, CaseIterable {
 		}
 	}
 
-	var opposite: Direction {
-		switch self {
-		case .west: .east
-		case .east: .west
-		case .north: .south
-		case .south: .north
-		}
-	}
-
 	/// Whether this side is where a split puts its first child.
 	var isFirstSide: Bool { self == .west || self == .north }
 }
@@ -225,32 +216,7 @@ final class BSPTree {
 
 	// MARK: - Moving windows
 
-	/// Moves `id` next to `target`, on the side facing where it came from, so a window travels one
-	/// step at a time. Two windows that are each other's sibling just trade places.
-	func warp(_ id: UInt32, to target: UInt32, direction: Direction) {
-		guard
-			id != target,
-			let leaf = leafByWindow[id], let targetLeaf = leafByWindow[target],
-			leaf !== targetLeaf
-		else { return }
-
-		if leaf.parent != nil, leaf.parent === targetLeaf.parent, leaf.windows.count == 1, targetLeaf.windows.count == 1 {
-			swap(id, target)
-			return
-		}
-
-		let zoom = zoomed[id]
-		remove(id)
-
-		let moved = Node(windows: [id])
-		leafByWindow[id] = moved
-		zoomed[id] = zoom
-
-		let anchor = leafByWindow[target]!
-		split(anchor, with: moved, axis: direction.axis, newFirst: direction.opposite.isFirstSide)
-	}
-
-	/// Two windows trade places; everything else about the layout stays.
+	/// Two windows trade places; everything else about the layout stays, every slot its size.
 	func swap(_ a: UInt32, _ b: UInt32) {
 		guard
 			a != b,
