@@ -25,6 +25,9 @@ public final class WindowManager {
 	/// Apps kumiko hid because all their windows are on hidden workspaces. Apps the user hid are
 	/// not here and are left hidden.
 	private var hiddenApps: Set<pid_t> = []
+	/// Apps kumiko unhid that macOS has not reported back yet: their windows still say hidden, and
+	/// must not pass for windows the user hid, or they leave the layout and come back one by one.
+	private var unhiding: Set<pid_t> = []
 	private var hidingScheduled = false
 	private var pendingUnhides: Set<pid_t> = []
 	/// Hiding an app hands focus to some other app, maybe one with a window on another hidden
@@ -89,7 +92,10 @@ public final class WindowManager {
 		let token = center.addObserver(forName: NSWorkspace.didUnhideApplicationNotification, object: nil, queue: .main) {
 			[weak self] notification in
 			guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-			MainActor.assumeIsolated { self?.rehide(app) }
+			MainActor.assumeIsolated {
+				self?.unhiding.remove(app.processIdentifier)
+				self?.rehide(app)
+			}
 		}
 		observers.append((center, token))
 
@@ -522,7 +528,8 @@ public final class WindowManager {
 
 	/// Hidden by cmd-h, not by kumiko: a window of an app kumiko hid keeps its place in the layout.
 	private func isHiddenByUser(_ info: WindowInfo) -> Bool {
-		info.isHidden && !hiddenApps.contains(info.pid) && !hiddenApps.contains(tracker.owner(of: info.pid))
+		let pids = [info.pid, tracker.owner(of: info.pid)]
+		return info.isHidden && !pids.contains { hiddenApps.contains($0) || unhiding.contains($0) }
 	}
 
 	/// Puts a window into its workspace's layout, then applies the workspace's layout rules.
@@ -651,7 +658,10 @@ public final class WindowManager {
 
 		for pid in hiddenApps where visibility[pid] != false || !config.wm.hideApps {
 			hiddenApps.remove(pid)
-			NSRunningApplication(processIdentifier: pid)?.unhide()
+			if let app = NSRunningApplication(processIdentifier: pid), app.isHidden {
+				unhiding.insert(pid)
+				app.unhide()
+			}
 			unhidden.insert(pid)
 		}
 
