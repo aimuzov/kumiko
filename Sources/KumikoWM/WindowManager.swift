@@ -141,7 +141,8 @@ public final class WindowManager {
 		}
 		hidden = [:]
 
-		// The windows behind a stack on a shown workspace wait past the edge too.
+		// The windows behind a stack on a shown workspace wait past the edge too, and come back to
+		// their leaf like the rest: with kumiko gone, nothing would ever bring them in again.
 		for workspace in workspaces where isVisible(workspace) {
 			for (id, frame) in workspace.tree.frames(in: area(of: workspace.display), gap: gap)
 			where workspace.tree.isBehind(id) {
@@ -746,6 +747,8 @@ public final class WindowManager {
 		// Windows that are not tiled come back to where they were before the workspace was hidden.
 		for id in windows(of: workspace) where !workspace.tree.contains(id) {
 			if let frame = hidden.removeValue(forKey: id) {
+				// Remembered as sent, so a window back in a stack before this lands is sent off again.
+				expected[id] = frame
 				tracker.setFrame(id, frame)
 			}
 		}
