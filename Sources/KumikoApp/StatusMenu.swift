@@ -62,7 +62,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let settings = NSMenuItem(title: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
 		settings.target = app
 		settings.image = Self.symbol("gearshape")
-		add([settings])
+		let updates = NSMenuItem(title: "Check for Updates…", action: #selector(AppUpdater.checkForUpdates(_:)), keyEquivalent: "")
+		updates.target = app.updates
+		updates.image = Self.symbol("arrow.triangle.2.circlepath")
+		add([settings, updates])
 
 		add([NSMenuItem(title: "Quit kumiko", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")])
 	}

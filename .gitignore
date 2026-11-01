@@ -3,3 +3,5 @@
 /dist/
 /Vendor/build/
 .DS_Store
+/.codex/secrets/
+/.codex/worktrees/

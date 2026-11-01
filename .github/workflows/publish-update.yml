@@ -1,0 +1,103 @@
+name: Publish update feed
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable release tag with a final Kumiko ZIP, e.g. v0.5.0
+        type: string
+        required: true
+
+concurrency:
+  group: publish-update-feed
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Check release
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          latest=$(gh release view --json tagName --jq .tagName)
+          test "$latest" = "$TAG"
+          gh release view "$TAG" --json isDraft,isPrerelease --jq '(.isDraft == false) and (.isPrerelease == false)' | grep -qx true
+          mkdir -p dist/update-archive
+          gh release download "$TAG" --pattern "Kumiko-${TAG#v}.zip" --dir dist/update-archive
+          gh release view "$TAG" --json body --jq .body > dist/release-notes.md
+
+      - name: Resolve Sparkle tools
+        run: swift package resolve
+
+      - name: Test appcast generation
+        run: python3 scripts/test_appcast.py
+
+      - name: Generate signed feed
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SPARKLE_PRIVATE_KEY"
+          umask 077
+          key="$RUNNER_TEMP/sparkle-private.key"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$key"
+          unset SPARKLE_PRIVATE_KEY
+          python3 scripts/appcast.py "$TAG" "dist/update-archive/Kumiko-${TAG#v}.zip" dist/update-feed \
+            --private-key-file "$key" --release-notes dist/release-notes.md
+
+      - name: Publish feed
+        run: |
+          set -euo pipefail
+          latest=$(gh release view --json tagName --jq .tagName)
+          test "$latest" = "$TAG"
+          if ! gh release view updates >/dev/null 2>&1; then
+            gh release create updates --prerelease --target main --title "Update feed" \
+              --notes "Stable Sparkle feed for Kumiko. Download the app from the latest stable release."
+          fi
+          staging=$(mktemp -d)
+          staged_name="appcast-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.xml"
+          cp dist/update-feed/appcast.xml "$staging/$staged_name"
+          asset_api="repos/$GITHUB_REPOSITORY/releases/assets"
+          rollback_asset_id=""
+          restore_previous() {
+            if [ -n "$rollback_asset_id" ]; then
+              gh api --method PATCH "$asset_api/$rollback_asset_id" -f name=appcast.xml || \
+                echo "::error::Could not restore the previous feed asset $rollback_asset_id"
+            fi
+          }
+          trap restore_previous EXIT
+          trap 'exit 1' INT TERM
+          for release_tag in "$TAG" updates; do
+            gh release upload "$release_tag" "$staging/$staged_name"
+            release=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag")
+            staged_id=$(printf '%s' "$release" | jq -r --arg name "$staged_name" '.assets[] | select(.name == $name) | .id')
+            test -n "$staged_id"
+            gh release download "$release_tag" --pattern "$staged_name" --dir "$staging/verify-$release_tag"
+            cmp dist/update-feed/appcast.xml "$staging/verify-$release_tag/$staged_name"
+            previous_id=$(printf '%s' "$release" | jq -r '.assets[] | select(.name == "appcast.xml") | .id')
+            if [ -n "$previous_id" ]; then
+              rollback_asset_id="$previous_id"
+              gh api --method PATCH "$asset_api/$previous_id" -f "name=appcast-previous-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.xml"
+            fi
+            gh api --method PATCH "$asset_api/$staged_id" -f name=appcast.xml
+            rollback_asset_id=""
+            if [ -n "$previous_id" ]; then
+              gh api --method DELETE "$asset_api/$previous_id" || echo "::warning::Previous feed asset $previous_id was retained"
+            fi
+          done

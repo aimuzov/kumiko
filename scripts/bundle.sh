@@ -25,15 +25,22 @@ osax=$("$root/scripts/osax.sh")
 
 version=$(sed -n 's/.*static let version = "\(.*\)".*/\1/p' "$root/Sources/KumikoCore/Version.swift")
 identifier=$(sed -n 's/.*static let bundleIdentifier = "\(.*\)".*/\1/p' "$root/Sources/KumikoCore/Version.swift")
+sparkle_key=$(cat "$root/Resources/sparkle-public-key")
+if ! printf '%s' "$sparkle_key" | /usr/bin/base64 -D > /dev/null 2>&1 ||
+	[ "$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | wc -c | tr -d ' ')" != 32 ]; then
+	echo "Resources/sparkle-public-key must contain a base64-encoded Ed25519 public key" >&2
+	exit 1
+fi
 
 swift build --package-path "$root" -c "$configuration"
 bin=$(swift build --package-path "$root" -c "$configuration" --show-bin-path)
 
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 
 cp "$bin/KumikoApp" "$app/Contents/MacOS/KumikoApp"
 cp "$bin/kumiko" "$app/Contents/MacOS/kumiko"
+ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 # `kumiko sa install` copies these into /Library/ScriptingAdditions and signs them there.
 cp -R "$osax" "$app/Contents/Resources/osax"
 
@@ -70,6 +77,18 @@ cat >"$app/Contents/Info.plist" <<PLIST
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/aimuzov/kumiko/releases/download/updates/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>$sparkle_key</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUSendProfileInfo</key>
+	<false/>
 </dict>
 </plist>
 PLIST
@@ -92,7 +111,14 @@ for binary in "$app/Contents/MacOS/KumikoApp" "$app/Contents/MacOS/kumiko"; do
 	xcrun vtool -set-build-version macos 14.0 "$sdk" -replace -output "$binary" "$binary"
 done
 
-# The CLI is signed first: signing the bundle seals what is inside it.
+framework="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
+for code in "$framework/Autoupdate" "$framework/Updater.app" \
+	"$framework/XPCServices/Downloader.xpc" "$framework/XPCServices/Installer.xpc" \
+	"$app/Contents/Frameworks/Sparkle.framework"; do
+	codesign --force --options runtime --preserve-metadata=entitlements --sign "$identity" "$code"
+done
+
+# Signing the bundle seals the CLI and the updater inside it.
 codesign --force --options runtime --sign "$identity" "$app/Contents/MacOS/kumiko"
 codesign --force --options runtime --sign "$identity" "$app"
 

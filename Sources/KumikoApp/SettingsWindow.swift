@@ -24,14 +24,14 @@ final class SettingsWindow {
 	private(set) var isOpen = false
 
 	init(app: AppDelegate) {
-		model = SettingsModel(configFile: app.paths.configFile, config: app.config, error: app.configError?.description)
+		model = SettingsModel(configFile: app.paths.configFile, config: app.config, error: app.configError?.description, updates: app.updates)
 		bringForward = { [weak app] in app?.tracker?.bringKumikoForward() }
 		tile = { [weak app] window in app?.tracker?.track(own: window) }
 		isTiled = { [weak app] window in
 			app?.tracker?.windows[UInt32(max(window.windowNumber, 0))]?.isManaged == true
 		}
 		model.onRenameWorkspace = { [weak app] old, new in app?.manager?.rename(old, to: new) }
-		model.pauseHotkeys = { [weak app] paused in app?.hotkeys?.isPaused = paused }
+		model.pauseHotkeys = { [weak app] paused in app?.setRecordingHotkeys(paused) }
 		// Sent before the page changes, so the window is wide enough by the time it is drawn.
 		paneObserver = model.$pane.sink { [weak self] pane in self?.fit(pane) }
 
@@ -166,6 +166,7 @@ final class SettingsWindow {
 @MainActor
 final class SettingsModel: ObservableObject {
 	let configFile: URL
+	let updates: AppUpdater
 	@Published private(set) var config: Config
 	@Published private(set) var error: String?
 	/// Why the last change made here was not written.
@@ -256,8 +257,9 @@ final class SettingsModel: ObservableObject {
 	/// The preset the dialog of the General page asks about, made for the apps found when it opened.
 	@Published var pendingRecommended: RecommendedSettings.Result?
 	private var pendingBorderColor: DispatchWorkItem?
-	init(configFile: URL, config: Config, error: String?) {
+	init(configFile: URL, config: Config, error: String?, updates: AppUpdater) {
 		self.configFile = configFile
+		self.updates = updates
 		self.config = config
 		self.error = error
 		screensObserver = NotificationCenter.default.addObserver(
@@ -837,7 +839,7 @@ private struct Page: View {
 			switch model.pane {
 			case .general: GeneralPage(model: model)
 			case .advanced: AdvancedPage(model: model)
-			case .about: AboutPage()
+			case .about: AboutPage(updates: model.updates)
 			case .windows: WindowsPage(model: model)
 			case .workspaces: WorkspacesPage(model: model)
 			case .rules: RulesPage(model: model)
@@ -1228,10 +1230,26 @@ private struct AdvancedPage: View {
 }
 
 private struct AboutPage: View {
+	@ObservedObject var updates: AppUpdater
+
 	var body: some View {
 		Card {
 			Row("Version", value: Kumiko.version)
-			Row("Command line", value: "kumiko --help", last: true)
+			Row("Command line", value: "kumiko --help")
+			SwitchRow(
+				title: "Check for updates automatically",
+				detail: "Check GitHub Releases in the background. Updates are installed only when you approve.",
+				on: Binding(get: { updates.automaticallyChecksForUpdates }, set: { updates.setAutomaticallyChecksForUpdates($0) }),
+				disabled: !updates.isAvailable
+			)
+			Row(
+				title: "Updates",
+				detail: updates.isAvailable ? nil : "Updates are unavailable in this build.",
+				last: true
+			) {
+				Button("Check for Updates…") { updates.checkForUpdates(nil) }
+					.disabled(!updates.canCheckForUpdates)
+			}
 		}
 	}
 }
