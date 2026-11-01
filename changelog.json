@@ -1,5 +1,24 @@
 [
 	{
+		"version": "0.4.2",
+		"date": "2026-11-01",
+		"title": {
+			"ru": "Хоткеи работают и в полях пароля",
+			"en": "Hotkeys keep working in password fields"
+		},
+		"icon": "Keyboard",
+		"items": {
+			"ru": [
+				"Хоткеи вроде Alt+1 и Alt+2 продолжают переключать рабочие столы, даже когда курсор стоит в поле пароля.",
+				"Увеличенные иконки приложений возвращаются к обычному размеру при уходе курсора и смене Space, больше не оставаясь поверх полноэкранных приложений."
+			],
+			"en": [
+				"Hotkeys such as Alt+1 and Alt+2 keep switching workspaces while a password field has focus.",
+				"Magnified app icons return to their normal size when the pointer leaves or you change Spaces, and no longer stay over fullscreen apps."
+			]
+		}
+	},
+	{
 		"version": "0.4.1",
 		"date": "2026-10-29",
 		"title": {
