@@ -1,5 +1,24 @@
 [
 	{
+		"version": "0.5.0",
+		"date": "2026-11-01",
+		"title": {
+			"ru": "Обновления прямо из приложения",
+			"en": "Update without leaving the app"
+		},
+		"icon": "Download",
+		"items": {
+			"ru": [
+				"Kumiko сам проверяет новые версии и предлагает обновиться. Скачивание, установка и перезапуск начинаются только после твоего подтверждения.",
+				"Если обновление доступно, значок в строке меню меняется на стрелку. В меню и на странице About есть Check for Updates, а фоновую проверку можно выключить в About."
+			],
+			"en": [
+				"Kumiko checks for new versions and offers to update. Downloading, installation and relaunch start only after you approve.",
+				"A download arrow in the menu bar tells you an update is available. Check now from the menu or About, or turn background checks off in About."
+			]
+		}
+	},
+	{
 		"version": "0.4.2",
 		"date": "2026-11-01",
 		"title": {
