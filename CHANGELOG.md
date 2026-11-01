@@ -6,7 +6,6 @@
 ### Features
 
 * add Sparkle app updates ([17a1079](https://github.com/aimuzov/kumiko/commit/17a1079bc5f4d90f7ec381f21a0b8fa5cd99dd42))
-* add Sparkle app updates ([7ae5705](https://github.com/aimuzov/kumiko/commit/7ae570531dfbe0528a628207e573ce10aaf8a4a7))
 
 
 ### Bug Fixes
