@@ -89,6 +89,7 @@ public final class Bar {
 			self?.matchDesktop()
 		}
 		observe(NSWorkspace.shared.notificationCenter, NSWorkspace.activeSpaceDidChangeNotification) { [weak self] in
+			self?.model.resetHover()
 			self?.matchDesktop()
 		}
 
@@ -118,6 +119,7 @@ public final class Bar {
 
 	/// One bar per screen, at the edge the config names, inside the menu bar and the Dock.
 	private func layoutWindows() {
+		model.resetHover()
 		guard config.enabled else {
 			windows.values.forEach { $0.orderOut(nil) }
 			windows = [:]
@@ -213,6 +215,9 @@ public final class Bar {
 			model.vimCommandLine = commandLine
 		case .windowFrameChanged:
 			break
+		case .workspacesChanged:
+			model.resetWorkspaceHover()
+			scheduleRefresh()
 		case let .windowCreated(info), let .windowChanged(info):
 			followCalendar(info)
 			scheduleRefresh()
@@ -451,7 +456,7 @@ private final class MagnifierWindow: NSPanel {
 		hidesOnDeactivate = false
 		// Over ordinary and floating windows, as the Dock's magnified icons are; under menus.
 		level = .statusBar
-		collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+		collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
 
 		contentView = NSHostingView(rootView: rootView)
 	}

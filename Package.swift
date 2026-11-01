@@ -82,6 +82,10 @@ let package = Package(
 			dependencies: ["KumikoHotkeys"]
 		),
 		.testTarget(
+			name: "KumikoBarTests",
+			dependencies: ["KumikoBar"]
+		),
+		.testTarget(
 			name: "KumikoVimTests",
 			dependencies: ["KumikoVim"]
 		),
