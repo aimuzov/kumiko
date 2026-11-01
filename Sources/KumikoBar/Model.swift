@@ -109,12 +109,17 @@ final class BarModel {
 	/// The label's own width, to keep it inside the screen.
 	var tooltipWidth = 0.0
 
-	func resetHover(keepingBar: Bool = false) {
+	func resetWorkspaceHover() {
 		pointer = nil
 		hoveredWorkspace = nil
+		if tooltip?.key.contains(":workspace:") == true { tooltip = nil }
+	}
+
+	func resetHover() {
+		resetWorkspaceHover()
 		hoveredItem = nil
 		hoveredPlus = nil
-		if !keepingBar { hoveredBar = nil }
+		hoveredBar = nil
 		tooltip = nil
 	}
 }

@@ -29,11 +29,25 @@ struct HoverTests {
 		model.hoveredBar = 1
 		model.pointer = BarModel.Pointer(workspace: "1", x: 10, largest: 64, isOver: true)
 		model.hoveredWorkspace = "1"
+		model.hoveredItem = "1 battery"
+		model.hoveredPlus = 1
+		let tooltip = Tooltip(key: "1:battery", display: 1, frame: .zero)
+		model.tooltip = tooltip
 
-		model.resetHover(keepingBar: true)
+		model.resetWorkspaceHover()
 
 		#expect(model.hoveredBar == 1)
 		#expect(model.pointer == nil)
 		#expect(model.hoveredWorkspace == nil)
+		#expect(model.hoveredItem == "1 battery")
+		#expect(model.hoveredPlus == 1)
+		#expect(model.tooltip == tooltip)
+	}
+
+	@Test func switchingWorkspaceClearsItsTooltip() {
+		let model = BarModel()
+		model.tooltip = Tooltip(key: "1:workspace:1", display: 1, frame: .zero)
+		model.resetWorkspaceHover()
+		#expect(model.tooltip == nil)
 	}
 }

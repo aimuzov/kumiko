@@ -216,7 +216,7 @@ public final class Bar {
 		case .windowFrameChanged:
 			break
 		case .workspacesChanged:
-			model.resetHover(keepingBar: true)
+			model.resetWorkspaceHover()
 			scheduleRefresh()
 		case let .windowCreated(info), let .windowChanged(info):
 			followCalendar(info)
