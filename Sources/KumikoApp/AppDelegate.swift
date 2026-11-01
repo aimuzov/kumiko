@@ -11,6 +11,7 @@ import KumikoWM
 final class AppDelegate: NSObject, NSApplicationDelegate {
 	let paths: Paths
 	let bus = EventBus()
+	let updates = AppUpdater()
 
 	private(set) var config = Config()
 	/// The reason the last reload failed; the previous config stays in force until it is fixed.
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	private(set) var menuBar: MenuBarHider?
 	private var vim: Vim?
 	private var windowServer: WindowServerEvents?
+	private var recordingHotkeys = false
 
 	private var server: IPCServer?
 	private var watcher: ConfigWatcher?
@@ -98,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		self.menuBar = menuBar
 		self.vim = vim
 		self.hotkeys = hotkeys
+		updates.onInteractionChanged = { [weak self] in self?.refreshHotkeysPause() }
 		self.borders = borders
 
 		bus.subscribe { [weak self] event in
@@ -133,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		statusMenu.onAppearanceChange = { bar.followMenuBar($0) }
 		self.statusMenu = statusMenu
 		Onboarding.runIfNeeded()
+		updates.start()
 
 		Log.app.info("kumiko \(Kumiko.version, privacy: .public) started")
 	}
@@ -140,6 +144,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	/// Sent by "Settings…" in the status menu and in the app menu.
 	@objc func showSettings(_ sender: Any?) {
 		settings.show()
+	}
+
+	func setRecordingHotkeys(_ recording: Bool) {
+		recordingHotkeys = recording
+		refreshHotkeysPause()
+	}
+
+	private func refreshHotkeysPause() {
+		hotkeys?.isPaused = recordingHotkeys || updates.needsKeyboard
 	}
 
 	/// `kumiko settings [pane]`; false when there is no pane by that name.

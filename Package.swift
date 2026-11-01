@@ -15,6 +15,7 @@ let package = Package(
 	dependencies: [
 		.package(url: "https://github.com/dduan/TOMLDecoder", from: "0.4.5"),
 		.package(url: "https://github.com/getsentry/sentry-cocoa", from: "9.30.0"),
+		.package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.1"),
 	],
 	targets: [
 		.target(
@@ -61,7 +62,9 @@ let package = Package(
 			dependencies: [
 				"KumikoCore", "KumikoWM", "KumikoHotkeys", "KumikoBorders", "KumikoBar", "KumikoMenuBar", "KumikoVim",
 				.product(name: "Sentry", package: "sentry-cocoa"),
-			]
+				.product(name: "Sparkle", package: "Sparkle"),
+			],
+			linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
 		),
 		// The product is called `kumiko`, the target is not: macOS file systems are case-insensitive,
 		// so a `kumiko` target next to `KumikoApp`'s module would fight over the same build paths.

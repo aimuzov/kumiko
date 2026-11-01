@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import KumikoCore
 import KumikoWM
 
@@ -10,6 +11,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 	private let menu = NSMenu()
 	private var appearanceObservation: NSKeyValueObservation?
+	private var updateObservation: AnyCancellable?
 
 	/// Called with the look macOS gives the menu bar, light or dark after the desktop under it,
 	/// now and whenever it changes.
@@ -29,6 +31,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		item.button?.image = Self.mark
 		menu.delegate = self
 		item.menu = menu
+		updateObservation = app.updates.$updateAvailable.sink { [weak self] available in
+			guard let self else { return }
+			item.button?.image = available ? Self.symbol("arrow.down.circle.fill") : Self.mark
+			item.button?.toolTip = available ? "kumiko: update available" : "kumiko"
+			item.button?.setAccessibilityLabel(available ? "kumiko, update available" : "kumiko")
+		}
 	}
 
 	func menuNeedsUpdate(_ menu: NSMenu) {
@@ -62,7 +70,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let settings = NSMenuItem(title: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
 		settings.target = app
 		settings.image = Self.symbol("gearshape")
-		add([settings])
+		let updates = NSMenuItem(
+			title: app.updates.updateAvailable ? "Update Available…" : "Check for Updates…",
+			action: #selector(AppUpdater.checkForUpdates(_:)), keyEquivalent: ""
+		)
+		updates.target = app.updates
+		updates.image = Self.symbol("arrow.triangle.2.circlepath")
+		add([settings, updates])
 
 		add([NSMenuItem(title: "Quit kumiko", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")])
 	}
