@@ -120,7 +120,11 @@ done
 
 # Signing the bundle seals the CLI and the updater inside it.
 codesign --force --options runtime --sign "$identity" "$app/Contents/MacOS/kumiko"
-codesign --force --options runtime --sign "$identity" "$app"
+if [ -n "${KUMIKO_SIGN_IDENTITY:-}" ]; then
+	codesign --force --options runtime --sign "$identity" "$app"
+else
+	codesign --force --options runtime --entitlements "$root/Resources/local.entitlements" --sign "$identity" "$app"
+fi
 
 # Crashes reach Sentry as addresses, and only the debug symbols of the very binary that crashed
 # turn them back into code. A release shipped without them is a release whose crashes nobody can

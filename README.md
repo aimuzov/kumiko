@@ -47,6 +47,9 @@ relaunch start after you approve.
 Use Check for Updates in the menu or on the About page to check now. The same page lets you turn
 background checks off.
 
+When an update is available, the menu bar icon becomes a download arrow. Open its menu and choose
+Update Available to bring up the update dialog.
+
 Updates use Sparkle and signed release archives. See [Preparing updates](docs/updates.md) for the
 release steps.
 

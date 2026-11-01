@@ -8,6 +8,7 @@ final class AppUpdater: NSObject, ObservableObject, NSMenuItemValidation, SPUSta
 	let isAvailable = UpdateConfiguration(bundleURL: Bundle.main.bundleURL, info: Bundle.main.infoDictionary ?? [:]) != nil
 	@Published private(set) var canCheckForUpdates = false
 	@Published private(set) var automaticallyChecksForUpdates = false
+	@Published private(set) var updateAvailable = false
 	var onInteractionChanged: () -> Void = {}
 	var needsKeyboard: Bool {
 		guard NSApplication.shared.isActive else { return false }
@@ -53,6 +54,16 @@ final class AppUpdater: NSObject, ObservableObject, NSMenuItemValidation, SPUSta
 	}
 
 	func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { canCheckForUpdates }
+
+	nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
+
+	nonisolated func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
+		MainActor.assumeIsolated { updateAvailable = true }
+	}
+
+	nonisolated func standardUserDriverWillFinishUpdateSession() {
+		MainActor.assumeIsolated { updateAvailable = false }
+	}
 
 	nonisolated func standardUserDriverWillShowModalAlert() {
 		MainActor.assumeIsolated {
