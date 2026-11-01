@@ -5,7 +5,6 @@
 
 ### Bug Fixes
 
-* keep hotkeys working in password fields and clear stale bar hover ([efd3b8f](https://github.com/aimuzov/kumiko/commit/efd3b8fea8d8f9c588c834a4800af63267611270))
 * keep hotkeys working in password fields and clear stale bar hover ([6dee5b1](https://github.com/aimuzov/kumiko/commit/6dee5b1803a8429f207d9af0af9c20070f4bba02))
 * preserve hover on unchanged bar items when switching workspaces ([7bdbbcd](https://github.com/aimuzov/kumiko/commit/7bdbbcd9cbbca379a4d528c14258c7b6c1fe68b7))
 
