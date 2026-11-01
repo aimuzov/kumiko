@@ -29,7 +29,13 @@ struct BarView: View {
 		.foregroundStyle(config.colors.text.map(Color.init) ?? Color(nsColor: .labelColor))
 		.symbolRenderingMode(.monochrome)
 		.environment(\.barDisplay, display)
-		.onHover { model.hoveredBar = $0 ? display : nil }
+		.onHover { over in
+			if over {
+				model.hoveredBar = display
+			} else if model.hoveredBar == display {
+				model.resetHover()
+			}
+		}
 	}
 
 	@ViewBuilder

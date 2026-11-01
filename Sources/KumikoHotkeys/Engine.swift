@@ -117,7 +117,8 @@ struct Engine {
 	}
 
 	mutating func handle(
-		_ event: KeyEvent, frontmostApp: String?, now: TimeInterval = ProcessInfo.processInfo.systemUptime
+		_ event: KeyEvent, frontmostApp: String?, now: TimeInterval = ProcessInfo.processInfo.systemUptime,
+		registeredCombo: KeyCombo? = nil
 	) -> (Decision, [Effect]) {
 		if !event.isDown {
 			return (held.removeValue(forKey: event.keyCode) ?? .pass, [])
@@ -125,7 +126,7 @@ struct Engine {
 
 		// A key after the timeout is the default mode's, so it reaches the app as it was typed.
 		let expired = expire(at: now)
-		let (decision, effects) = decide(event, frontmostApp: frontmostApp)
+		let (decision, effects) = decide(event, frontmostApp: frontmostApp, registeredCombo: registeredCombo)
 		if mode != "default" { lastKey = now }
 		return (decision, expired + effects)
 	}
@@ -136,14 +137,20 @@ struct Engine {
 		return [.modeChanged(mode)]
 	}
 
-	private mutating func decide(_ event: KeyEvent, frontmostApp: String?) -> (Decision, [Effect]) {
+	private mutating func decide(_ event: KeyEvent, frontmostApp: String?, registeredCombo: KeyCombo?) -> (Decision, [Effect]) {
 		if let app = frontmostApp, config.blacklist.contains(app) {
 			return (.pass, [])
 		}
 
 		let table = mode == "default" ? config.bindings : config.modes[mode] ?? [:]
 
-		guard let action = Self.match(event, in: table) ?? Self.match(event, in: config.global) else {
+		let action: HotkeyAction?
+		if let registeredCombo {
+			action = table[registeredCombo] ?? config.global[registeredCombo]
+		} else {
+			action = Self.match(event, in: table) ?? Self.match(event, in: config.global)
+		}
+		guard let action else {
 			if mode == "default" { return (.pass, []) }
 
 			// A mode with no way out must not trap the keyboard.

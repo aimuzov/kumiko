@@ -108,4 +108,13 @@ final class BarModel {
 	var itemFrames: [String: CGRect] = [:]
 	/// The label's own width, to keep it inside the screen.
 	var tooltipWidth = 0.0
+
+	func resetHover(keepingBar: Bool = false) {
+		pointer = nil
+		hoveredWorkspace = nil
+		hoveredItem = nil
+		hoveredPlus = nil
+		if !keepingBar { hoveredBar = nil }
+		tooltip = nil
+	}
 }

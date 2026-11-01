@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import KumikoCore
 
 /// The keyboard side of kumiko: an event tap that runs every key press through the engine and
@@ -17,6 +18,10 @@ public final class Hotkeys {
 	/// Ends the mode at its timeout, so the bar stops showing it before the next key comes.
 	private var modeTimer: Timer?
 	private var activationObserver: (any NSObjectProtocol)?
+	private var secureInputTimer: Timer?
+	private lazy var secureHotkeys = SecureHotkeys { [weak self] combo in
+		self?.handleSecureHotkey(combo)
+	}
 
 	public var mode: String { engine.mode }
 
@@ -25,7 +30,9 @@ public final class Hotkeys {
 	public var passthrough: (@MainActor (CGEvent, Bool) -> Bool)?
 	public var isRunning: Bool { tap != nil }
 	/// Every key goes through untouched, Vim's too: the settings window records a shortcut.
-	public var isPaused = false
+	public var isPaused = false {
+		didSet { refreshSecureHotkeys() }
+	}
 
 	/// `run` executes a kumiko command, the same way the CLI does.
 	public init(bus: EventBus, config: Config.Hotkeys, run: @escaping Runner) {
@@ -40,6 +47,7 @@ public final class Hotkeys {
 			MainActor.assumeIsolated {
 				guard let self else { return }
 				self.apply(self.engine.appActivated(at: ProcessInfo.processInfo.systemUptime))
+				self.refreshSecureHotkeys()
 			}
 		}
 	}
@@ -65,6 +73,9 @@ public final class Hotkeys {
 	public func stop() {
 		permissionTimer?.invalidate()
 		permissionTimer = nil
+		secureInputTimer?.invalidate()
+		secureInputTimer = nil
+		secureHotkeys.stop()
 
 		if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
 		if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
@@ -81,12 +92,13 @@ public final class Hotkeys {
 		scheduleExpiry()
 
 		if config.enabled { start() } else { stop() }
+		refreshSecureHotkeys()
 	}
 
 	private func install() -> Bool {
 		guard config.enabled, tap == nil, AXIsProcessTrusted(), CGPreflightListenEventAccess() else { return false }
 
-		let mask = [CGEventType.keyDown, .keyUp, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+		let mask = [CGEventType.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown]
 			.reduce(0) { $0 | 1 << $1.rawValue }
 		let refcon = Unmanaged.passUnretained(self).toOpaque()
 
@@ -105,13 +117,40 @@ public final class Hotkeys {
 
 		self.tap = tap
 		self.source = source
+		let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+			MainActor.assumeIsolated { self?.refreshSecureHotkeys() }
+		}
+		secureInputTimer = timer
+		RunLoop.main.add(timer, forMode: .common)
+		refreshSecureHotkeys()
 		return true
+	}
+
+	private func refreshSecureHotkeys() {
+		guard tap != nil, config.enabled, !isPaused, IsSecureEventInputEnabled(),
+		      !(Self.frontmostApp().map { config.blacklist.contains($0) } ?? false) else {
+			secureHotkeys.update([])
+			return
+		}
+		secureHotkeys.update(SecureHotkeys.bindings(config, mode: engine.mode))
+	}
+
+	private func handleSecureHotkey(_ combo: KeyCombo) {
+		guard !isPaused, config.enabled else { return }
+		let event = KeyEvent(keyCode: combo.keyCode, modifiers: [], isDown: true)
+		let (_, effects) = engine.handle(event, frontmostApp: Self.frontmostApp(), registeredCombo: combo)
+		_ = engine.handle(KeyEvent(keyCode: combo.keyCode, modifiers: [], isDown: false), frontmostApp: nil)
+		later(effects)
+		scheduleExpiry()
 	}
 
 	/// Runs on the main thread for every key event, so it only decides; commands run afterwards.
 	/// Returns whether the event goes on, rewritten in place when it is remapped.
 	fileprivate func handle(_ type: CGEventType, _ event: CGEvent) -> Bool {
 		switch type {
+		case .flagsChanged:
+			refreshSecureHotkeys()
+			return true
 		case .tapDisabledByTimeout, .tapDisabledByUserInput:
 			// macOS turns a slow tap off; turn it back on, from a clean slate.
 			if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
@@ -185,6 +224,7 @@ public final class Hotkeys {
 			case let .shell(command):
 				Self.shell(command, environment: [:])
 			case let .modeChanged(mode):
+				refreshSecureHotkeys()
 				bus.publish(.hotkeyModeChanged(mode))
 				if let hook = config.onModeChange {
 					Self.shell(hook, environment: ["KUMIKO_MODE": mode])
