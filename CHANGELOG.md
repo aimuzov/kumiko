@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/aimuzov/kumiko/compare/v0.5.0...v0.5.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* build universal releases for Intel and Apple Silicon ([827f959](https://github.com/aimuzov/kumiko/commit/827f95948abe99eef3b92b1817111bd98f2b49b9))
+
 ## [0.5.0](https://github.com/aimuzov/kumiko/compare/v0.4.2...v0.5.0) (2026-11-01)
 
 
