@@ -1,5 +1,22 @@
 [
 	{
+		"version": "0.5.1",
+		"date": "2026-11-07",
+		"title": {
+			"ru": "Kumiko для Mac с Intel",
+			"en": "Kumiko for Intel Macs"
+		},
+		"icon": "Cpu",
+		"items": {
+			"ru": [
+				"Один архив подходит для Mac с Intel и Apple Silicon."
+			],
+			"en": [
+				"The same download works on Intel and Apple Silicon Macs."
+			]
+		}
+	},
+	{
 		"version": "0.5.0",
 		"date": "2026-11-01",
 		"title": {
