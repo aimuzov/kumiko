@@ -18,6 +18,18 @@ configuration=${1:-release}
 root=$(cd "$(dirname "$0")/.." && pwd)
 app="$root/dist/Kumiko.app"
 
+require_archs() {
+	binary=$1
+	shift
+	archs=$(lipo -archs "$binary")
+	for arch do
+		case " $archs " in
+			*" $arch "*) ;;
+			*) echo "Missing $arch in $binary" >&2; return 1 ;;
+		esac
+	done
+}
+
 # The vim module links libvim, which SwiftPM cannot build itself.
 "$root/scripts/libvim.sh" >/dev/null
 # The scripting addition is C built for Dock's arm64e, which SwiftPM cannot target either.
@@ -32,8 +44,12 @@ if ! printf '%s' "$sparkle_key" | /usr/bin/base64 -D > /dev/null 2>&1 ||
 	exit 1
 fi
 
-swift build --package-path "$root" -c "$configuration"
-bin=$(swift build --package-path "$root" -c "$configuration" --show-bin-path)
+set --
+if [ "$configuration" = release ]; then
+	set -- --arch arm64 --arch x86_64
+fi
+swift build --package-path "$root" -c "$configuration" "$@"
+bin=$(swift build --package-path "$root" -c "$configuration" "$@" --show-bin-path)
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
@@ -112,6 +128,18 @@ for binary in "$app/Contents/MacOS/KumikoApp" "$app/Contents/MacOS/kumiko"; do
 done
 
 framework="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
+if [ "$configuration" = release ]; then
+	for binary in "$app/Contents/MacOS/KumikoApp" "$app/Contents/MacOS/kumiko" \
+		"$framework/Sparkle" "$framework/Autoupdate" \
+		"$framework/Updater.app/Contents/MacOS/Updater" \
+		"$framework/XPCServices/Downloader.xpc/Contents/MacOS/Downloader" \
+		"$framework/XPCServices/Installer.xpc/Contents/MacOS/Installer"; do
+		require_archs "$binary" arm64 x86_64
+	done
+	for binary in "$osax/payload" "$osax/loader"; do
+		require_archs "$binary" arm64e x86_64
+	done
+fi
 for code in "$framework/Autoupdate" "$framework/Updater.app" \
 	"$framework/XPCServices/Downloader.xpc" "$framework/XPCServices/Installer.xpc" \
 	"$app/Contents/Frameworks/Sparkle.framework"; do
@@ -133,6 +161,7 @@ if [ "$configuration" = release ]; then
 	dsym="$root/dist/KumikoApp.dSYM"
 	rm -rf "$dsym"
 	dsymutil "$bin/KumikoApp" -o "$dsym"
+	require_archs "$dsym/Contents/Resources/DWARF/KumikoApp" arm64 x86_64
 
 	if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
 		sentry-cli debug-files upload --org "${SENTRY_ORG:-f7b8dd6b2ecf}" --project kumiko --include-sources "$dsym" >&2
