@@ -16,6 +16,7 @@ public final class Shadows {
 	private var timer: Timer?
 	private var connecting = false
 	private var syncing = false
+	private var needsSync = false
 	private var hasChanges = false
 	private let changes = OSAllocatedUnfairLock(initialState: ShadowChanges())
 	private let queue = DispatchQueue(label: "\(Kumiko.bundleIdentifier).shadows")
@@ -70,7 +71,8 @@ public final class Shadows {
 	public var statusDescription: String {
 		let payload = payloadVersion.map { "scripting addition loaded, version \($0)" }
 			?? "scripting addition not loaded: sudo kumiko sa load"
-		return "\(enabled ? "on" : "off") (\(payload))"
+		let tags = !enabled && !WindowServer.canReadShadow ? ", cannot read WindowServer tags" : ""
+		return "\(enabled ? "on" : "off") (\(payload)\(tags))"
 	}
 
 	private func handle(_ event: Event) {
@@ -126,7 +128,12 @@ public final class Shadows {
 	}
 
 	private func sync() {
-		guard !syncing, !connecting, payloadVersion != nil, !enabled || hasChanges else { return }
+		guard !syncing, !connecting else {
+			needsSync = true
+			return
+		}
+		needsSync = false
+		guard payloadVersion != nil, !enabled || hasChanges else { return }
 		syncing = true
 		let windows = tracker.windows.mapValues { !enabled && Self.losesShadow($0) }
 
@@ -138,8 +145,10 @@ public final class Shadows {
 				return !state.changed.isEmpty
 			}
 			DispatchQueue.main.async {
-				self?.syncing = false
-				self?.hasChanges = hasChanges
+				guard let self else { return }
+				self.syncing = false
+				self.hasChanges = hasChanges
+				if self.needsSync { self.sync() }
 			}
 		}
 	}

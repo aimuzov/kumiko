@@ -69,6 +69,7 @@ public enum WindowServer {
 	}()
 
 	public static var isAvailable: Bool { functions != nil }
+	public static var canReadShadow: Bool { functions?.getTags != nil }
 
 	public static func register(_ handler: Handler, for event: UInt32, context: UnsafeMutableRawPointer?) {
 		_ = functions?.registerNotify(handler, event, context)
