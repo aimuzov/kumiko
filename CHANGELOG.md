@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.2](https://github.com/aimuzov/kumiko/compare/v0.5.1...v0.5.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **wm:** reconcile shadow changes queued during a scan ([c46adb8](https://github.com/aimuzov/kumiko/commit/c46adb8cdbf2a15695650603a48fe01ccffd1eda))
+* **wm:** restore missing window shadow suppression ([e0b177e](https://github.com/aimuzov/kumiko/commit/e0b177e616fd6f981145377bcc0b4f700dce59c7))
+* **wm:** restore missing window shadow suppression ([69d8351](https://github.com/aimuzov/kumiko/commit/69d8351c0b8506435718d171b92102687f00b36c))
+
 ## [0.5.1](https://github.com/aimuzov/kumiko/compare/v0.5.0...v0.5.1) (2026-11-07)
 
 
