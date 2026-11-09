@@ -54,7 +54,8 @@ public enum ScriptingAddition {
 		var body = [Opcode.windowShadow.rawValue]
 		withUnsafeBytes(of: window.littleEndian) { body += $0 }
 		body.append(on ? 1 : 0)
-		return (try? exchange(body, answered: false)) != nil
+		// Dock closes the connection after handling the command.
+		return (try? exchange(body, answered: true)) != nil
 	}
 
 	/// Keeps a window above the windows of the normal level, or puts it back among them. False when

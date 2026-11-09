@@ -17,6 +17,7 @@ public enum WindowServer {
 	private typealias RegisterNotify = @convention(c) (Handler, UInt32, UnsafeMutableRawPointer?) -> CGError
 	private typealias RequestNotifications = @convention(c) (Int32, UnsafePointer<UInt32>, Int32) -> CGError
 	private typealias GetBounds = @convention(c) (Int32, UInt32, UnsafeMutablePointer<CGRect>) -> CGError
+	private typealias GetTags = @convention(c) (Int32, UInt32, UnsafeMutablePointer<UInt64>, Int) -> CGError
 	private typealias QueryWindows = @convention(c) (Int32, CFArray, UInt32) -> Unmanaged<CFTypeRef>?
 	private typealias CopyWindows = @convention(c) (CFTypeRef) -> Unmanaged<CFTypeRef>?
 	private typealias IteratorAdvance = @convention(c) (CFTypeRef) -> Bool
@@ -27,6 +28,7 @@ public enum WindowServer {
 		let registerNotify: RegisterNotify
 		let requestNotifications: RequestNotifications
 		let getBounds: GetBounds
+		let getTags: GetTags?
 		let query: QueryWindows
 		let copyWindows: CopyWindows
 		let advance: IteratorAdvance
@@ -58,6 +60,7 @@ public enum WindowServer {
 			registerNotify: register,
 			requestNotifications: request,
 			getBounds: bounds,
+			getTags: symbol("SLSGetWindowTags", GetTags.self),
 			query: query,
 			copyWindows: copy,
 			advance: advance,
@@ -85,6 +88,15 @@ public enum WindowServer {
 		var rect = CGRect.zero
 		guard functions.getBounds(functions.connection, id, &rect) == .success, !rect.isEmpty else { return nil }
 		return rect
+	}
+
+	/// Whether the WindowServer has the shadow suppression tag set for this window.
+	public static func suppressesShadow(of id: UInt32) -> Bool? {
+		guard let functions, let getTags = functions.getTags else { return nil }
+
+		var tags: UInt64 = 0
+		guard getTags(functions.connection, id, &tags, 64) == .success else { return nil }
+		return tags & (1 << 3) != 0
 	}
 
 	/// The corner radius the window is drawn with, as the WindowServer knows it: 0 for a window with
