@@ -29,3 +29,52 @@ struct ShadowsTests {
 		#expect(!Shadows.losesShadow(window(nil)))
 	}
 }
+
+struct ShadowChangesTests {
+	@Test func retriesAfterTheServerDropsTheTag() {
+		var changes = ShadowChanges()
+		var suppressed = false
+		var writes = 0
+
+		for tag in [false, true, false] {
+			suppressed = tag
+			changes.reconcile([1: true], read: { _ in suppressed }, write: { _, suppress in
+				writes += 1
+				suppressed = suppress
+				return true
+			})
+			#expect(suppressed)
+		}
+
+		#expect(writes == 2)
+	}
+
+	@Test func retriesWhenTheTagWasNeverSet() {
+		var changes = ShadowChanges()
+		var suppressed = false
+
+		changes.reconcile([1: true], read: { _ in suppressed }, write: { _, _ in true })
+		#expect(!suppressed)
+
+		changes.reconcile([1: true], read: { _ in suppressed }, write: { _, suppress in
+			suppressed = suppress
+			return true
+		})
+		#expect(suppressed)
+	}
+
+	@Test func restoresOnlyShadowsKumikoTook() {
+		var changes = ShadowChanges()
+		var tags = [1: false, 2: true]
+		let read: (UInt32) -> Bool? = { tags[Int($0)] }
+		let write: (UInt32, Bool) -> Bool = { id, suppress in
+			tags[Int(id)] = suppress
+			return true
+		}
+
+		changes.reconcile([1: true, 2: true], read: read, write: write)
+		changes.reconcile([1: false, 2: false], read: read, write: write)
+
+		#expect(tags == [1: false, 2: true])
+	}
+}

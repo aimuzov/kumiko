@@ -1,5 +1,6 @@
 import AppKit
 import KumikoCore
+import os
 
 /// `[wm] shadows`: takes window shadows away through the scripting addition, and gives them back.
 /// Without the payload in Dock nothing changes and windows keep the shadow macOS gives them.
@@ -11,10 +12,13 @@ public final class Shadows {
 	private let bus: EventBus
 	private let tracker: WindowTracker
 	private var enabled: Bool
-	/// Windows kumiko took the shadow from, so turning shadows on again restores only those.
-	private var stripped: Set<UInt32> = []
 	private var dockObserver: (any NSObjectProtocol)?
-	// Each request is a socket round trip; they stay off the main thread.
+	private var timer: Timer?
+	private var connecting = false
+	private var syncing = false
+	private var needsSync = false
+	private var hasChanges = false
+	private let changes = OSAllocatedUnfairLock(initialState: ShadowChanges())
 	private let queue = DispatchQueue(label: "\(Kumiko.bundleIdentifier).shadows")
 
 	/// The version of the payload in Dock, nil when none answered the last handshake.
@@ -39,6 +43,11 @@ public final class Shadows {
 			MainActor.assumeIsolated { self?.connect(loading: true) }
 		}
 
+		let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+			MainActor.assumeIsolated { self?.checkShadows() }
+		}
+		RunLoop.main.add(timer, forMode: .common)
+		self.timer = timer
 		connect(loading: true)
 	}
 
@@ -49,31 +58,37 @@ public final class Shadows {
 
 	/// Gives back every shadow kumiko took. Runs on quit, and waits, so none is left off.
 	public func restore() {
-		for id in stripped {
-			ScriptingAddition.setShadow(id, true)
+		timer?.invalidate()
+		queue.sync { [changes] in
+			changes.withLock { state in
+				for id in state.changed {
+					ScriptingAddition.setShadow(id, true)
+				}
+			}
 		}
-		stripped = []
 	}
 
 	public var statusDescription: String {
 		let payload = payloadVersion.map { "scripting addition loaded, version \($0)" }
 			?? "scripting addition not loaded: sudo kumiko sa load"
-		return "\(enabled ? "on" : "off") (\(payload))"
+		let tags = !enabled && !WindowServer.canReadShadow ? ", cannot read WindowServer tags" : ""
+		return "\(enabled ? "on" : "off") (\(payload)\(tags))"
 	}
 
 	private func handle(_ event: Event) {
 		switch event {
-		case let .windowCreated(info):
-			guard !enabled, payloadVersion != nil, Self.losesShadow(info) else { return }
-			take(from: [info.id])
-		case let .windowChanged(info):
-			// A window may tell its subrole only once it is fully there.
-			guard !enabled, payloadVersion != nil, Self.losesShadow(info) != stripped.contains(info.id) else { return }
-			Self.losesShadow(info) ? take(from: [info.id]) : give(to: [info.id])
-		case let .windowDestroyed(id):
-			stripped.remove(id)
+		case .windowCreated, .windowChanged, .windowDestroyed:
+			sync()
 		default:
 			break
+		}
+	}
+
+	private func checkShadows() {
+		if payloadVersion == nil {
+			connect(loading: false)
+		} else {
+			sync()
 		}
 	}
 
@@ -81,8 +96,8 @@ public final class Shadows {
 	/// a missing payload is loaded through sudo when that needs no password (a sudoers entry from
 	/// `kumiko sa sudoers`); otherwise it waits for `sudo kumiko sa load`.
 	private func connect(loading: Bool) {
-		// Shadows on and none taken: there is nothing for the payload to do.
-		guard !enabled || !stripped.isEmpty else { return }
+		guard !connecting, !enabled || hasChanges || syncing else { return }
+		connecting = true
 
 		let cli = Bundle.main.executableURL?.deletingLastPathComponent().appending(path: "kumiko")
 
@@ -95,14 +110,16 @@ public final class Shadows {
 				sudo.arguments = ["-n", cli.path(percentEncoded: false), "sa", "load"]
 				sudo.standardOutput = FileHandle.nullDevice
 				sudo.standardError = FileHandle.nullDevice
-				try? sudo.run()
-				sudo.waitUntilExit()
-				version = ScriptingAddition.handshake()
+				if (try? sudo.run()) != nil {
+					sudo.waitUntilExit()
+					version = ScriptingAddition.handshake()
+				}
 			}
 
 			DispatchQueue.main.async {
 				MainActor.assumeIsolated {
 					guard let self else { return }
+					self.connecting = false
 					self.payloadVersion = version
 					if version != nil { self.sync() }
 				}
@@ -111,13 +128,28 @@ public final class Shadows {
 	}
 
 	private func sync() {
-		if enabled {
-			give(to: Array(stripped))
-		} else {
-			let windows = tracker.windows.values
-			take(from: windows.filter { Self.losesShadow($0) && !stripped.contains($0.id) }.map(\.id))
-			// Only shadows kumiko took come back: an app may want a panel of its own without one.
-			give(to: windows.filter { !Self.losesShadow($0) && stripped.contains($0.id) }.map(\.id))
+		guard !syncing, !connecting else {
+			needsSync = true
+			return
+		}
+		needsSync = false
+		guard payloadVersion != nil, !enabled || hasChanges else { return }
+		syncing = true
+		let windows = tracker.windows.mapValues { !enabled && Self.losesShadow($0) }
+
+		queue.async { [weak self, changes] in
+			let hasChanges = changes.withLock { state in
+				state.reconcile(windows, read: WindowServer.suppressesShadow, write: { id, suppress in
+					ScriptingAddition.setShadow(id, !suppress)
+				})
+				return !state.changed.isEmpty
+			}
+			DispatchQueue.main.async {
+				guard let self else { return }
+				self.syncing = false
+				self.hasChanges = hasChanges
+				if self.needsSync { self.sync() }
+			}
 		}
 	}
 
@@ -125,20 +157,24 @@ public final class Shadows {
 	nonisolated static func losesShadow(_ info: WindowInfo) -> Bool {
 		info.subrole == kAXStandardWindowSubrole as String && info.pid != ProcessInfo.processInfo.processIdentifier
 	}
+}
 
-	private func take(from ids: [UInt32]) {
-		guard !ids.isEmpty else { return }
-		stripped.formUnion(ids)
-		queue.async {
-			for id in ids { ScriptingAddition.setShadow(id, false) }
-		}
-	}
+struct ShadowChanges: Sendable {
+	// Only windows kumiko asked to suppress after observing that they had a shadow.
+	private(set) var changed: Set<UInt32> = []
 
-	private func give(to ids: [UInt32]) {
-		guard !ids.isEmpty else { return }
-		stripped.subtract(ids)
-		queue.async {
-			for id in ids { ScriptingAddition.setShadow(id, true) }
+	mutating func reconcile(
+		_ windows: [UInt32: Bool], read: (UInt32) -> Bool?, write: (UInt32, Bool) -> Bool
+	) {
+		changed.formIntersection(windows.keys)
+		for (id, suppress) in windows where suppress || changed.contains(id) {
+			guard let suppressed = read(id) else { continue }
+
+			if suppress {
+				if !suppressed, write(id, true) { changed.insert(id) }
+			} else if !suppressed || (write(id, false) && read(id) == false) {
+				changed.remove(id)
+			}
 		}
 	}
 }
