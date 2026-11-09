@@ -1,5 +1,22 @@
 [
 	{
+		"version": "0.5.2",
+		"date": "2026-11-09",
+		"title": {
+			"ru": "Окна остаются без теней",
+			"en": "Keep window shadows off"
+		},
+		"icon": "Layers",
+		"items": {
+			"ru": [
+				"Если ты выключил тени окон, Kumiko снова уберёт тень, когда macOS её вернёт."
+			],
+			"en": [
+				"If you turn window shadows off, Kumiko removes them again whenever macOS brings them back."
+			]
+		}
+	},
+	{
 		"version": "0.5.1",
 		"date": "2026-11-07",
 		"title": {
