@@ -9,14 +9,31 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  id-token: write
 
 jobs:
   changelog:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Reuse verified CI
+        id: verified
+        uses: aimuzov/infra-ci/reuse-check@v1
+        continue-on-error: true
+        with:
+          workflow: .github/workflows/changelog.yml
       - uses: actions/checkout@v5
+        if: steps.verified.outputs.reused != 'true'
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+        if: steps.verified.outputs.reused != 'true'
       - run: npx -y --package=github:aimuzov/infra-site-kit#v5.3.0 site-changelog verify
+        if: steps.verified.outputs.reused != 'true'
+      - name: Record verified CI
+        if: github.event_name == 'pull_request' && steps.verified.outputs.reused != 'true'
+        uses: aimuzov/infra-ci/record-check@v1
+        continue-on-error: true
+        with:
+          workflow: .github/workflows/changelog.yml
