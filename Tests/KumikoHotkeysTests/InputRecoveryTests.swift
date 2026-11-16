@@ -93,6 +93,25 @@ struct InputRecoveryTests {
 		#expect(commands == [["stop"]])
 	}
 
+	@Test func aKeyIsDecidedWhileTheMainThreadIsBusy() async throws {
+		var commands: [[String]] = []
+		let hotkeys = Hotkeys(bus: EventBus(), config: try config(), run: { commands.append($0); return .success() })
+		nonisolated(unsafe) let bound = try event(0x12, flags: .maskAlternate)
+		nonisolated(unsafe) let unbound = try event(0x00)
+
+		// The main thread waits here, the way it waits on a busy app, while the tap's thread decides.
+		let (boundKept, unboundKept) = DispatchQueue.global().sync {
+			(hotkeys.handle(.keyDown, bound), hotkeys.handle(.keyDown, unbound))
+		}
+		#expect(!boundKept)
+		#expect(unboundKept)
+		#expect(commands.isEmpty)
+
+		// The command runs once the main thread is free again.
+		await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+		#expect(commands == [["workspace", "focus", "1"]])
+	}
+
 	@Test func everyEffectChecksItsInputSession() throws {
 		var commands: [[String]] = []
 		var hotkeys: Hotkeys!

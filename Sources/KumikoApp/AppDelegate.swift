@@ -97,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		let vim = Vim(bus: bus, config: config.vim)
 		hotkeys.passthrough = { event, isDown in vim.handle(event, isDown: isDown) }
 		hotkeys.resetPassthrough = { vim.resetInput() }
+		// Off, keys the hotkeys pass never wait for the main thread, where Vim lives.
+		hotkeys.passthroughEnabled = config.vim.enabled
 		self.windowServer = windowServer
 		self.bar = bar
 		self.menuBar = menuBar
@@ -118,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 				bar.apply(config.bar)
 				menuBar.apply(config.menuBar)
 				vim.apply(config.vim)
+				hotkeys.passthroughEnabled = config.vim.enabled
 			}
 		}
 

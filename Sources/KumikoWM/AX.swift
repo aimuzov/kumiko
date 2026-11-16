@@ -17,9 +17,8 @@ enum AX {
 	}
 
 	static func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
-		var value: CFTypeRef?
-		guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
-		return value
+		var reader = Reader(element)
+		return reader.value(attribute)
 	}
 
 	static func string(_ element: AXUIElement, _ attribute: String) -> String? {
@@ -32,9 +31,65 @@ enum AX {
 
 	/// Nil when the element does not answer, which is not the same as no.
 	static func isSettable(_ element: AXUIElement, _ attribute: String) -> Bool? {
-		var settable = DarwinBoolean(false)
-		guard AXUIElementIsAttributeSettable(element, attribute as CFString, &settable) == .success else { return nil }
-		return settable.boolValue
+		var reader = Reader(element)
+		return reader.isSettable(attribute)
+	}
+
+	/// Reads of one element that remember whether its app ran out of time on any of them. A timeout
+	/// is not an answer: the window is still there and its app is busy, unlike a window that closed,
+	/// which answers at once that it is gone.
+	struct Reader {
+		let element: AXUIElement
+		private(set) var timedOut = false
+
+		init(_ element: AXUIElement) {
+			self.element = element
+		}
+
+		mutating func value(_ attribute: String) -> CFTypeRef? {
+			var value: CFTypeRef?
+			let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+			note(error)
+			return error == .success ? value : nil
+		}
+
+		mutating func string(_ attribute: String) -> String? {
+			value(attribute) as? String
+		}
+
+		mutating func bool(_ attribute: String) -> Bool? {
+			(value(attribute) as? NSNumber)?.boolValue
+		}
+
+		mutating func isSettable(_ attribute: String) -> Bool? {
+			var settable = DarwinBoolean(false)
+			let error = AXUIElementIsAttributeSettable(element, attribute as CFString, &settable)
+			note(error)
+			return error == .success ? settable.boolValue : nil
+		}
+
+		mutating func frame() -> CGRect? {
+			var position = CGPoint.zero
+			var size = CGSize.zero
+
+			guard
+				let positionValue = axValue(kAXPositionAttribute),
+				let sizeValue = axValue(kAXSizeAttribute),
+				AXValueGetValue(positionValue, .cgPoint, &position),
+				AXValueGetValue(sizeValue, .cgSize, &size)
+			else { return nil }
+
+			return CGRect(origin: position, size: size)
+		}
+
+		private mutating func axValue(_ attribute: String) -> AXValue? {
+			guard let value = value(attribute), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+			return (value as! AXValue)
+		}
+
+		private mutating func note(_ error: AXError) {
+			if error == .cannotComplete { timedOut = true }
+		}
 	}
 
 	static func setSize(_ element: AXUIElement, _ requested: CGSize) -> Bool {
@@ -106,22 +161,8 @@ enum AX {
 	}
 
 	static func frame(_ element: AXUIElement) -> CGRect? {
-		var position = CGPoint.zero
-		var size = CGSize.zero
-
-		guard
-			let positionValue = axValue(element, kAXPositionAttribute),
-			let sizeValue = axValue(element, kAXSizeAttribute),
-			AXValueGetValue(positionValue, .cgPoint, &position),
-			AXValueGetValue(sizeValue, .cgSize, &size)
-		else { return nil }
-
-		return CGRect(origin: position, size: size)
-	}
-
-	private static func axValue(_ element: AXUIElement, _ attribute: String) -> AXValue? {
-		guard let value = value(element, attribute), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
-		return (value as! AXValue)
+		var reader = Reader(element)
+		return reader.frame()
 	}
 }
 

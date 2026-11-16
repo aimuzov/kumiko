@@ -10,6 +10,12 @@ public enum WindowServer {
 	/// window id.
 	public static let windowMoved: UInt32 = 806
 	public static let windowResized: UInt32 = 807
+	/// Event numbers for a window joining and leaving a Space, for any window and without asking
+	/// for it first: when it opens and closes, when a native tab comes in front or goes behind,
+	/// and when its Space is removed and it lands on another one. The payload is the Space's id
+	/// (8 bytes), then the window id.
+	public static let windowAddedToSpace: UInt32 = 1325
+	public static let windowRemovedFromSpace: UInt32 = 1326
 
 	public typealias Handler = @convention(c) (UInt32, UnsafeMutableRawPointer?, Int, UnsafeMutableRawPointer?) -> Void
 
