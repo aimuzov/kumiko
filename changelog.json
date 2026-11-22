@@ -1,5 +1,22 @@
 [
 	{
+		"version": "0.5.5",
+		"date": "2026-11-22",
+		"title": {
+			"ru": "Окна Dia снова встают плиткой",
+			"en": "Tile Dia windows again"
+		},
+		"icon": "PanelsTopLeft",
+		"items": {
+			"ru": [
+				"В Dia снова можно переключаться между плавающим и плиточным режимами, даже если включена настройка для окон с фиксированным размером."
+			],
+			"en": [
+				"You can switch Dia windows between floating and tiled layouts while keeping fixed-size windows floating."
+			]
+		}
+	},
+	{
 		"version": "0.5.4",
 		"date": "2026-11-15",
 		"title": {
