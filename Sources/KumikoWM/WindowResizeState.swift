@@ -11,6 +11,8 @@ struct WindowResizeState {
 	private var rejectedSize: CGSize?
 	private var recheckAfter = Date.distantFuture
 	private var measuredBaseline: CGSize?
+	private var observed = WindowResizeAxes(width: false, height: false)
+	private var skipProbeFrame = false
 
 	mutating func rejected(_ requested: CGSize, actual: CGSize, at now: Date = Date()) -> Bool {
 		guard axes?.isResizable == true, requested != rejectedSize || now >= recheckAfter,
@@ -23,6 +25,7 @@ struct WindowResizeState {
 	}
 
 	mutating func record(_ measured: WindowResizeAxes?, baseline: CGSize? = nil, at now: Date = Date()) {
+		skipProbeFrame = measured == nil && baseline != nil
 		if let measured {
 			axes = measured
 			needsCheck = false
@@ -37,9 +40,11 @@ struct WindowResizeState {
 		let previous = measuredBaseline ?? previous
 		measuredBaseline = nil
 		if axes?.isResizable == true, rejectedSize != nil, now >= recheckAfter { needsCheck = true }
-		if let current, let settable, current != settable { axes = nil; rejectedSize = nil }
-		if axes?.isResizable != true, let oldTitle = self.title, oldTitle != title || self.identifier != identifier {
+		let capabilityChanged = current != nil && settable != nil && current != settable
+		let modeChanged = axes?.isResizable != true && self.title != nil && (self.title != title || self.identifier != identifier)
+		if capabilityChanged || modeChanged {
 			axes = nil
+			observed = WindowResizeAxes(width: false, height: false)
 			rejectedSize = nil
 		}
 		self.title = title
@@ -47,10 +52,14 @@ struct WindowResizeState {
 		if let current { settable = current }
 		if current == false {
 			axes = WindowResizeAxes(width: false, height: false)
-		} else if var measured = axes, let previous {
+		} else if !capabilityChanged, !modeChanged, !skipProbeFrame, let previous {
+			// Until both axes have moved, the untouched one could still be fixed.
+			var measured = axes ?? observed
 			if abs(size.width - previous.width) > 0.5 { measured.width = true }
 			if abs(size.height - previous.height) > 0.5 { measured.height = true }
-			axes = measured
+			observed = measured
+			if axes != nil || measured.isResizable { axes = measured }
 		}
+		skipProbeFrame = false
 	}
 }

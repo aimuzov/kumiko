@@ -39,6 +39,28 @@ struct WindowResizeStateTests {
 		#expect(state.axes == WindowResizeAxes(width: true, height: true))
 	}
 
+	@Test func observedResizeResolvesAnInconclusiveProbe() {
+		var state = WindowResizeState()
+		let wider = CGSize(width: 800, height: 500)
+		let taller = CGSize(width: 800, height: 600)
+		state.update(settable: true, title: "Dia", identifier: nil, previous: nil, size: size)
+		state.record(nil, baseline: size)
+		state.update(settable: true, title: "Dia", identifier: nil, previous: size, size: size)
+		state.update(settable: true, title: "Dia", identifier: nil, previous: size, size: wider)
+		#expect(state.axes == nil)
+		state.update(settable: true, title: "Dia", identifier: nil, previous: wider, size: taller)
+		#expect(state.axes == WindowResizeAxes(width: true, height: true))
+	}
+
+	@Test func failedProbeCannotSupplyEvidenceForAManualResize() {
+		var state = WindowResizeState()
+		let wider = CGSize(width: 800, height: 500)
+		state.record(nil, baseline: size)
+		state.update(settable: true, title: "Dia", identifier: nil, previous: size, size: wider)
+		state.update(settable: true, title: "Dia", identifier: nil, previous: wider, size: CGSize(width: 800, height: 600))
+		#expect(state.axes == nil)
+	}
+
 	@Test func rejectedLayoutSizeTriggersOneRecheck() {
 		var state = WindowResizeState()
 		state.axes = WindowResizeAxes(width: true, height: true)

@@ -52,6 +52,18 @@ struct WindowResizeProbeTests {
 		#expect(size == original)
 	}
 
+	@Test func windowAtMaximumSizeRejectsGrowthButAcceptsShrinkage() {
+		let original = CGSize(width: 1453, height: 897)
+		var size = original
+		let axes = WindowResizeProbe.measure(read: { size }, write: { requested in
+			guard requested.width <= original.width, requested.height <= original.height else { return false }
+			size = requested
+			return true
+		})
+		#expect(axes == WindowResizeAxes(width: true, height: true))
+		#expect(size == original)
+	}
+
 	@Test func failedWriteIsUnknown() {
 		var size = CGSize(width: 700, height: 500)
 		let original = size

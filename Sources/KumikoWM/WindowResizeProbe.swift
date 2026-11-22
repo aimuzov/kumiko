@@ -10,18 +10,25 @@ enum WindowResizeProbe {
 		defer { if restoreAllowed() { _ = write(original) } }
 
 		func axis(_ key: WritableKeyPath<CGSize, CGFloat>) -> Bool? {
+			var rejected = false
 			for delta: CGFloat in [1, -1, 64, -64] {
 				guard !cancelled() else { return nil }
 				var requested = original
 				requested[keyPath: key] = max(1, requested[keyPath: key] + delta)
-				guard write(requested), !cancelled(), let actual = read() else { return nil }
+				// At a display edge an app can reject growth while still allowing shrinkage.
+				if !write(requested) {
+					guard !cancelled(), read() == original else { return nil }
+					rejected = true
+					continue
+				}
+				guard !cancelled(), let actual = read() else { return nil }
 				let changed = abs(actual[keyPath: key] - original[keyPath: key]) > 0.5
 				guard !cancelled(), restoreAllowed(), write(original), let restored = read(),
 				      abs(restored.width - original.width) < 1, abs(restored.height - original.height) < 1
 				else { return nil }
 				if changed { return true }
 			}
-			return false
+			return rejected ? nil : false
 		}
 
 		guard let width = axis(\.width), let height = axis(\.height) else { return nil }
