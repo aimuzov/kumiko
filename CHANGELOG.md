@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.5](https://github.com/aimuzov/kumiko/compare/v0.5.4...v0.5.5) (2026-11-22)
+
+
+### Bug Fixes
+
+* **wm:** recover pending resize checks for resizable windows ([601ba1c](https://github.com/aimuzov/kumiko/commit/601ba1c211a5d4224a534ba42b84eecc33f5c59c))
+* **wm:** recover pending resize checks from observed window changes ([e79e351](https://github.com/aimuzov/kumiko/commit/e79e3513f697f287bfb3041e43192ff7b30e6bd2))
+* **wm:** verify applied AX sizes after write errors ([0a9288d](https://github.com/aimuzov/kumiko/commit/0a9288d81df76a82de0cbd3ff2ced6e5590a68c0))
+
 ## [0.5.4](https://github.com/aimuzov/kumiko/compare/v0.5.3...v0.5.4) (2026-11-15)
 
 
