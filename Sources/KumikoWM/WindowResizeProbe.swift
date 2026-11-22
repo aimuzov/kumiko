@@ -2,6 +2,19 @@ import CoreGraphics
 import KumikoCore
 
 enum WindowResizeProbe {
+	static func write(
+		_ size: CGSize, set: (CGSize) -> Bool, read: () -> CGSize?, wait: () -> Void
+	) -> Bool {
+		// Dia can apply AXSize and still return an error, including when restoring the original size.
+		let accepted = set(size)
+		for attempt in 0..<5 {
+			guard let actual = read() else { return false }
+			if abs(actual.width - size.width) < 1 && abs(actual.height - size.height) < 1 { return true }
+			if attempt < 4 { wait() }
+		}
+		return accepted
+	}
+
 	static func measure(
 		read: () -> CGSize?, write: (CGSize) -> Bool, cancelled: () -> Bool = { false },
 		restoreAllowed: () -> Bool = { true }
