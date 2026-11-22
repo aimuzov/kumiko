@@ -740,15 +740,11 @@ private final class FrameWriter: @unchecked Sendable {
 				write: { size in
 					guard !userIntervened() || (size == original.size && canRestore()) else { return false }
 					lastProbeFrame.size = size
-					guard AX.setSize(element, size) else { return false }
-					for _ in 0..<5 {
-						guard let frame = AX.frame(element) else { return false }
+					return WindowResizeProbe.write(size, set: { AX.setSize(element, $0) }, read: {
+						guard let frame = AX.frame(element) else { return nil }
 						if !userIntervened() { lastProbeFrame = frame }
-						let actual = frame.size
-						if abs(actual.width - size.width) < 1 && abs(actual.height - size.height) < 1 { return true }
-						Thread.sleep(forTimeInterval: 0.01)
-					}
-					return true
+						return frame.size
+					}, wait: { Thread.sleep(forTimeInterval: 0.01) })
 				},
 				cancelled: { check.isCancelled || userIntervened() },
 				restoreAllowed: { canRestore() }

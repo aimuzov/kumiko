@@ -52,6 +52,39 @@ struct WindowResizeProbeTests {
 		#expect(size == original)
 	}
 
+	@Test func windowAtMaximumSizeRejectsGrowthButAcceptsShrinkage() {
+		let original = CGSize(width: 1453, height: 897)
+		var size = original
+		let axes = WindowResizeProbe.measure(read: { size }, write: { requested in
+			guard requested.width <= original.width, requested.height <= original.height else { return false }
+			size = requested
+			return true
+		})
+		#expect(axes == WindowResizeAxes(width: true, height: true))
+		#expect(size == original)
+	}
+
+	@Test func diaAppliesProbeAndRestoreDespiteReportingWriteErrors() {
+		let original = CGSize(width: 1169, height: 757)
+		var size = original
+		let axes = WindowResizeProbe.measure(read: { size }, write: { requested in
+			var next: CGSize?
+			return WindowResizeProbe.write(requested, set: { next = $0; return false }, read: { size }, wait: {
+				if let next { size = next }
+			})
+		})
+		#expect(axes == WindowResizeAxes(width: true, height: true))
+		#expect(size == original)
+	}
+
+	@Test func rejectedSizeThatNeverArrivesIsStillUnknown() {
+		let original = CGSize(width: 1169, height: 757)
+		let axes = WindowResizeProbe.measure(read: { original }, write: { requested in
+			WindowResizeProbe.write(requested, set: { _ in false }, read: { original }, wait: {})
+		})
+		#expect(axes == nil)
+	}
+
 	@Test func failedWriteIsUnknown() {
 		var size = CGSize(width: 700, height: 500)
 		let original = size
