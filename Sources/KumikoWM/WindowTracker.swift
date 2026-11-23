@@ -22,8 +22,28 @@ public final class WindowTracker {
 	/// like the settings, is open and the user needs a way back to it.
 	public var keepsDockIcon: @MainActor () -> Bool = { false }
 	private var permissionTimer: Timer?
+	/// Without the WindowServer's events, the only way to see a window AX did not announce.
 	private var rescanTimer: Timer?
 	private var pendingRefreshes: Set<UInt32> = []
+	/// Windows the WindowServer has, or AX announced while its app was busy, that are not tracked
+	/// yet, by app.
+	private var awaiting: [pid_t: Set<UInt32>] = [:]
+	private var looksScheduled: Set<pid_t> = []
+	/// Tracked windows whose last read timed out, with how many times they were read again since.
+	private var busyRetries: [UInt32: Int] = [:]
+	/// The pending retry per window, by token: a timer left over from before a stop or an untrack
+	/// finds a different token, or none, and does nothing.
+	private var busyRetryPending: [UInt32: Int] = [:]
+	/// How long to wait before reading a busy window again: sooner at first, then every 30 s for as
+	/// long as its app stays busy.
+	private static let busyDelays: [TimeInterval] = [1, 3, 10, 30]
+	/// Windows whose resize probe waits for the mouse buttons to come up.
+	private var waitingForMouseUp: [UInt32: Int] = [:]
+	private var nextToken = 0
+	private static var listensToWindowServer = false
+	/// How long after a WindowServer event the app's window list is read, and read again while a
+	/// window it announced is not there yet.
+	private static let lookDelays: [TimeInterval] = [0.05, 0.3, 1.5, 5, 15]
 	private let writer = FrameWriter()
 	private var resizeStates: [UInt32: WindowResizeState] = [:]
 	private var resizeChecks: [UInt32: ResizeCheck] = [:]
@@ -77,8 +97,12 @@ public final class WindowTracker {
 
 		updateFocus()
 
-		rescanTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-			MainActor.assumeIsolated { self?.rescan() }
+		if WindowServer.isAvailable {
+			listenToWindowServer()
+		} else {
+			rescanTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+				MainActor.assumeIsolated { self?.rescan() }
+			}
 		}
 	}
 
@@ -98,6 +122,10 @@ public final class WindowTracker {
 		permissionTimer = nil
 		rescanTimer?.invalidate()
 		rescanTimer = nil
+		awaiting = [:]
+		busyRetries = [:]
+		busyRetryPending = [:]
+		waitingForMouseUp = [:]
 
 		guard isRunning else { return }
 		isRunning = false
@@ -219,12 +247,22 @@ public final class WindowTracker {
 	// MARK: - Windows
 
 	func windowAppeared(_ element: AXUIElement, in observer: AppObserver) {
-		guard
-			let id = AX.windowID(element),
-			observer.watch(element, id: id),
-			let info = describe(element, id: id, in: observer)
-		else { return }
+		guard let id = AX.windowID(element), observer.watch(element, id: id) else { return }
 
+		let info: WindowInfo
+		switch describe(element, id: id, in: observer) {
+		case let .window(described):
+			info = described
+		case .busy:
+			// Not watched yet after all, so the next look at the app's windows tries it again.
+			observer.forget(id)
+			lookForWindow(id, of: observer.pid)
+			return
+		case .gone:
+			return
+		}
+
+		awaiting[observer.pid]?.remove(id)
 		windows[id] = info
 		bus.publish(.windowCreated(info))
 		// A new tab (cmd-T) sends the tab in front behind it.
@@ -251,6 +289,49 @@ public final class WindowTracker {
 		default:
 			if let id = observer.id(of: element) { refresh(id) }
 		}
+	}
+
+	/// Reads a busy window again later. Once its app answers, nothing else might ask for it: the
+	/// notification that found it busy has been spent.
+	private func retryWhenAnswering(_ id: UInt32) {
+		guard busyRetryPending[id] == nil else { return }
+		nextToken &+= 1
+		let token = nextToken
+		busyRetryPending[id] = token
+		let attempt = busyRetries[id, default: 0]
+		busyRetries[id] = attempt + 1
+		let delay = Self.busyDelays[min(attempt, Self.busyDelays.count - 1)]
+		DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+			MainActor.assumeIsolated {
+				guard let self, self.busyRetryPending[id] == token else { return }
+				self.busyRetryPending[id] = nil
+				self.refresh(id)
+			}
+		}
+	}
+
+	/// Reads a window again once no mouse button is down, for a resize probe that waited for that.
+	private func refreshAfterMouseUp(_ id: UInt32) {
+		guard waitingForMouseUp[id] == nil else { return }
+		nextToken &+= 1
+		let token = nextToken
+		waitingForMouseUp[id] = token
+
+		func check() {
+			DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
+				MainActor.assumeIsolated {
+					guard let self, self.waitingForMouseUp[id] == token else { return }
+					if NSEvent.pressedMouseButtons != 0 {
+						check()
+						return
+					}
+					self.waitingForMouseUp[id] = nil
+					self.refresh(id)
+				}
+			}
+		}
+
+		check()
 	}
 
 	/// Moves and resizes come dozens a second while a window is dragged, and each reread is a
@@ -286,10 +367,20 @@ public final class WindowTracker {
 			let element = observer.windows[id]
 		else { return }
 
-		guard let info = describe(element, id: id, in: observer, previous: old) else {
+		let info: WindowInfo
+		switch describe(element, id: id, in: observer, previous: old) {
+		case let .window(described):
+			info = described
+		case .busy:
+			// The app is busy, not the window gone: it stays as it was, and in the layout, until the
+			// app answers again.
+			retryWhenAnswering(id)
+			return
+		case .gone:
 			untrack(id)
 			return
 		}
+		busyRetries[id] = nil
 
 		guard info != old else { return }
 
@@ -325,6 +416,9 @@ public final class WindowTracker {
 		resizeStates[id] = nil
 		resizeChecks.removeValue(forKey: id)?.cancel()
 		resizeRetryAfter[id] = nil
+		busyRetries[id] = nil
+		busyRetryPending[id] = nil
+		waitingForMouseUp[id] = nil
 
 		apps[info.pid]?.forget(id)
 		bus.publish(.windowDestroyed(id: id))
@@ -334,40 +428,57 @@ public final class WindowTracker {
 		}
 	}
 
-	/// Returns nil when the window is gone: AX answers nothing at all for a closed window.
-	///
+	/// What reading a window through AX told.
+	enum Description {
+		case window(WindowInfo)
+		/// The app ran out of time: the window is there, but what it looks like now is not known.
+		case busy
+		/// AX answers nothing at all for a closed window.
+		case gone
+	}
+
 	/// While an app is hidden AX reports some of its windows as `AXDialog`; trusting that would turn
 	/// them into dialogs, unmanaged and out of the layout, every time kumiko hides the app. So for
 	/// a hidden app the subrole seen before it was hidden stands.
 	private func describe(
 		_ element: AXUIElement, id: UInt32, in observer: AppObserver, previous: WindowInfo? = nil
-	) -> WindowInfo? {
-		guard let frame = AX.frame(element) else { return nil }
+	) -> Description {
+		var ax = AX.Reader(element)
+		guard let frame = ax.frame() else { return ax.timedOut ? .busy : .gone }
 
 		let app = observer.app.localizedName ?? ""
-		let title = AX.string(element, kAXTitleAttribute) ?? ""
-		let identifier = AX.string(element, kAXIdentifierAttribute)
+		let title = ax.string(kAXTitleAttribute) ?? ""
+		let identifier = ax.string(kAXIdentifierAttribute)
 		let isHidden = observer.app.isHidden
 		let subrole = isHidden && previous != nil
 			? previous?.subrole
-			: AX.string(element, kAXSubroleAttribute)
+			: ax.string(kAXSubroleAttribute)
 		// Hiding an app must not replace a measured axis with a missing AX answer.
-		let axResizable = isHidden ? nil : AX.isSettable(element, kAXSizeAttribute)
+		let axResizable = isHidden ? nil : ax.isSettable(kAXSizeAttribute)
+		let isMinimized = ax.bool(kAXMinimizedAttribute) ?? false
+		let isFullscreen = ax.bool("AXFullScreen") ?? false
+		// Missing answers would read as an untitled dialog that cannot be resized, and take the
+		// window out of the layout; better to keep what was known until the app answers again.
+		if ax.timedOut { return .busy }
+
 		var state = resizeStates[id] ?? WindowResizeState()
 		state.update(settable: axResizable, title: title, identifier: identifier, previous: previous?.frame.size, size: frame.size)
 		resizeStates[id] = state
 		let axes = state.axes
 		let isResizable = axes?.isResizable ?? axResizable ?? previous?.isResizable ?? true
-		let isMinimized = AX.bool(element, kAXMinimizedAttribute) ?? false
-		let isFullscreen = AX.bool(element, "AXFullScreen") ?? false
 		let isResizePending = config.floatFixedSize && axes == nil && subrole == "AXStandardWindow"
 		if (isResizePending || state.needsCheck) && !isHidden && !isMinimized && !isFullscreen
-			&& NSEvent.pressedMouseButtons == 0 && Display.all().contains(where: { $0.visibleFrame.intersects(frame) })
+			&& Display.all().contains(where: { $0.visibleFrame.intersects(frame) })
 		{
-			checkResize(element, id: id, pid: observer.pid)
+			if NSEvent.pressedMouseButtons == 0 {
+				checkResize(element, id: id, pid: observer.pid)
+			} else {
+				// A probe never starts during a drag; until it runs, the window waits out of the layout.
+				refreshAfterMouseUp(id)
+			}
 		}
 
-		return WindowInfo(
+		return .window(WindowInfo(
 			id: id,
 			pid: observer.pid,
 			app: app,
@@ -387,7 +498,7 @@ public final class WindowTracker {
 			isBackgroundTab: previous?.isBackgroundTab ?? false,
 			resizeAxes: axes,
 			isResizePending: isResizePending
-		)
+		))
 	}
 
 	private func checkResize(_ element: AXUIElement, id: UInt32, pid: pid_t) {
@@ -398,9 +509,98 @@ public final class WindowTracker {
 			guard let self, self.isRunning, self.resizeChecks[id] === check, self.windows[id] != nil else { return }
 			self.resizeChecks[id] = nil
 			self.resizeStates[id, default: WindowResizeState()].record(axes, baseline: baseline)
-			if axes == nil { self.resizeRetryAfter[id] = Date().addingTimeInterval(5) }
+			if axes == nil {
+				self.resizeRetryAfter[id] = Date().addingTimeInterval(5)
+				// Nothing else reads the window again on its own by then.
+				DispatchQueue.main.asyncAfter(deadline: .now() + 5.1) { [weak self] in
+					MainActor.assumeIsolated { self?.refresh(id) }
+				}
+			}
 			self.refresh(id)
 		}
+	}
+
+	// MARK: - WindowServer
+
+	/// The WindowServer tells when any window joins or leaves a Space, without waiting for its app:
+	/// when it opens or closes, when a native tab comes in front or goes behind, and when its Space
+	/// is removed and it lands on another one, which AX says nothing about. This replaces reading
+	/// every window of every app again every few seconds, which waits on each app in turn and
+	/// stalls kumiko for as long as one of them is busy.
+	private func listenToWindowServer() {
+		guard !Self.listensToWindowServer else { return }
+		Self.listensToWindowServer = true
+		// Registered once for the life of the app; the tracker lives as long.
+		let context = Unmanaged.passUnretained(self).toOpaque()
+		WindowServer.register(windowSpaceHandler, for: WindowServer.windowAddedToSpace, context: context)
+		WindowServer.register(windowSpaceHandler, for: WindowServer.windowRemovedFromSpace, context: context)
+	}
+
+	/// A window joined or left a Space. A window kumiko knows is read again, and its app's tabs with
+	/// it; one it does not know is looked for in its app's window list.
+	fileprivate func windowChangedSpace(_ id: UInt32) {
+		guard isRunning, own[id] == nil else { return }
+
+		if let info = windows[id] {
+			scheduleRefresh(id)
+			scheduleLook(at: info.pid)
+			return
+		}
+
+		guard let pid = Self.appWindowOwner(id), apps[pid] != nil else { return }
+		lookForWindow(id, of: pid)
+	}
+
+	/// Looks for a window in its app's window list until it is there, for a while.
+	private func lookForWindow(_ id: UInt32, of pid: pid_t) {
+		awaiting[pid, default: []].insert(id)
+		scheduleLook(at: pid)
+	}
+
+	private func scheduleLook(at pid: pid_t, attempt: Int = 0) {
+		guard attempt < Self.lookDelays.count, looksScheduled.insert(pid).inserted else { return }
+		DispatchQueue.main.asyncAfter(deadline: .now() + Self.lookDelays[attempt]) { [weak self] in
+			MainActor.assumeIsolated { self?.look(at: pid, attempt: attempt) }
+		}
+	}
+
+	/// Reads the app's window list for windows that joined it, and which of its tabs is in front.
+	/// A window the WindowServer has but AX does not list yet is looked for again later; one that
+	/// never shows up is not a window AX knows, a helper window say, and is let go.
+	private func look(at pid: pid_t, attempt: Int) {
+		guard isRunning, let observer = apps[pid] else {
+			looksScheduled.remove(pid)
+			awaiting[pid] = nil
+			return
+		}
+
+		// Still marked while the list is read, so a window found busy in it joins this round of
+		// tries rather than starting the count over.
+		observer.rescan()
+		updateTabs(of: observer)
+		looksScheduled.remove(pid)
+
+		let missing = (awaiting[pid] ?? []).filter { windows[$0] == nil && Self.appWindowOwner($0) == pid }
+		awaiting[pid] = missing.isEmpty ? nil : missing
+		if !missing.isEmpty {
+			if attempt + 1 < Self.lookDelays.count {
+				scheduleLook(at: pid, attempt: attempt + 1)
+			} else {
+				awaiting[pid] = nil
+			}
+		}
+	}
+
+	/// The process of a window at the level app windows live on; nil for menus, tooltips and other
+	/// windows above it, and for a window that is already gone.
+	private static func appWindowOwner(_ id: UInt32) -> pid_t? {
+		guard
+			let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(id)) as? [[String: Any]],
+			let info = list.first(where: { ($0[kCGWindowNumber as String] as? Int) == Int(id) }),
+			(info[kCGWindowLayer as String] as? Int) == 0,
+			let pid = info[kCGWindowOwnerPID as String] as? Int
+		else { return nil }
+		return pid_t(pid)
 	}
 
 	// MARK: - Own windows
@@ -815,5 +1015,22 @@ private final class ResizeCheck: @unchecked Sendable {
 		lock.lock()
 		cancelled = true
 		lock.unlock()
+	}
+}
+
+/// Called by SkyLight when a window joins or leaves a Space.
+private func windowSpaceHandler(
+	_ event: UInt32, _ data: UnsafeMutableRawPointer?, _ length: Int, _ context: UnsafeMutableRawPointer?
+) {
+	guard let data, let context, length >= 12 else { return }
+	let id = data.loadUnaligned(fromByteOffset: 8, as: UInt32.self)
+	let tracker = Unmanaged<WindowTracker>.fromOpaque(context).takeUnretainedValue()
+
+	// SkyLight calls through the run loop source of the main connection, so on the main thread;
+	// should that ever change, hop over instead of trapping.
+	if Thread.isMainThread {
+		MainActor.assumeIsolated { tracker.windowChangedSpace(id) }
+	} else {
+		DispatchQueue.main.async { MainActor.assumeIsolated { tracker.windowChangedSpace(id) } }
 	}
 }
